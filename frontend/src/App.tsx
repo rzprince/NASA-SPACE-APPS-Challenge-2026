@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import FieldScene from "./FieldScene";
+import ClimateExplorer from "./ClimateExplorer";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   ApiError,
   apiGet,
   apiPost,
-  type ClimateDay,
   type ClimateSnapshot,
   type FarmProfile,
   type FarmValidation,
@@ -62,28 +63,6 @@ function Duo({
 
 function format(value: number, digits = 1): string {
   return new Intl.NumberFormat("en-BD", { maximumFractionDigits: digits }).format(value);
-}
-
-function temperatureSegments(days: ClimateDay[]): string[] {
-  const numbers = days.flatMap((day) => (day.T2M === null ? [] : [day.T2M]));
-  if (!numbers.length) return [];
-  const low = Math.min(...numbers);
-  const high = Math.max(...numbers);
-  const span = high - low || 1;
-  const segments: string[] = [];
-  let current: string[] = [];
-  days.forEach((day, index) => {
-    if (day.T2M === null) {
-      if (current.length) segments.push(current.join(" "));
-      current = [];
-      return;
-    }
-    const x = 18 + (index / Math.max(days.length - 1, 1)) * 604;
-    const y = 150 - ((day.T2M - low) / span) * 122;
-    current.push(`${x.toFixed(1)},${y.toFixed(1)}`);
-  });
-  if (current.length) segments.push(current.join(" "));
-  return segments;
 }
 
 function StatusTag({ status }: { status: Status }) {
@@ -148,7 +127,6 @@ export default function App() {
     return () => { active = false; };
   }, []);
 
-  const chartSegments = useMemo(() => temperatureSegments(climate?.daily ?? []), [climate]);
   const location = locations.find((item) => item.id === farm.location_id);
   const rainCoverage = climate?.summary.coverage.PRECTOTCORR;
   const tempCoverage = climate?.summary.coverage.T2M;
@@ -237,28 +215,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="hero-visual" aria-hidden="true">
-            <div className="orbit orbit-a" />
-            <div className="orbit orbit-b" />
-            <div className="orbit orbit-c" />
-            <div className="earth-disc">
-              <div className="bangladesh-sun" />
-              <div className="delta-river river-a" />
-              <div className="delta-river river-b" />
-              <div className="delta-river river-c" />
-              <div className="field-grid">
-                {Array.from({ length: 12 }).map((_, i) => <i key={i} />)}
-              </div>
-            </div>
-            <div className="satellite">
-              <span className="sat-core" />
-              <span className="sat-panel left" />
-              <span className="sat-panel right" />
-            </div>
-            <div className="visual-note note-top"><Duo en="Earth observation" bn="পৃথিবী পর্যবেক্ষণ" /><b>01 / 03</b></div>
-            <div className="visual-note note-bottom"><Duo en="NASA data → local decisions" bn="NASA ডেটা → স্থানীয় সিদ্ধান্ত" /></div>
-            <div className="scan-line" />
-          </div>
+          <FieldScene />
         </section>
 
         <section className="trust-strip" aria-label="BoponX principles">
@@ -278,8 +235,8 @@ export default function App() {
             <Duo
               as="p"
               className="section-description"
-              en="The first pilot uses NASA POWER for a regional historical climate profile. It is environmental context—not a farm measurement and not a forecast."
-              bn="প্রথম পাইলটে আঞ্চলিক ঐতিহাসিক জলবায়ু প্রোফাইলের জন্য NASA POWER ব্যবহার করা হচ্ছে। এটি পরিবেশগত প্রেক্ষাপট—কোনো নির্দিষ্ট খামারের মাপ বা ভবিষ্যৎ পূর্বাভাস নয়।"
+              en="The pilot shows 2024 regional historical temperature and rainfall from NASA POWER / MERRA-2 reanalysis. These are not direct satellite rainfall readings, field measurements or future forecasts."
+              bn="পাইলটে NASA POWER / MERRA-2 পুনর্বিশ্লেষণ থেকে ২০২৪ সালের আঞ্চলিক তাপমাত্রা ও বৃষ্টির ইতিহাস দেখানো হচ্ছে। এগুলো সরাসরি স্যাটেলাইটে মাপা বৃষ্টি, নির্দিষ্ট জমির মাপ বা ভবিষ্যৎ পূর্বাভাস নয়।"
             />
           </div>
 
@@ -299,7 +256,7 @@ export default function App() {
                 <div className="metric-grid">
                   <article className="metric-card">
                     <Duo className="metric-label" en="Mean temperature · valid days" bn="গড় তাপমাত্রা · বৈধ দিন" />
-                    <strong>{format(climate.summary.temperature_mean_valid_days)}<small> {climate.variables.T2M.provider_unit}</small></strong>
+                    <strong>{format(climate.summary.temperature_mean_valid_days)}<small> {climate.variables.T2M.provider_unit === "C" ? "°C" : climate.variables.T2M.provider_unit}</small></strong>
                     <Duo as="p" en={`${tempCoverage?.valid_days ?? "—"} of ${tempCoverage?.expected_days ?? "—"} days reported`} bn={`${tempCoverage?.valid_days ?? "—"} / ${tempCoverage?.expected_days ?? "—"} দিনের ডেটা পাওয়া গেছে`} />
                   </article>
 
@@ -316,31 +273,12 @@ export default function App() {
 
                   <article className="metric-card">
                     <Duo className="metric-label" en="Historical period" bn="ঐতিহাসিক সময়কাল" />
-                    <strong className="date-metric">{climate.period.start.slice(0, 4)}<small> → </small>{climate.period.end.slice(0, 4)}</strong>
-                    <Duo as="p" en={`Daily records · ${climate.period.time_standard} · NASA POWER`} bn="দৈনিক রেকর্ড · NASA POWER" />
+                    <strong className="date-metric">{climate.period.start.slice(0, 4) === climate.period.end.slice(0, 4) ? `Jan–Dec ${climate.period.start.slice(0, 4)}` : `${climate.period.start.slice(0, 7)} – ${climate.period.end.slice(0, 7)}`}</strong>
+                    <Duo as="p" en={`Daily records · ${climate.period.time_standard} (local solar time) · NASA POWER`} bn="দৈনিক রেকর্ড · স্থানীয় সৌর সময় · NASA POWER" />
                   </article>
                 </div>
 
-                <div className="chart-card">
-                  <div className="chart-heading">
-                    <div>
-                      <Duo className="frame-label" en="Daily historical series" bn="দৈনিক ঐতিহাসিক সিরিজ" />
-                      <h3>Near-surface temperature <span lang="bn">· ভূপৃষ্ঠের নিকট তাপমাত্রা</span></h3>
-                    </div>
-                    <span className="chart-key"><i /> {climate.variables.T2M.provider_unit}</span>
-                  </div>
-                  {chartSegments.length ? (
-                    <svg viewBox="0 0 640 180" role="img" aria-label="NASA POWER historical daily temperature; missing readings are shown as breaks" className="data-chart">
-                      {[28, 89, 150].map((y) => <line key={y} x1="18" x2="622" y1={y} y2={y} className="gridline" />)}
-                      {chartSegments.map((points, index) => <polyline key={index} points={points} className="data-line" />)}
-                    </svg>
-                  ) : <Duo as="p" className="empty-text" en="No valid temperature series is available." bn="কোনো বৈধ তাপমাত্রা সিরিজ পাওয়া যায়নি।" />}
-                  <div className="chart-axis">
-                    <span>{climate.period.start}</span>
-                    <Duo en="Gaps are not interpolated" bn="ফাঁকা ডেটা অনুমান করে পূরণ করা হয়নি" />
-                    <span>{climate.period.end}</span>
-                  </div>
-                </div>
+                <ClimateExplorer snapshot={climate} />
 
                 <details className="evidence">
                   <summary>
@@ -350,6 +288,7 @@ export default function App() {
                   <dl>
                     <div><dt><Duo en="Provider" bn="উৎস" /></dt><dd>{climate.evidence.provider}</dd></div>
                     <div><dt><Duo en="Snapshot" bn="স্ন্যাপশট" /></dt><dd>{climate.evidence.snapshot_id}</dd></div>
+                    <div><dt><Duo en="Underlying data product" bn="মূল ডেটা উৎস" /></dt><dd>{climate.evidence.source_products.join(", ") || "Not reported"} · reanalysis / পুনর্বিশ্লেষণ; not direct satellite rainfall / সরাসরি স্যাটেলাইটে মাপা বৃষ্টি নয়</dd></div>
                     <div><dt><Duo en="Source kind" bn="ডেটার ধরন" /></dt><dd>{climate.evidence.data_kind}</dd></div>
                     <div><dt><Duo en="Raw SHA-256" bn="র’ SHA-256" /></dt><dd className="hash">{climate.evidence.raw_sha256}</dd></div>
                   </dl>

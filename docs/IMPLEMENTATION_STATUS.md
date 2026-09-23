@@ -1,26 +1,44 @@
-# BoponX implementation status — milestone 03
+# BoponX implementation status — October prescreening preview
 
-**Development date:** 23 September 2026.
+**Last reviewed:** 23 September 2026 · **Owner:** Team EARTH.exe
 
-## Delivered
+## Implemented in the repository
 
-- Verified 2024 NASA POWER pilot dataset with full 366-day T2M/PRECTOTCORR coverage.
-- FastAPI climate, farm-input validation and evidence endpoints.
-- React + TypeScript frontend connected to verified NASA data.
-- **Bangladesh-first bilingual interface:** every major English label, explanation, action and state is paired with Bangla.
-- Bangladesh-inspired visual system: deep river-delta green, paddy green, Bangladesh red accent, river blue, jute/cream neutrals.
-- Motion system: orbital layers, satellite float, Earth scan, soft data transitions; reduced-motion preference is respected.
-- Mobile-responsive climate evidence and farm-intake workflow.
-- Crop-rotation output remains gated until agronomic rules are source-reviewed.
+- Python NASA POWER daily acquisition, schema/unit/missing-value checks and historical processing.
+- Original 2024 Rajshahi-area response independently acquired in GitHub Actions:
+  366/366 valid temperature and precipitation dates; SHA-256 recorded and source
+  product identified as **MERRA-2 reanalysis**.
+- Raw-vs-processed pinned snapshot verification script and synthetic tamper tests.
+- FastAPI climate/health/location/farm-input endpoints and coverage-aware historical
+  monthly aggregation (mean °C; total mm only with complete daily coverage).
+- React + TypeScript interface with English/Bangla presentation, enhanced Bangla
+  readability, original pointer-responsive CSS-3D environmental artwork and
+  3D historical rainfall columns, accessible monthly picker/table, evidence drawer
+  and responsive farm intake.
+- Automated Python test and frontend build workflows. Crop-comparison API explicitly
+  returns `AGRONOMIC_RULES_NOT_APPROVED`.
 
-## Product rule
+## Not completed or not represented as completed
 
-Bilingual presentation must not change scientific meaning. Units, NASA product names,
-dataset identifiers and hashes remain exact; Bangla accompanies explanations and controls.
-Unknown agricultural inputs remain unknown.
+- Local agronomic review of crop calendars, soil and sequence rules; no user-facing
+  crop rotation outcomes, water-saving predictions, soil scores or yield claims.
+- Validated direct satellite-observation product integrated into the decision engine
+  (IMERG/SMAP remain candidates); POWER meteorology is MERRA-2 reanalysis.
+- Public hosted app, separate mobile app, installed offline PWA, full language
+  localization of every technical message, field usability study and final video.
+- Submission itself; the team must upload/test the actual public video and links.
 
-## Next milestone
+## Release checks still requiring a person
 
-Source-review the first local crop calendars, soil constraints and rotation rules, then
-implement the bounded three-season comparison engine. Direct NASA Earth-observation
-integration remains a separate event-ready gate.
+Confirm the user's existing extracted NASA ZIP in `data/raw` and
+`data/processed`; run `python -m scripts.verify_pilot` before recording.
+Test 360px Android layout, desktop layout, Bangla readability, month buttons,
+evidence links, reduced-motion mode and offline local demo. Record the actual
+240-second concept-focused video only after those checks pass.
+
+See `docs/OCTOBER_1_PRESCREEN.md` and `docs/EVIDENCE_REGISTER.md`.
+
+**Critical distinction:** This prescreening preview demonstrates a credible
+data-to-user workflow and the architecture for rotation analysis. It is not yet
+the completed Field Shift decision-support engine. Full challenge materials and
+local submission details must be rechecked at their official release.
