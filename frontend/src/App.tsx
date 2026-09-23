@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   ApiError,
   apiGet,
@@ -20,11 +20,45 @@ const initialFarm: FarmProfile = {
   priorities: [],
 };
 
-const priorityLabels: Record<FarmProfile["priorities"][number], string> = {
-  water: "Reduce water-related exposure",
-  soil: "Protect soil over time",
-  production_stability: "Prioritize production stability",
+const priorityLabels: Record<FarmProfile["priorities"][number], { en: string; bn: string }> = {
+  water: { en: "Water resilience", bn: "পানি ব্যবস্থাপনা" },
+  soil: { en: "Soil health", bn: "মাটির স্বাস্থ্য" },
+  production_stability: { en: "Production stability", bn: "উৎপাদন স্থিতিশীলতা" },
 };
+
+const soilLabels = {
+  unknown: { en: "Unknown / not tested", bn: "অজানা / পরীক্ষা করা হয়নি" },
+  sandy: { en: "Sandy", bn: "বেলে" },
+  loamy: { en: "Loamy", bn: "দোআঁশ" },
+  clayey: { en: "Clayey", bn: "এঁটেল" },
+} as const;
+
+const irrigationLabels = {
+  unknown: { en: "Unknown", bn: "অজানা" },
+  none: { en: "No irrigation", bn: "সেচ নেই" },
+  limited: { en: "Limited irrigation", bn: "সীমিত সেচ" },
+  reliable: { en: "Reliable irrigation", bn: "নির্ভরযোগ্য সেচ" },
+} as const;
+
+function Duo({
+  en,
+  bn,
+  as = "span",
+  className = "",
+}: {
+  en: ReactNode;
+  bn: ReactNode;
+  as?: "span" | "p" | "div";
+  className?: string;
+}) {
+  const Tag = as;
+  return (
+    <Tag className={`duo ${className}`}>
+      <span className="duo-en">{en}</span>
+      <span className="duo-bn" lang="bn">{bn}</span>
+    </Tag>
+  );
+}
 
 function format(value: number, digits = 1): string {
   return new Intl.NumberFormat("en-BD", { maximumFractionDigits: digits }).format(value);
@@ -54,9 +88,26 @@ function temperatureSegments(days: ClimateDay[]): string[] {
 
 function StatusTag({ status }: { status: Status }) {
   const label =
-    status === "ready" ? "NASA dataset validated" :
-    status === "loading" ? "Checking data availability" : "Dataset not loaded";
-  return <span className={`status-pill ${status}`}><span aria-hidden="true" className="status-dot" />{label}</span>;
+    status === "ready"
+      ? { en: "NASA dataset validated", bn: "NASA ডেটা যাচাই হয়েছে" }
+      : status === "loading"
+        ? { en: "Checking data", bn: "ডেটা যাচাই হচ্ছে" }
+        : { en: "Dataset not loaded", bn: "ডেটাসেট লোড হয়নি" };
+  return (
+    <span className={`status-pill ${status}`}>
+      <span aria-hidden="true" className="status-dot" />
+      <Duo en={label.en} bn={label.bn} />
+    </span>
+  );
+}
+
+function SectionIndex({ n, en, bn }: { n: string; en: string; bn: string }) {
+  return (
+    <div className="section-index">
+      <span>{n}</span>
+      <Duo en={en} bn={bn} />
+    </div>
+  );
 }
 
 export default function App() {
@@ -92,9 +143,7 @@ export default function App() {
       .catch((error: unknown) => {
         if (!active) return;
         setClimateStatus("unavailable");
-        setClimateMessage(
-          error instanceof ApiError ? error.message : "Climate data could not be loaded.",
-        );
+        setClimateMessage(error instanceof ApiError ? error.message : "Climate data could not be loaded.");
       });
     return () => { active = false; };
   }, []);
@@ -128,101 +177,352 @@ export default function App() {
     <div className="site">
       <header className="topbar">
         <a className="brand" href="#top" aria-label="BoponX home">
-          <span className="brand-mark" aria-hidden="true">B<span>x</span></span>
-          <span>Bopon<span className="brand-x">X</span></span>
+          <span className="brand-emblem" aria-hidden="true">
+            <span className="flag-sun" />
+            <span className="seed-stroke" />
+          </span>
+          <span className="brand-word">Bopon<span>X</span></span>
+          <span className="brand-sub" lang="bn">বপনএক্স</span>
         </a>
         <nav aria-label="Primary">
-          <a href="#climate">NASA data</a>
-          <a href="#farm">Farm setup</a>
+          <a href="#climate"><Duo en="NASA data" bn="NASA ডেটা" /></a>
+          <a href="#farm"><Duo en="Farm setup" bn="খামার তথ্য" /></a>
           <a className="nav-github" href="https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026" target="_blank" rel="noreferrer">
-            Source code <span aria-hidden="true">↗</span>
+            <Duo en="Source code" bn="সোর্স কোড" /> <span aria-hidden="true">↗</span>
           </a>
         </nav>
       </header>
 
       <main id="top">
         <section className="hero">
+          <div className="hero-grid-lines" aria-hidden="true" />
           <div className="hero-copy">
-            <div className="eyebrow"><span className="eyebrow-line" /> AN EARTH.exe INITIATIVE · NASA SPACE APPS 2026</div>
-            <h1>From <span>Space</span><br />to Soil.</h1>
-            <p className="hero-lead">Better farming decisions begin with evidence. BoponX connects NASA environmental data with the farm information farmers know.</p>
-            <p className="hero-note">বপন (Bopon) means sowing. X reflects our space-powered approach.</p>
-            <div className="hero-actions">
-              <a className="button primary" href="#climate">Explore NASA climate data <span aria-hidden="true">↗</span></a>
-              <a className="button secondary" href="#farm">Set up a pilot farm <span aria-hidden="true">↓</span></a>
+            <div className="eyebrow">
+              <span className="eyebrow-sun" aria-hidden="true" />
+              <Duo en="An EARTH.exe initiative · NASA Space Apps 2026" bn="EARTH.exe উদ্যোগ · NASA Space Apps 2026" />
             </div>
-            <div className="hero-meta"><StatusTag status={climateStatus} /><span>{apiOnline === false ? "API disconnected" : "Regional pilot · Rajshahi, Bangladesh"}</span></div>
+
+            <div className="hero-title-wrap">
+              <p className="hero-bengali-title" lang="bn">মহাকাশ থেকে মাটিতে</p>
+              <h1>From <span>Space</span><br />to Soil.</h1>
+            </div>
+
+            <Duo
+              as="p"
+              className="hero-lead"
+              en="A climate-resilient crop-rotation decision platform designed for farmers, advisers and communities."
+              bn="কৃষক, কৃষি পরামর্শক ও স্থানীয় মানুষের জন্য জলবায়ু-সহনশীল ফসল আবর্তন সিদ্ধান্ত সহায়তা প্ল্যাটফর্ম।"
+            />
+
+            <div className="hero-actions">
+              <a className="button primary" href="#climate">
+                <Duo en="Explore NASA climate data" bn="NASA জলবায়ু ডেটা দেখুন" />
+                <span aria-hidden="true">↗</span>
+              </a>
+              <a className="button ghost" href="#farm">
+                <Duo en="Set up a pilot farm" bn="পাইলট খামার সেট করুন" />
+                <span aria-hidden="true">↓</span>
+              </a>
+            </div>
+
+            <div className="hero-meta">
+              <StatusTag status={climateStatus} />
+              <span className={`api-state ${apiOnline === false ? "down" : ""}`}>
+                <span aria-hidden="true" className="status-dot" />
+                <Duo
+                  en={apiOnline === false ? "API disconnected" : "Rajshahi pilot · Bangladesh"}
+                  bn={apiOnline === false ? "API সংযোগ নেই" : "রাজশাহী পাইলট · বাংলাদেশ"}
+                />
+              </span>
+            </div>
           </div>
-          <div className="hero-visual" aria-label="Stylized Earth observation graphic with satellite and farmland layers">
-            <div className="orb orb-outer" /><div className="orb orb-middle" /><div className="orb orb-inner" />
-            <div className="orbit-label top-label">EARTH OBSERVATION <span>01 / 03</span></div>
-            <div className="visual-satellite" aria-hidden="true">✳</div>
-            <div className="visual-land" aria-hidden="true"><i /><i /><i /><i /><i /></div>
-            <div className="orbit-label bottom-label">NASA DATA <span>→</span> LOCAL DECISIONS</div>
+
+          <div className="hero-visual" aria-hidden="true">
+            <div className="orbit orbit-a" />
+            <div className="orbit orbit-b" />
+            <div className="orbit orbit-c" />
+            <div className="earth-disc">
+              <div className="bangladesh-sun" />
+              <div className="delta-river river-a" />
+              <div className="delta-river river-b" />
+              <div className="delta-river river-c" />
+              <div className="field-grid">
+                {Array.from({ length: 12 }).map((_, i) => <i key={i} />)}
+              </div>
+            </div>
+            <div className="satellite">
+              <span className="sat-core" />
+              <span className="sat-panel left" />
+              <span className="sat-panel right" />
+            </div>
+            <div className="visual-note note-top"><Duo en="Earth observation" bn="পৃথিবী পর্যবেক্ষণ" /><b>01 / 03</b></div>
+            <div className="visual-note note-bottom"><Duo en="NASA data → local decisions" bn="NASA ডেটা → স্থানীয় সিদ্ধান্ত" /></div>
+            <div className="scan-line" />
           </div>
         </section>
 
+        <section className="trust-strip" aria-label="BoponX principles">
+          <div><b>NASA</b><Duo en="Data at the core" bn="মূল শক্তি হলো ডেটা" /></div>
+          <div><b>01</b><Duo en="Deterministic science" bn="যাচাইযোগ্য বিজ্ঞান" /></div>
+          <div><b>02</b><Duo en="Local context" bn="স্থানীয় বাস্তবতা" /></div>
+          <div><b>03</b><Duo en="Explainable decisions" bn="ব্যাখ্যাযোগ্য সিদ্ধান্ত" /></div>
+        </section>
+
         <section className="section climate-section" id="climate" aria-labelledby="climate-heading">
-          <div className="section-intro">
-            <div><p className="section-kicker">01 / ENVIRONMENTAL CONTEXT</p><h2 id="climate-heading">See the climate.<br /><span>See the evidence.</span></h2></div>
-            <p>Our first pilot uses the NASA POWER daily service for a regional reference point. These are historical environmental estimates, not field measurements or forecasts.</p>
+          <div className="section-heading-row">
+            <SectionIndex n="01" en="Environmental context" bn="পরিবেশগত প্রেক্ষাপট" />
+            <div className="section-title-block">
+              <h2 id="climate-heading">See the climate.<br /><span>See the evidence.</span></h2>
+              <p lang="bn">জলবায়ু দেখুন। প্রমাণ দেখুন।</p>
+            </div>
+            <Duo
+              as="p"
+              className="section-description"
+              en="The first pilot uses NASA POWER for a regional historical climate profile. It is environmental context—not a farm measurement and not a forecast."
+              bn="প্রথম পাইলটে আঞ্চলিক ঐতিহাসিক জলবায়ু প্রোফাইলের জন্য NASA POWER ব্যবহার করা হচ্ছে। এটি পরিবেশগত প্রেক্ষাপট—কোনো নির্দিষ্ট খামারের মাপ বা ভবিষ্যৎ পূর্বাভাস নয়।"
+            />
           </div>
+
           <div className="climate-frame">
             <div className="frame-top">
-              <div><span className="frame-label">SELECTED REGION</span><strong>{location?.name ?? "Rajshahi regional pilot"}</strong><span className="subline">{location ? `${location.latitude}° N · ${location.longitude}° E` : "24.37° N · 88.60° E"} · provisional reference point</span></div>
+              <div>
+                <Duo className="frame-label" en="Selected region" bn="নির্বাচিত অঞ্চল" />
+                <strong>{location?.name ?? "Rajshahi regional pilot"}</strong>
+                <span className="subline">{location ? `${location.latitude}° N · ${location.longitude}° E` : "24.37° N · 88.60° E"} · provisional reference point</span>
+                <span className="subline bn" lang="bn">অস্থায়ী আঞ্চলিক রেফারেন্স পয়েন্ট</span>
+              </div>
               <StatusTag status={climateStatus} />
             </div>
 
             {climate ? (
               <>
                 <div className="metric-grid">
-                  <div className="metric-card"><span>MEAN TEMPERATURE · VALID DAYS</span><strong>{format(climate.summary.temperature_mean_valid_days)}<small> {climate.variables.T2M.provider_unit}</small></strong><p>{tempCoverage?.valid_days ?? "—"} of {tempCoverage?.expected_days ?? "—"} days reported</p></div>
-                  <div className="metric-card"><span>PERIOD PRECIPITATION</span><strong>{climate.summary.precipitation_total_full_period === null ? "Incomplete" : format(climate.summary.precipitation_total_full_period, 2)}{climate.summary.precipitation_total_full_period !== null && <small> {climate.variables.PRECTOTCORR.provider_unit.replace("/day", "")}</small>}</strong><p>{rainCoverage?.valid_days ?? "—"} of {rainCoverage?.expected_days ?? "—"} days reported; full-period total requires complete coverage</p></div>
-                  <div className="metric-card"><span>HISTORICAL PERIOD</span><strong className="date-metric">{climate.period.start.slice(0, 4)}<small> → </small>{climate.period.end.slice(0, 4)}</strong><p>Daily records · {climate.period.time_standard} · NASA POWER</p></div>
+                  <article className="metric-card">
+                    <Duo className="metric-label" en="Mean temperature · valid days" bn="গড় তাপমাত্রা · বৈধ দিন" />
+                    <strong>{format(climate.summary.temperature_mean_valid_days)}<small> {climate.variables.T2M.provider_unit}</small></strong>
+                    <Duo as="p" en={`${tempCoverage?.valid_days ?? "—"} of ${tempCoverage?.expected_days ?? "—"} days reported`} bn={`${tempCoverage?.valid_days ?? "—"} / ${tempCoverage?.expected_days ?? "—"} দিনের ডেটা পাওয়া গেছে`} />
+                  </article>
+
+                  <article className="metric-card feature">
+                    <Duo className="metric-label" en="Period precipitation" bn="সময়ের মোট বৃষ্টিপাত" />
+                    <strong>
+                      {climate.summary.precipitation_total_full_period === null
+                        ? "Incomplete"
+                        : format(climate.summary.precipitation_total_full_period, 2)}
+                      {climate.summary.precipitation_total_full_period !== null && <small> {climate.variables.PRECTOTCORR.provider_unit.replace("/day", "")}</small>}
+                    </strong>
+                    <Duo as="p" en={`${rainCoverage?.valid_days ?? "—"} of ${rainCoverage?.expected_days ?? "—"} days reported`} bn={`${rainCoverage?.valid_days ?? "—"} / ${rainCoverage?.expected_days ?? "—"} দিনের বৃষ্টিপাত ডেটা`} />
+                  </article>
+
+                  <article className="metric-card">
+                    <Duo className="metric-label" en="Historical period" bn="ঐতিহাসিক সময়কাল" />
+                    <strong className="date-metric">{climate.period.start.slice(0, 4)}<small> → </small>{climate.period.end.slice(0, 4)}</strong>
+                    <Duo as="p" en={`Daily records · ${climate.period.time_standard} · NASA POWER`} bn="দৈনিক রেকর্ড · NASA POWER" />
+                  </article>
                 </div>
-                <div className="chart-card"><div className="chart-heading"><div><span className="frame-label">DAILY HISTORICAL SERIES</span><h3>Near-surface temperature</h3></div><span className="chart-key"><i /> {climate.variables.T2M.provider_unit}</span></div>
+
+                <div className="chart-card">
+                  <div className="chart-heading">
+                    <div>
+                      <Duo className="frame-label" en="Daily historical series" bn="দৈনিক ঐতিহাসিক সিরিজ" />
+                      <h3>Near-surface temperature <span lang="bn">· ভূপৃষ্ঠের নিকট তাপমাত্রা</span></h3>
+                    </div>
+                    <span className="chart-key"><i /> {climate.variables.T2M.provider_unit}</span>
+                  </div>
                   {chartSegments.length ? (
                     <svg viewBox="0 0 640 180" role="img" aria-label="NASA POWER historical daily temperature; missing readings are shown as breaks" className="data-chart">
                       {[28, 89, 150].map((y) => <line key={y} x1="18" x2="622" y1={y} y2={y} className="gridline" />)}
                       {chartSegments.map((points, index) => <polyline key={index} points={points} className="data-line" />)}
                     </svg>
-                  ) : <p className="empty-text">No valid temperature series is available.</p>}
-                  <div className="chart-axis"><span>{climate.period.start}</span><span>Gaps are not interpolated</span><span>{climate.period.end}</span></div>
+                  ) : <Duo as="p" className="empty-text" en="No valid temperature series is available." bn="কোনো বৈধ তাপমাত্রা সিরিজ পাওয়া যায়নি।" />}
+                  <div className="chart-axis">
+                    <span>{climate.period.start}</span>
+                    <Duo en="Gaps are not interpolated" bn="ফাঁকা ডেটা অনুমান করে পূরণ করা হয়নি" />
+                    <span>{climate.period.end}</span>
+                  </div>
                 </div>
-                <details className="evidence"><summary>View NASA evidence and limitations <span aria-hidden="true">↗</span></summary>
-                  <dl><div><dt>Provider</dt><dd>{climate.evidence.provider}</dd></div><div><dt>Snapshot</dt><dd>{climate.evidence.snapshot_id}</dd></div><div><dt>Source kind</dt><dd>{climate.evidence.data_kind}</dd></div><div><dt>Raw SHA-256</dt><dd className="hash">{climate.evidence.raw_sha256}</dd></div></dl>
-                  <a href={climate.evidence.source_request_url} target="_blank" rel="noreferrer">View original POWER request ↗</a>
+
+                <details className="evidence">
+                  <summary>
+                    <Duo en="View NASA evidence and limitations" bn="NASA প্রমাণ ও সীমাবদ্ধতা দেখুন" />
+                    <span aria-hidden="true">↗</span>
+                  </summary>
+                  <dl>
+                    <div><dt><Duo en="Provider" bn="উৎস" /></dt><dd>{climate.evidence.provider}</dd></div>
+                    <div><dt><Duo en="Snapshot" bn="স্ন্যাপশট" /></dt><dd>{climate.evidence.snapshot_id}</dd></div>
+                    <div><dt><Duo en="Source kind" bn="ডেটার ধরন" /></dt><dd>{climate.evidence.data_kind}</dd></div>
+                    <div><dt><Duo en="Raw SHA-256" bn="র’ SHA-256" /></dt><dd className="hash">{climate.evidence.raw_sha256}</dd></div>
+                  </dl>
+                  <a href={climate.evidence.source_request_url} target="_blank" rel="noreferrer">
+                    <Duo en="View original POWER request" bn="মূল POWER রিকোয়েস্ট দেখুন" /> ↗
+                  </a>
                 </details>
               </>
             ) : (
-              <div className="climate-empty" role="status"><span className="empty-icon" aria-hidden="true">⌁</span><h3>{climateStatus === "loading" ? "Checking the data pipeline…" : "NASA climate data is not loaded yet"}</h3><p>{climateStatus === "loading" ? "The app is looking for the verified pilot snapshot." : climateMessage}</p><p className="empty-caption">No sample climate values are substituted. After the NASA POWER acquisition runs successfully, this screen will display the validated observations.</p></div>
+              <div className="climate-empty" role="status">
+                <span className="empty-orbit" aria-hidden="true"><i /><b /></span>
+                <Duo
+                  as="div"
+                  className="empty-heading"
+                  en={climateStatus === "loading" ? "Checking the data pipeline…" : "NASA climate data is not loaded yet"}
+                  bn={climateStatus === "loading" ? "ডেটা পাইপলাইন যাচাই হচ্ছে…" : "NASA জলবায়ু ডেটা এখনো লোড হয়নি"}
+                />
+                <Duo
+                  as="p"
+                  en={climateStatus === "loading" ? "BoponX is looking for the verified pilot snapshot." : climateMessage}
+                  bn={climateStatus === "loading" ? "BoponX যাচাইকৃত পাইলট স্ন্যাপশট খুঁজছে।" : "যাচাইকৃত ডেটা পাওয়া গেলে এই অংশটি স্বয়ংক্রিয়ভাবে সক্রিয় হবে।"}
+                />
+                <Duo
+                  as="p"
+                  className="empty-caption"
+                  en="No sample climate values are substituted."
+                  bn="কোনো নমুনা বা কল্পিত জলবায়ু মান দেখানো হচ্ছে না।"
+                />
+              </div>
             )}
           </div>
         </section>
 
         <section className="section farm-section" id="farm" aria-labelledby="farm-heading">
-          <div className="section-intro"><div><p className="section-kicker">02 / FARM CONTEXT</p><h2 id="farm-heading">Your farm.<br /><span>Your priorities.</span></h2></div><p>Record the information you know. Unknown soil characteristics stay unknown; BoponX never invents missing inputs.</p></div>
+          <div className="section-heading-row">
+            <SectionIndex n="02" en="Farm context" bn="খামারের প্রেক্ষাপট" />
+            <div className="section-title-block">
+              <h2 id="farm-heading">Your farm.<br /><span>Your priorities.</span></h2>
+              <p lang="bn">আপনার খামার। আপনার অগ্রাধিকার।</p>
+            </div>
+            <Duo
+              as="p"
+              className="section-description"
+              en="Record only what you know. Unknown soil characteristics stay unknown; BoponX does not silently invent missing information."
+              bn="আপনি যা জানেন শুধু সেটিই দিন। মাটির অজানা তথ্য অজানাই থাকবে; BoponX কোনো অনুপস্থিত তথ্য নিজের মতো করে বানাবে না।"
+            />
+          </div>
+
           <div className="farm-layout">
             <form className="farm-form" onSubmit={validateFarm}>
-              <div className="form-grid">
-                <label>Regional pilot location<select value={farm.location_id} onChange={(e) => changeFarm("location_id", e.target.value as FarmProfile["location_id"])}><option value="rajshahi-pilot">Rajshahi regional pilot</option></select></label>
-                <label>Previous crop <span>(farmer-provided)</span><input value={farm.previous_crop ?? ""} onChange={(e) => changeFarm("previous_crop", e.target.value || null)} placeholder="Leave blank if unknown" maxLength={80} /></label>
-                <label>Known soil pH <span>(optional)</span><input type="number" min="0" max="14" step="0.1" value={farm.soil_ph ?? ""} onChange={(e) => changeFarm("soil_ph", e.target.value === "" ? null : Number(e.target.value))} placeholder="Unknown" /></label>
-                <label>Soil texture<select value={farm.soil_texture} onChange={(e) => changeFarm("soil_texture", e.target.value as FarmProfile["soil_texture"])}><option value="unknown">Unknown / not tested</option><option value="sandy">Sandy</option><option value="loamy">Loamy</option><option value="clayey">Clayey</option></select></label>
-                <label>Irrigation availability<select value={farm.irrigation_mode} onChange={(e) => changeFarm("irrigation_mode", e.target.value as FarmProfile["irrigation_mode"])}><option value="unknown">Unknown</option><option value="none">No irrigation</option><option value="limited">Limited irrigation</option><option value="reliable">Reliable irrigation</option></select></label>
-                <label>Primary planning priority<select value={farm.priorities[0] ?? ""} onChange={(e) => changeFarm("priorities", e.target.value ? [e.target.value as FarmProfile["priorities"][number]] : [])}><option value="">Choose a priority</option>{Object.entries(priorityLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+              <div className="form-head">
+                <div>
+                  <Duo className="form-overline" en="Pilot farm profile" bn="পাইলট খামার প্রোফাইল" />
+                  <h3>Tell BoponX what you know. <span lang="bn">যা জানেন, সেটাই বলুন।</span></h3>
+                </div>
+                <div className="form-badge">BD · 01</div>
               </div>
-              <p className="form-privacy">This step validates your inputs with the API. It does not create an account or save a farm profile.</p>
-              <button className="button primary submit-button" type="submit" disabled={farmBusy}>{farmBusy ? "Validating…" : "Validate farm inputs"} <span aria-hidden="true">↗</span></button>
-              {farmError && <p className="form-feedback error" role="alert">{farmError}</p>}
-              {farmResult && <div className="form-feedback" role="status"><strong>Farm inputs recorded for validation.</strong><p>{farmResult.missing_inputs.length ? `Still unknown: ${farmResult.missing_inputs.join(", ").replaceAll("_", " ")}.` : "All requested fields are supplied."} Values have not been independently verified.</p></div>}
+
+              <div className="form-grid">
+                <label>
+                  <Duo en="Regional pilot location" bn="পাইলট অঞ্চল" />
+                  <select value={farm.location_id} onChange={(e) => changeFarm("location_id", e.target.value as FarmProfile["location_id"])}>
+                    <option value="rajshahi-pilot">Rajshahi regional pilot · রাজশাহী পাইলট</option>
+                  </select>
+                </label>
+
+                <label>
+                  <Duo en="Previous crop" bn="আগের ফসল" />
+                  <input value={farm.previous_crop ?? ""} onChange={(e) => changeFarm("previous_crop", e.target.value || null)} placeholder="Unknown · অজানা" maxLength={80} />
+                </label>
+
+                <label>
+                  <Duo en="Known soil pH" bn="জানা মাটির pH" />
+                  <input type="number" min="0" max="14" step="0.1" value={farm.soil_ph ?? ""} onChange={(e) => changeFarm("soil_ph", e.target.value === "" ? null : Number(e.target.value))} placeholder="Unknown · অজানা" />
+                </label>
+
+                <label>
+                  <Duo en="Soil texture" bn="মাটির ধরন" />
+                  <select value={farm.soil_texture} onChange={(e) => changeFarm("soil_texture", e.target.value as FarmProfile["soil_texture"])}>
+                    {Object.entries(soilLabels).map(([value, labels]) => <option key={value} value={value}>{labels.en} · {labels.bn}</option>)}
+                  </select>
+                </label>
+
+                <label>
+                  <Duo en="Irrigation availability" bn="সেচ সুবিধা" />
+                  <select value={farm.irrigation_mode} onChange={(e) => changeFarm("irrigation_mode", e.target.value as FarmProfile["irrigation_mode"])}>
+                    {Object.entries(irrigationLabels).map(([value, labels]) => <option key={value} value={value}>{labels.en} · {labels.bn}</option>)}
+                  </select>
+                </label>
+
+                <label>
+                  <Duo en="Primary planning priority" bn="প্রধান পরিকল্পনা অগ্রাধিকার" />
+                  <select value={farm.priorities[0] ?? ""} onChange={(e) => changeFarm("priorities", e.target.value ? [e.target.value as FarmProfile["priorities"][number]] : [])}>
+                    <option value="">Choose · নির্বাচন করুন</option>
+                    {Object.entries(priorityLabels).map(([value, labels]) => <option value={value} key={value}>{labels.en} · {labels.bn}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              <Duo
+                as="p"
+                className="form-privacy"
+                en="This validates inputs only. No account is created and the form does not save a personal farm profile."
+                bn="এটি শুধু ইনপুট যাচাই করে। কোনো অ্যাকাউন্ট তৈরি হয় না এবং ব্যক্তিগত খামার প্রোফাইল সংরক্ষণ করা হয় না।"
+              />
+
+              <button className="button primary submit-button" type="submit" disabled={farmBusy}>
+                <Duo en={farmBusy ? "Validating…" : "Validate farm inputs"} bn={farmBusy ? "যাচাই হচ্ছে…" : "খামারের তথ্য যাচাই করুন"} />
+                <span aria-hidden="true">↗</span>
+              </button>
+
+              {farmError && (
+                <div className="form-feedback error" role="alert">
+                  <Duo en={farmError} bn="খামারের তথ্য যাচাই করা যায়নি।" />
+                </div>
+              )}
+
+              {farmResult && (
+                <div className="form-feedback success" role="status">
+                  <Duo as="div" className="feedback-title" en="Farm inputs recorded for validation." bn="খামারের তথ্য যাচাইয়ের জন্য গ্রহণ করা হয়েছে।" />
+                  <Duo
+                    as="p"
+                    en={farmResult.missing_inputs.length ? `Still unknown: ${farmResult.missing_inputs.join(", ").replaceAll("_", " ")}.` : "All requested fields are supplied."}
+                    bn={farmResult.missing_inputs.length ? "কিছু তথ্য এখনো অজানা আছে।" : "চাওয়া সব তথ্য দেওয়া হয়েছে।"}
+                  />
+                </div>
+              )}
             </form>
-            <aside className="planning-aside"><p className="section-kicker">03 / NEXT DEVELOPMENT GATE</p><h3>Plan the next<br />3 seasons.</h3><p>Crop-rotation comparisons will unlock after local crop profiles, calendars and soil constraints are source-reviewed.</p><div className="aside-state"><span className="status-dot" aria-hidden="true" /> AGRONOMIC RULE REVIEW PENDING</div><p className="aside-footnote">No fictional yield, soil-health score or water-saving estimate is shown.</p></aside>
+
+            <aside className="planning-aside">
+              <div className="planning-topline"><span>03</span><Duo en="Next decision layer" bn="পরবর্তী সিদ্ধান্ত স্তর" /></div>
+              <div className="three-season">
+                <span>01</span><i /><span>02</span><i /><span>03</span>
+              </div>
+              <h3>Plan the next<br /><em>3 seasons.</em></h3>
+              <p lang="bn" className="aside-bn">পরবর্তী ৩ মৌসুম পরিকল্পনা করুন।</p>
+              <Duo
+                as="p"
+                en="Rotation comparisons will unlock after local crop profiles, calendars and soil constraints are source-reviewed."
+                bn="স্থানীয় ফসল প্রোফাইল, ফসল ক্যালেন্ডার ও মাটির শর্ত উৎসসহ যাচাই হওয়ার পর রোটেশন তুলনা চালু হবে।"
+              />
+              <div className="aside-state"><span className="status-dot" aria-hidden="true" /><Duo en="Agronomic rule review pending" bn="কৃষিতাত্ত্বিক নিয়ম যাচাই বাকি" /></div>
+              <Duo as="p" className="aside-footnote" en="No fictional yield, soil-health score or water-saving estimate is shown." bn="কোনো কল্পিত ফলন, মাটির স্বাস্থ্য স্কোর বা পানি সাশ্রয়ের অনুমান দেখানো হয় না।" />
+            </aside>
           </div>
         </section>
-        <section className="bottom-callout"><span>EARTH.exe / BANGLADESH</span><h2>Built for decisions.<br /><em>Grounded in evidence.</em></h2><p>Prototype milestone 02 · NASA Space Apps Challenge 2026 · Field Shift: Adapting Farms with NASA Data</p></section>
+
+        <section className="manifesto">
+          <div className="manifesto-flag" aria-hidden="true"><span /></div>
+          <div>
+            <Duo className="manifesto-kicker" en="Built in Bangladesh · engineered for trust" bn="বাংলাদেশে নির্মিত · বিশ্বাসের জন্য প্রকৌশল" />
+            <h2>Local roots.<br /><span>Orbital perspective.</span></h2>
+            <p lang="bn">স্থানীয় শিকড়। মহাকাশের দৃষ্টিভঙ্গি।</p>
+          </div>
+          <Duo
+            as="p"
+            className="manifesto-copy"
+            en="BoponX is designed by Team EARTH.exe to make complex Earth-observation information understandable, inspectable and useful for real farming decisions."
+            bn="Team EARTH.exe-এর BoponX এমনভাবে তৈরি হচ্ছে যাতে জটিল পৃথিবী পর্যবেক্ষণ তথ্য কৃষকের জন্য সহজবোধ্য, যাচাইযোগ্য এবং বাস্তব সিদ্ধান্তে ব্যবহারযোগ্য হয়।"
+          />
+        </section>
       </main>
-      <footer><span>Bopon<span className="brand-x">X</span> · From Space to Soil</span><span>By Team EARTH.exe · 2026</span><a href="https://power.larc.nasa.gov/docs/services/api/temporal/daily/" target="_blank" rel="noreferrer">NASA POWER documentation ↗</a></footer>
+
+      <footer>
+        <div className="footer-brand">
+          <b>Bopon<span>X</span></b>
+          <Duo en="From Space to Soil" bn="মহাকাশ থেকে মাটিতে" />
+        </div>
+        <div><Duo en="By Team EARTH.exe · Bangladesh · 2026" bn="Team EARTH.exe · বাংলাদেশ · ২০২৬" /></div>
+        <a href="https://power.larc.nasa.gov/docs/services/api/temporal/daily/" target="_blank" rel="noreferrer">
+          <Duo en="NASA POWER documentation" bn="NASA POWER ডকুমেন্টেশন" /> ↗
+        </a>
+      </footer>
     </div>
   );
 }
