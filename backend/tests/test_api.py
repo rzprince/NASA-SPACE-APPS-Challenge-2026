@@ -94,3 +94,26 @@ def test_no_crop_or_rotation_claim_without_rules():
     response = client.post("/api/v1/rotations/compare", json={"location_id": "rajshahi-pilot"})
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "AGRONOMIC_RULES_NOT_APPROVED"
+
+
+def test_monthly_api_respects_trusted_snapshot_and_coverage(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOPONX_DATA_ROOT", str(tmp_path))
+    assert client.get("/api/v1/climate/rajshahi-pilot/monthly").status_code == 503
+    data = snapshot()
+    data["period"] = {"start": "2024-01-01", "end": "2024-01-02", "time_standard": "LST"}
+    data["variables"] = {
+        "T2M": {"provider_unit": "C"},
+        "PRECTOTCORR": {"provider_unit": "mm/day"},
+    }
+    data["daily"] = [
+        {"date": "2024-01-01", "T2M": 25, "PRECTOTCORR": 2},
+        {"date": "2024-01-02", "T2M": 27, "PRECTOTCORR": 3},
+    ]
+    write_snapshot(tmp_path, data)
+    response = client.get("/api/v1/climate/rajshahi-pilot/monthly")
+    assert response.status_code == 200
+    report = response.json()
+    assert report["snapshot_id"] == "synthetic-unit-test-only"
+    assert report["metrics"][0]["temperature_mean_c"] == 26
+    assert report["metrics"][0]["precipitation_total_mm"] == 5
+    assert client.get("/api/v1/climate/not-supported/monthly").status_code == 404

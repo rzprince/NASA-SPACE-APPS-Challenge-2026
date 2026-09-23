@@ -13,6 +13,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.app.compute.monthly import aggregate_monthly
+
 app = FastAPI(title="BoponX API", version="0.2.0")
 ROOT = Path(__file__).resolve().parents[2]
 LOCATION = {
@@ -109,6 +111,19 @@ def climate(location_id: str) -> dict:
     if location_id != LOCATION["id"]:
         raise HTTPException(status_code=404, detail={"code": "UNSUPPORTED_LOCATION"})
     return trusted_snapshot()
+
+@app.get("/api/v1/climate/{location_id}/monthly")
+def climate_monthly(location_id: str) -> dict:
+    if location_id != LOCATION["id"]:
+        raise HTTPException(status_code=404, detail={"code": "UNSUPPORTED_LOCATION"})
+    try:
+        return aggregate_monthly(trusted_snapshot())
+    except (ValueError, KeyError, TypeError, OverflowError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "DATASET_UNAVAILABLE",
+                    "message": "Historical climate snapshot failed monthly validation."},
+        ) from exc
 
 
 @app.post("/api/v1/farms/validate")
