@@ -1,0 +1,24 @@
+name: Frontend validation
+on:
+  push:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend.yml"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install frontend packages
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Typecheck and build
+        working-directory: frontend
+        run: npm run build

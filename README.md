@@ -6,7 +6,7 @@ BoponX is an evidence-first, mobile-first crop-rotation decision-support project
 
 ## Implementation status (23 September 2026)
 
-**Implemented in this first development milestone:** a NASA POWER daily acquisition/validation script, a versioned processed-data format, FastAPI health/location/climate endpoints, and offline unit/API tests. **Not yet implemented:** the React interface, crop-rule catalog, rotation comparison engine, direct-EO integration, public deployment, and farmer-facing advice. No production NASA dataset is committed or claimed to have been downloaded.
+**Implemented:** NASA POWER daily acquisition/validation, a versioned processed-data format, FastAPI health/location/climate endpoints, farm-input validation, mobile-first React climate viewer, source-evidence display, and offline backend tests. **Not yet implemented:** source-reviewed crop-rule catalog, rotation comparison engine, direct-EO integration, installable PWA, public deployment, and farmer-facing agricultural advice. A live NASA dataset has not yet been acquired in the development runtime; the app displays an explicit unavailable state until a verified snapshot exists.
 
 ## Start the backend
 
@@ -18,6 +18,18 @@ uvicorn backend.app.main:app --reload
 ```
 
 Then open `http://127.0.0.1:8000/docs`. Until the NASA pipeline has been run, the climate route intentionally returns HTTP 503 with a data-not-ready message; it never displays invented values.
+
+## Start the frontend
+
+In a second terminal from the repository root:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open the URL Vite prints (typically `http://localhost:5173`). The dev server proxies `/api` to FastAPI on port 8000. Without a verified NASA snapshot the climate screen reports that data are unavailable, while the farm-input form can be validated through the API. A source-reviewed crop-rotation comparison is **not yet implemented**. See `frontend/README.md` for separate-origin deployment settings.
 
 ## Acquire the initial NASA climate snapshot
 
