@@ -96,6 +96,61 @@ def test_api_does_not_create_report_without_real_snapshot(monkeypatch, tmp_path)
     assert response.json()["detail"]["code"] == "DATASET_UNAVAILABLE"
 
 
+def test_known_farm_changes_tasks_and_does_not_autoselect_crop():
+    known = {
+        **FARM,
+        "previous_crop": "Farmer-entered harvest",
+        "soil_ph": 6.4,
+        "soil_texture": "loamy",
+        "irrigation_mode": "reliable",
+        "priorities": ["soil"],
+    }
+    out = three_month_preview(
+        known, synthetic_history(), start_year=2027, start_month=5, candidate_crop=None
+    )
+    codes = [task["code"] for task in out["months"][0]["tasks"]]
+    assert "get_soil_test" not in codes
+    assert "verify_previous_crop" not in codes
+    assert "record_irrigation" in codes
+    assert "soil_priority" in codes
+    assert out["farm"]["candidate_crop_farmer_entered"] is None
+    assert out["farm"]["missing_inputs"] == []
+    assert all(month["historical_reference_month"].startswith("2024-") for month in out["months"])
+
+
+def test_preview_endpoint_succeeds_only_with_integrity_checked_snapshot(monkeypatch):
+    # Test data are synthetic; patch only the snapshot provider, not the compute path.
+    import backend.app.main as main
+    from datetime import date, timedelta
+    start = date(2024, 1, 1)
+    snap = {
+        "schema_version": "power-pilot/v1",
+        "location_id": "rajshahi-pilot",
+        "period": {"start": "2024-01-01", "end": "2024-03-31", "time_standard": "LST"},
+        "variables": {"T2M": {"provider_unit": "C"},
+                      "PRECTOTCORR": {"provider_unit": "mm/day"}},
+        "daily": [
+            {"date": (start + timedelta(days=i)).isoformat(), "T2M": 25, "PRECTOTCORR": 1}
+            for i in range(91)
+        ],
+        "evidence": {"provider": "TEST_ONLY", "source_products": ["SYNTHETIC"],
+                     "snapshot_id": "TEST_SYNTHETIC_ONLY",
+                     "source_request_url": "https://example.invalid/test"},
+    }
+    monkeypatch.setattr(main, "trusted_snapshot", lambda: snap)
+    response = client.post("/api/v1/plans/preview", json={
+        "farm": FARM, "start_year": 2026, "start_month": 1,
+        "candidate_crop": None,
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["months"][0]["historical_reference_month"] == "2024-01"
+    assert data["months"][0]["historical_precipitation_mm"] == 31
+    assert data["months"][1]["historical_precipitation_mm"] == 29
+    assert data["months"][2]["historical_precipitation_mm"] == 31
+    assert data["status"] == "DRAFT_NOT_AN_AGRONOMIC_CROP_PLAN"
+
+
 def test_invalid_report_inputs_are_rejected():
     response = client.post("/api/v1/plans/preview", json={
         "farm": FARM, "start_year": 2025, "start_month": 13,

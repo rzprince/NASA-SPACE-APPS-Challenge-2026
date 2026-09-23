@@ -516,6 +516,9 @@ export default function App() {
           <Duo en="From Space to Soil" bn="মহাকাশ থেকে মাটিতে" />
         </div>
         <div><Duo en="By Team EARTH.exe · Bangladesh · 2026" bn="Team EARTH.exe · বাংলাদেশ · ২০২৬" /></div>
+        <a className="footer-source" href="https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026" target="_blank" rel="noreferrer">
+          <Duo en="Project source code" bn="প্রকল্পের সোর্স কোড" /> ↗
+        </a>
         <a href="https://power.larc.nasa.gov/docs/services/api/temporal/daily/" target="_blank" rel="noreferrer">
           <Duo en="NASA POWER documentation" bn="NASA POWER ডকুমেন্টেশন" /> ↗
         </a>

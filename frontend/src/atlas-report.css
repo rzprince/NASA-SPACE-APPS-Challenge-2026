@@ -347,3 +347,23 @@
   .report-evidence p {font-size:8.5pt!important;}
   .report-evidence a {color:#204a30!important;}
 }
+
+/* Final mobile usability and evidence-first interactions. */
+.mobile-chart-hint {display:none;}
+.rain-terrain__selected {display:flex;align-items:center;justify-content:space-between;gap:16px;margin:21px 0 4px;
+  background:#ffffffc5;border:1px solid #c8dfd0;border-radius:12px;padding:13px 18px;color:#264d3a;box-shadow:0 9px 26px #1554350d;}
+.rain-terrain__selected>div {display:grid;gap:4px;}
+.rain-terrain__selected b {font-size:10px;letter-spacing:.11em;}
+.rain-terrain__selected>div small {font-size:12px;color:#4b7352;font-weight:600;}
+.rain-terrain__selected strong {font-size:20px;letter-spacing:-.04em;text-align:right;}
+.rain-terrain__selected strong small {display:block;font-size:12px;letter-spacing:0;color:#4e7757;font-weight:600;margin-top:3px;}
+@media(min-width:821px) { footer {grid-template-columns:repeat(4,minmax(0,1fr));} }
+@media(max-width:540px) {
+  .monthly-plot {overflow-x:auto;overscroll-behavior-inline:contain;}
+  .monthly-plot__svg {display:block;max-width:none!important;width:610px!important;min-height:220px!important;height:220px!important;
+    aspect-ratio:auto!important;margin:4px 0 12px!important;}
+  .mobile-chart-hint {display:block;font-size:11px;color:#52745a;margin:10px 0 1px;line-height:1.45;}
+  .mobile-chart-hint span {display:block;font-size:12px;}
+  .rain-terrain__selected {align-items:flex-start;flex-direction:column;padding:12px 14px;margin:15px 0 8px;}
+  .rain-terrain__selected strong {text-align:left;}
+}
