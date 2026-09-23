@@ -235,8 +235,8 @@ export default function App() {
             <Duo
               as="p"
               className="section-description"
-              en="The first pilot uses NASA POWER for a regional historical climate profile. It is environmental context—not a farm measurement and not a forecast."
-              bn="প্রথম পাইলটে আঞ্চলিক ঐতিহাসিক জলবায়ু প্রোফাইলের জন্য NASA POWER ব্যবহার করা হচ্ছে। এটি পরিবেশগত প্রেক্ষাপট—কোনো নির্দিষ্ট খামারের মাপ বা ভবিষ্যৎ পূর্বাভাস নয়।"
+              en="The pilot shows 2024 regional historical temperature and rainfall from NASA POWER / MERRA-2 reanalysis. These are not direct satellite rainfall readings, field measurements or future forecasts."
+              bn="পাইলটে NASA POWER / MERRA-2 পুনর্বিশ্লেষণ থেকে ২০২৪ সালের আঞ্চলিক তাপমাত্রা ও বৃষ্টির ইতিহাস দেখানো হচ্ছে। এগুলো সরাসরি স্যাটেলাইটে মাপা বৃষ্টি, নির্দিষ্ট জমির মাপ বা ভবিষ্যৎ পূর্বাভাস নয়।"
             />
           </div>
 
@@ -274,7 +274,7 @@ export default function App() {
                   <article className="metric-card">
                     <Duo className="metric-label" en="Historical period" bn="ঐতিহাসিক সময়কাল" />
                     <strong className="date-metric">{climate.period.start.slice(0, 4) === climate.period.end.slice(0, 4) ? `Jan–Dec ${climate.period.start.slice(0, 4)}` : `${climate.period.start.slice(0, 7)} – ${climate.period.end.slice(0, 7)}`}</strong>
-                    <Duo as="p" en={`Daily records · ${climate.period.time_standard} · NASA POWER`} bn="দৈনিক রেকর্ড · NASA POWER" />
+                    <Duo as="p" en={`Daily records · ${climate.period.time_standard} (local solar time) · NASA POWER`} bn="দৈনিক রেকর্ড · স্থানীয় সৌর সময় · NASA POWER" />
                   </article>
                 </div>
 
@@ -288,6 +288,7 @@ export default function App() {
                   <dl>
                     <div><dt><Duo en="Provider" bn="উৎস" /></dt><dd>{climate.evidence.provider}</dd></div>
                     <div><dt><Duo en="Snapshot" bn="স্ন্যাপশট" /></dt><dd>{climate.evidence.snapshot_id}</dd></div>
+                    <div><dt><Duo en="Underlying data product" bn="মূল ডেটা উৎস" /></dt><dd>{climate.evidence.source_products.join(", ") || "Not reported"} · reanalysis / পুনর্বিশ্লেষণ; not direct satellite rainfall / সরাসরি স্যাটেলাইটে মাপা বৃষ্টি নয়</dd></div>
                     <div><dt><Duo en="Source kind" bn="ডেটার ধরন" /></dt><dd>{climate.evidence.data_kind}</dd></div>
                     <div><dt><Duo en="Raw SHA-256" bn="র’ SHA-256" /></dt><dd className="hash">{climate.evidence.raw_sha256}</dd></div>
                   </dl>

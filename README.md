@@ -1,67 +1,108 @@
-# BoponX — From Space to Soil
+# BoponX · বপনএক্স
+### From Space to Soil · মহাকাশ থেকে মাটিতে
 
-**Team EARTH.exe · NASA Space Apps Challenge 2026 · Field Shift: Adapting Farms with NASA Data**
+**Team EARTH.exe · Bangladesh · NASA Space Apps Challenge 2026 · Field Shift: Adapting Farms with NASA Data**
 
-BoponX is an evidence-first, mobile-first crop-rotation decision-support project. The proposed product combines NASA environmental data, documented crop and local-soil information, and farmer priorities to compare feasible multi-season crop sequences. It is **not** an agricultural forecasting or farm-specific soil-testing system.
+BoponX is an independent, bilingual, mobile-first **crop-rotation decision-support project**. It is designed to connect documented NASA environmental context, local soil and crop information, and farmer priorities so farmers can explore multi-season strategies. We are building a tool to *inform* farmers—not automate agricultural decisions or promise yields.
 
-## Implementation status (23 September 2026)
+**Prescreening preview:** This repository currently implements a high-fidelity CSS-3D visual experience, interactive historical NASA climate analysis, a provenance panel, and a farm-input validation workflow. **It does not yet generate crop-rotation recommendations.** Crop constraints and direct satellite-observation integration remain scientific development gates.
 
-**Implemented:** NASA POWER daily acquisition/validation, a versioned processed-data format, FastAPI health/location/climate endpoints, farm-input validation, mobile-first React climate viewer, source-evidence display, and offline backend tests. **Not yet implemented:** source-reviewed crop-rule catalog, rotation comparison engine, direct-EO integration, installable PWA, public deployment, and farmer-facing agricultural advice. A real 2024 NASA POWER snapshot was acquired and validated by GitHub Actions on 23 September 2026; it is available as a downloadable workflow artifact, **not** committed to Git. The app displays an explicit unavailable state until the validated files are placed in the local data directory. The returned POWER source metadata identifies MERRA2 reanalysis, not a direct satellite observation; direct EO integration remains a separate gate.
+> BoponX is a Team EARTH.exe entry. NASA POWER is a data provider; NASA and its partners have not endorsed this application. The original 3D artwork is conceptual, not NASA imagery or an actual satellite view of Rajshahi.
 
-## Start the backend
+## What works now
 
-```bash
-python -m venv .venv
-source .venv/bin/activate              # Windows: .venv\\Scripts\\activate
-pip install -r backend/requirements.txt
-uvicorn backend.app.main:app --reload
+| Implemented and reproducible | Not yet implemented / not claimed |
+| --- | --- |
+| Responsive English + Bangla UI, Bangladesh-inspired styling, interactive CSS-3D hero and rainfall landscape | Native Android app, nationwide farm coverage, complete localization of all system messages |
+| 2024 NASA POWER temperature and precipitation pilot data; daily and coverage-aware monthly views | Forecasts, long-term climate-trend conclusions, direct satellite-observation integration |
+| Original NASA request link, source products, time convention, coverage and SHA-256 snapshot identity | Farm-specific sensor readings or satellite-based field soil tests |
+| Farmer input validation with explicit unknown values | Reviewed crop catalog, automatic crop-rotation engine, water saving or yield estimates |
+| Offline-capable *local demonstration* after installing dependencies and copying the approved dataset | Installable offline PWA, public production deployment and synchronized multi-farm accounts |
+
+### Scientifically bounded demonstration
+
+The provisional reference point is **24.37° N, 88.60° E, near Rajshahi**. It is *not* the position of a surveyed farm. The pinned dataset is **NASA POWER Daily API, 1 January–31 December 2024, T2M and PRECTOTCORR, Agroclimatology community, LST days**. The returned meteorological source is **MERRA-2 reanalysis**, at native gridded resolution; it is not direct field observation or a next-season prediction. All 366 requested dates passed the initial completeness checks. The original raw-data SHA-256 is:
+
+```text
+512420f8cd947e21a84aa1e43292674be7e047fadfbcdd4ae4b3684647726495
 ```
 
-Then open `http://127.0.0.1:8000/docs`. Until the NASA pipeline has been run, the climate route intentionally returns HTTP 503 with a data-not-ready message; it never displays invented values.
+Monthly rainfall totals are shown only when every daily value needed for the month is present. Incomplete months yield an explicit unavailable state, not interpolated measurements. See [evidence and methodology](docs/EVIDENCE_REGISTER.md).
 
-## Start the frontend
+## Start on Windows (PowerShell)
 
-In a second terminal from the repository root:
+**Prerequisites:** Python 3.12 is the tested CI version (another Python version may also work), Node.js, npm and the verified NASA data ZIP. Run commands from the repository folder containing `README.md`. The `PS C:\...>` terminal prompt is **not** part of a command.
 
-```bash
+**1. Put the data in place.** Extract the approved [GitHub Actions dataset artifact](https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026/actions/runs/35860018103), or the previously downloaded `BoponX_NASA_POWER_Rajshahi_2024.zip`, so its two files are located at:
+
+```text
+data/raw/power_512420f8cd947e21a84aa1e43292674be7e047fadfbcdd4ae4b3684647726495.json
+data/processed/power_rajshahi-pilot_20240101_20241231.json
+```
+
+The raw and processed artifacts are deliberately not committed to Git. GitHub Actions artifacts can expire; the acquisition command below can recreate a **new, separately reviewed** dataset. Do not label a changed response as the pinned snapshot.
+
+**2. Start the API in the first terminal.**
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r .\backend\requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q backend\tests
+.\.venv\Scripts\python.exe -m scripts.verify_pilot
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Check `http://127.0.0.1:8000/api/v1/health` for `"climate_snapshot_ready": true`. The additional verification script recalculates the processed climate data from the pinned raw response and checks its hash.
+
+**3. Start the web app in a second terminal.**
+
+```powershell
 cd frontend
-npm install
-npm run dev
+npm.cmd install
+npm.cmd run dev
 ```
 
-Open the URL Vite prints (typically `http://localhost:5173`). The dev server proxies `/api` to FastAPI on port 8000. Without a verified NASA snapshot the climate screen reports that data are unavailable, while the farm-input form can be validated through the API. A source-reviewed crop-rotation comparison is **not yet implemented**. See `frontend/README.md` for separate-origin deployment settings.
+Open the local address printed by Vite (usually `http://localhost:5173`). Use `npm.cmd` when PowerShell blocks `npm.ps1`. **Keep both terminals open.** The dev server proxies `/api` to the local API.
 
-## Acquire the initial NASA climate snapshot
+On macOS/Linux, use `python3 -m venv .venv`, `.venv/bin/python` instead of `.\.venv\Scripts\python.exe`, and `npm` instead of `npm.cmd`.
 
-From the repository root, with internet access:
+### If the data ZIP is unavailable
 
-```bash
-python -m data.acquisition.power --location rajshahi-pilot --latitude 24.37 --longitude 88.60 --start 20240101 --end 20241231
+With an internet connection and from the repository root, run:
+
+```powershell
+.\.venv\Scripts\python.exe -m data.acquisition.power --location rajshahi-pilot --latitude 24.37 --longitude 88.60 --start 20240101 --end 20241231
 ```
 
-The coordinate is an **illustrative regional reference point**, not a surveyed farm. The command requests the NASA POWER agroclimatology daily parameters `T2M` and `PRECTOTCORR` with explicit local-solar-time (`LST`) days. It saves an immutable raw response and a validated, provenance-tagged summary under ignored `data/raw/` and `data/processed/`. An already processed snapshot is reused; use `--refresh` to request a new one deliberately. On a network error it exits rather than creating synthetic NASA data.
+Review the response metadata and SHA-256. NASA POWER data can be revised; if the hash differs from the pinned value, the current verification command will **fail intentionally** until the new snapshot is independently reviewed and the manifest/verification baseline is updated.
 
-The route `GET /api/v1/climate/rajshahi-pilot` becomes available after a successful acquisition using the specified date range. Use `BOPONX_DATA_ROOT=/path/to/data` to change the data directory.
+## Demo route and APIs
 
-**Verified data shortcut:** The [successful NASA POWER validation run](https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026/actions/runs/35860018103) includes the `boponx-nasa-power-rajshahi-2024` artifact (raw response + validated processed snapshot). Download the artifact ZIP and extract it into this repository's `data/` directory so that `data/raw/` and `data/processed/` are populated; then start the backend. The ZIP is not a crop recommendation, a farm measurement, or a live forecast.
+The intended **prescreening demo** is: original animated visual → historical NASA climate data → choose rainfall/temperature month → inspect the accessible monthly data table and source → enter a pilot farm profile → show explicit missing inputs → explain the future multi-season rotation engine and its evidence gates. The present UI does not stage a fake recommendation.
 
-## Run tests without NASA network access
+| API | Status |
+| --- | --- |
+| `GET /api/v1/health` and `GET /api/v1/locations` | Implemented |
+| `GET /api/v1/climate/rajshahi-pilot` | Implemented; requires validated local snapshot |
+| `GET /api/v1/climate/rajshahi-pilot/monthly` | Implemented; deterministic monthly aggregation |
+| `POST /api/v1/farms/validate` | Implemented; user inputs are not independently verified |
+| `GET /api/v1/crops` | Empty until local crop rules are source-reviewed |
+| `POST /api/v1/rotations/compare` | Deliberately returns `AGRONOMIC_RULES_NOT_APPROVED` until reviewed |
 
-```bash
-pip install -r backend/requirements-dev.txt
-python -m pytest -q backend/tests
-```
+Run `python -m pytest -q backend/tests` and `cd frontend && npm.cmd run build` for regression checks. GitHub Actions executes both on code changes.
 
-The tests use clearly synthetic, in-memory POWER-shaped payloads and temporary files. Those samples are **not** NASA observations and are never shipped as a farmer-facing demonstration dataset.
+## Team, sources and submission
 
-## Scientific and submission boundaries
+- [October 1 prescreening and 240-second demo plan](docs/OCTOBER_1_PRESCREEN.md)
+- [NASA and Bangladesh evidence register](docs/EVIDENCE_REGISTER.md)
+- [UI quality and accessibility checklist](docs/UI_QA.md)
+- [AI-use disclosure](docs/AI_USE.md)
+- [Current implementation status](docs/IMPLEMENTATION_STATUS.md)
 
-- The POWER point time series is regional/gridded context, not a measurement at a particular farm.
-- A historical indicator is not a next-season forecast.
-- Soil and crop constraints require local, source-reviewed references before recommendations can be enabled.
-- No yield, water-saving, or soil-health benefit estimate is implemented or claimed.
-- A directly sensed NASA Earth-observation product (proposed: GPM IMERG) must pass a separate feasibility gate before any integration claim.
+Challenge brief: https://www.spaceappschallenge.org/2026/challenges/field-shift-adapting-farms-with-nasa-data/  
+NASA POWER daily API: https://power.larc.nasa.gov/docs/services/api/temporal/daily/  
+NASA POWER data references: https://power.larc.nasa.gov/docs/referencing/  
 
-See `docs/DATA_SOURCES.md` and `docs/IMPLEMENTATION_STATUS.md`.
+Software is offered under the [MIT License](LICENSE). That software license **does not relicense** NASA data, third-party agricultural resources, satellite imagery, fonts or other external assets. Every additional dataset requires source, permission and attribution review.
 
-**Repository:** https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026
+**Team EARTH.exe:** Rezwan Hossain Prince (project lead), MD. Khairul Islam (QA/operations), Md. Siam Rayhan (application), Iftekhar Azad Ether (data/algorithms), Tulip Mondal (agricultural and source research). Project name **BoponX** has no association with SpaceX. The full challenge materials and local submission instructions should be rechecked when released.

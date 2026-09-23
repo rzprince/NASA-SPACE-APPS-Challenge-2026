@@ -1,44 +1,42 @@
-# BoponX web — milestone 02
+# BoponX frontend — Bangladesh-first prescreening showcase
 
-The first React + TypeScript interface implements a mobile-first climate viewer and
-a farm-input validation form. It intentionally **does not** display crop-rotation
-recommendations before local agricultural rules are source-reviewed.
+This React + TypeScript + Vite application pairs readable Bangla with English.
+Its original pointer-responsive **CSS-3D field scene** and historical precipitation
+landscape are artistic/analytical visualizations, not NASA imagery or satellite maps.
+There is no extra WebGL dependency. Motion is disabled for users who select
+`prefers-reduced-motion`.
 
-## Start locally
+## Run in two terminals
 
-Run FastAPI first from the repository root:
+From the repository root, first start FastAPI:
 
-```bash
-pip install -r backend/requirements.txt
-uvicorn backend.app.main:app --reload
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-In another terminal:
+Then:
 
-```bash
+```powershell
 cd frontend
-npm install
-npm run dev
+npm.cmd install
+npm.cmd run dev
 ```
 
-Open the local Vite URL printed in the terminal (normally port 5173). Vite proxies
-`/api` to FastAPI on port 8000. For a separately hosted backend set
-`VITE_BOPONX_API_BASE_URL` to its HTTPS origin when building the frontend and
-`BOPONX_ALLOWED_ORIGINS` to the exact frontend origin when starting the API.
-Do not set permissive wildcard CORS for a public deployment.
+The Vite dev server proxies `/api` to port 8000. Without the verified data
+snapshot, the climate explorer shows an honest unavailable state. The farm form
+validates inputs, but crop recommendation/rotation comparison is deliberately
+blocked until agronomic sources and rules are reviewed.
 
-## Data readiness
+## Quality gates
 
-By default the regional climate panel shows `DATASET_UNAVAILABLE`. To populate
-it, execute the NASA POWER acquisition command in the root README on a machine
-with internet access and inspect the provider metadata. Test-only or local
-unverified inputs are refused by the API. No sample climate numbers are
-substituted.
+```powershell
+npm.cmd run build
+```
 
-The farm form validates soil pH, location, irrigation status and priority input;
-it does not persist personal farm records or evaluate crop compatibility.
-The rotation comparison remains explicitly pending.
+Test keyboard access, Bengali text wrapping, the month selector, table, mobile
+viewports and reduced-motion preferences. See `docs/UI_QA.md`.
 
-The interface is responsive but **PWA install/offline shell and full Bangla
-localization are not yet implemented**. The lockfile should be generated and
-committed after the first successful online dependency installation.
+Separate-host deployment needs `VITE_BOPONX_API_BASE_URL` set to the HTTPS
+API origin at build time and `BOPONX_ALLOWED_ORIGINS` set to the exact web
+origin on the API. PWA installation, offline service-worker support and public
+hosting are not yet implemented.
