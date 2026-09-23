@@ -14,8 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.compute.monthly import aggregate_monthly
+from backend.app.compute.plan import three_month_preview
 
-app = FastAPI(title="BoponX API", version="0.2.0")
+app = FastAPI(title="BoponX API", version="0.4.0")
 ROOT = Path(__file__).resolve().parents[2]
 LOCATION = {
     "id": "rajshahi-pilot",
@@ -50,6 +51,15 @@ class FarmProfile(BaseModel):
     priorities: list[Literal["water", "soil", "production_stability"]] = Field(
         default_factory=list, max_length=3
     )
+
+
+class PreviewRequest(BaseModel):
+    """User-supplied context; no profile is stored and no crop is recommended."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    farm: FarmProfile
+    start_year: int = Field(ge=2026, le=2035)
+    start_month: int = Field(ge=1, le=12)
+    candidate_crop: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 def snapshot_path() -> Path:
@@ -148,6 +158,30 @@ def validate_farm(profile: FarmProfile) -> dict:
             "Soil compatibility and crop-rotation rules have not yet been approved.",
         ],
     }
+
+
+@app.post("/api/v1/plans/preview")
+def planning_preview(request: PreviewRequest) -> dict:
+    """A three-month printable PREPARATION brief, never a crop prescription.
+
+    HTTP responses are generated for this request only; personal farm details
+    are not persisted to disk or included in the NASA data cache.
+    """
+    try:
+        history = aggregate_monthly(trusted_snapshot())
+        return three_month_preview(
+            request.farm.model_dump(),
+            history,
+            start_year=request.start_year,
+            start_month=request.start_month,
+            candidate_crop=request.candidate_crop,
+        )
+    except (ValueError, KeyError, TypeError, OverflowError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "REPORT_DATA_UNAVAILABLE",
+                    "message": "A verified historical reference is required to prepare this brief."},
+        ) from exc
 
 
 @app.get("/api/v1/crops")
