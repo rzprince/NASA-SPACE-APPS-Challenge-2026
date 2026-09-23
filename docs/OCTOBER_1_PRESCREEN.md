@@ -9,13 +9,13 @@ The October prescreening is not the final global hackathon submission.
 
 ## The single demonstration that must work
 
-1. Show the original BoponX animated, Bangladesh-inspired interface.
+1. Show the BoponX animated CSS-3D agricultural hero and the public-domain Natural Earth Bangladesh atlas with a single *provisional Rajshahi pilot* pin. Explain that all 3D landscape elements are conceptual.
 2. Show the **actual validated** Rajshahi regional 2024 NASA POWER snapshot.
 3. Change monthly rainfall/temperature; select a month and read its source,
    coverage and units. The 3D rainfall columns represent *historical data*.
 4. Open the NASA evidence drawer, source URL and raw snapshot identity.
-5. Enter a pilot farm profile; show validation and explicit unknown soil fields.
-6. Explain the **planned** three-season crop-rotation comparison and what still
+5. Enter a pilot farm profile, choose a start month and priority, generate the working **three-month bilingual preparation brief**, and use the browser **Print / Save as PDF** option. Show the actual missing-input labels.
+6. Explain that the report is a *field-monitoring and preparation routine*, not an agronomic crop calendar. Show how 2024 historical references remain separated from future months. Explain the **planned** three-season crop-rotation comparison and what still
    requires crop calendars, local soil constraints and direct NASA Earth-observation
    evidence. Do not show a fabricated recommendation.
 
@@ -31,8 +31,8 @@ responses.
 | 00:00–00:15 | EARTH.exe, BoponX, Bangladesh, Field Shift challenge. |
 | 00:15–00:50 | Farmer problem: rainfall variability, water constraints, soil knowledge gaps and crop-rotation choices. |
 | 00:50–01:40 | Product interaction and Bangladesh-first bilingual UX; clarify conceptual 3D artwork is not a satellite map. |
-| 01:40–02:45 | Live working app: NASA monthly data, 3D historical rainfall, coverage/evidence, farmer input and explicit missingness. |
-| 02:45–03:30 | Explain original NASA dataset, MERRA-2 reanalysis, deterministic computation/tests, soil/crop and farmer-priority architecture; distinguish implemented and planned. |
+| 01:40–02:45 | Live working app: NASA monthly data, 3D Bangladesh atlas and historical rainfall, farmer profile → three-month bilingual preparation brief → Print / Save as PDF. |
+| 02:45–03:30 | Show provenance and source checks; distinguish 2024 MERRA-2 reanalysis from future forecasts and preparation checklists from pending crop-rotation calculations. |
 | 03:30–03:50 | Next milestones: source-reviewed rotation rules and material direct NASA EO integration; show code and documented gates. |
 | 03:50–04:00 | Closing: “From Space to Soil / মহাকাশ থেকে মাটিতে”; public repository, team identity. |
 
@@ -45,7 +45,7 @@ or “next milestone” for functionality that is not in the source code.
 
 - Record the exact version/commit used. Keep the pinned raw NASA response and
   derived snapshot on the demo laptop. Run `python -m scripts.verify_pilot`.
-- Show 2024 explicitly. A single year cannot establish a long-term climate trend.
+- Show 2024 explicitly. A single year cannot establish a long-term climate trend or predict the weather in a chosen 2026–27 report month. The PDF must visibly say PREPARATION BRIEF — NOT A CROP PRESCRIPTION.
 - The POWER pilot meteorological source returned **MERRA2 reanalysis**, not a
   direct satellite precipitation retrieval. Do not imply IMERG or SMAP is live.
 - This is an **independent competition entry**. Do not add NASA or SpaceX

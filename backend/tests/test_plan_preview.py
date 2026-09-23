@@ -58,7 +58,7 @@ def test_three_month_plan_is_not_fake_crop_or_forecast():
     assert out["farm"]["candidate_crop_farmer_entered"] == "Aman rice"
     assert out["months"][0]["historical_precipitation_mm"] == 30
     assert out["months"][1]["historical_precipitation_mm"] == 31
-    assert all("plant" not in t["code"] for m in out["months"] for t in m["tasks"])
+    assert all(t["code"] not in {"sow_crop", "choose_crop", "recommend_crop"} for m in out["months"] for t in m["tasks"])
     assert all("no_planting_dates" in [t["code"] for t in m["tasks"]] for m in out["months"])
     assert out["evidence"]["snapshot_id"] == "TEST_SYNTHETIC_ONLY"
     assert {"soil_ph", "previous_crop"} <= {x["field"] for x in out["farm"]["missing_inputs"]}

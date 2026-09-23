@@ -1,6 +1,6 @@
 # BoponX implementation status — October prescreening preview
 
-**Last reviewed:** 23 September 2026 · **Owner:** Team EARTH.exe
+**Last reviewed:** 24 September 2026 · **Owner:** Team EARTH.exe
 
 ## Implemented in the repository
 
@@ -11,10 +11,11 @@
 - Raw-vs-processed pinned snapshot verification script and synthetic tamper tests.
 - FastAPI climate/health/location/farm-input endpoints and coverage-aware historical
   monthly aggregation (mean °C; total mm only with complete daily coverage).
+- Deterministic `POST /api/v1/plans/preview` returning a bilingual three-month preparation/monitoring routine, historical reference months and explicit missing fields; browser A4 Print / Save as PDF workflow. It never prescribes planting dates or a crop.
 - React + TypeScript interface with English/Bangla presentation, enhanced Bangla
   readability, original pointer-responsive CSS-3D environmental artwork and
   3D historical rainfall columns, accessible monthly picker/table, evidence drawer
-  and responsive farm intake.
+  responsive farm intake and the Natural Earth public-domain Bangladesh atlas with a clearly provisional Rajshahi pin.
 - Automated Python test and frontend build workflows. Crop-comparison API explicitly
   returns `AGRONOMIC_RULES_NOT_APPROVED`.
 
@@ -24,6 +25,7 @@
   crop rotation outcomes, water-saving predictions, soil scores or yield claims.
 - Validated direct satellite-observation product integrated into the decision engine
   (IMERG/SMAP remain candidates); POWER meteorology is MERRA-2 reanalysis.
+- Direct PDF file generation without a browser print dialog, tested Bengali print output on Samsung, crop-specific three-month planting instructions and agricultural validation.
 - Public hosted app, separate mobile app, installed offline PWA, full language
   localization of every technical message, field usability study and final video.
 - Submission itself; the team must upload/test the actual public video and links.
@@ -32,7 +34,7 @@
 
 Confirm the user's existing extracted NASA ZIP in `data/raw` and
 `data/processed`; run `python -m scripts.verify_pilot` before recording.
-Test 360px Android layout, desktop layout, Bangla readability, month buttons,
+Test 360px Android layout, desktop layout, Bangla readability, month buttons, three-month report and A4 Save as PDF output,
 evidence links, reduced-motion mode and offline local demo. Record the actual
 240-second concept-focused video only after those checks pass.
 
