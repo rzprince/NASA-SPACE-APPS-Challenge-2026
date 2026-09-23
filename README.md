@@ -5,7 +5,7 @@
 
 BoponX is an independent, bilingual, mobile-first **crop-rotation decision-support project**. It is designed to connect documented NASA environmental context, local soil and crop information, and farmer priorities so farmers can explore multi-season strategies. We are building a tool to *inform* farmers—not automate agricultural decisions or promise yields.
 
-**Prescreening preview:** This repository currently implements a high-fidelity CSS-3D visual experience, interactive historical NASA climate analysis, a provenance panel, and a farm-input validation workflow. **It does not yet generate crop-rotation recommendations.** Crop constraints and direct satellite-observation integration remain scientific development gates.
+**Prescreening preview:** This repository implements a Bangladesh-first animated CSS-3D landing experience, a public-domain Natural Earth-based 3D country silhouette, a verified NASA historical climate explorer, and **a working farm → three-month bilingual preparation brief → browser Print / Save as PDF flow**. The brief personalizes a *recording, testing and extension-consultation routine* from farmer inputs and displays the corresponding actual **2024 historical** regional monthly reference. **It is not a crop prescription, 2026–27 weather forecast or scientifically approved rotation.** Local agronomic constraints and direct satellite-observation integration remain development gates.
 
 > BoponX is a Team EARTH.exe entry. NASA POWER is a data provider; NASA and its partners have not endorsed this application. The original 3D artwork is conceptual, not NASA imagery or an actual satellite view of Rajshahi.
 
@@ -13,11 +13,19 @@ BoponX is an independent, bilingual, mobile-first **crop-rotation decision-suppo
 
 | Implemented and reproducible | Not yet implemented / not claimed |
 | --- | --- |
-| Responsive English + Bangla UI, Bangladesh-inspired styling, interactive CSS-3D hero and rainfall landscape | Native Android app, nationwide farm coverage, complete localization of all system messages |
+| Responsive English + Bangla UI; CSS-3D farm hero, Bangladesh silhouette and historical-rainfall landscape | Native Android app, nationwide farm coverage, complete localization of all system messages |
 | 2024 NASA POWER temperature and precipitation pilot data; daily and coverage-aware monthly views | Forecasts, long-term climate-trend conclusions, direct satellite-observation integration |
 | Original NASA request link, source products, time convention, coverage and SHA-256 snapshot identity | Farm-specific sensor readings or satellite-based field soil tests |
-| Farmer input validation with explicit unknown values | Reviewed crop catalog, automatic crop-rotation engine, water saving or yield estimates |
+| Farm validation and personalized, printable bilingual three-month **preparation/monitoring** routine with explicit unknowns | Reviewed crop catalog, crop-specific planting calendar, automatic rotation engine, water saving or yield estimates |
 | Offline-capable *local demonstration* after installing dependencies and copying the approved dataset | Installable offline PWA, public production deployment and synchronized multi-farm accounts |
+
+### Generate and save your bilingual three-month report
+
+1. Open **My plan / আমার পরিকল্পনা** (or scroll to the farm form). Enter your known farm details, planning **start month and year**, optionally a crop you are considering, and your priority.
+2. Choose **Generate my 3-month brief / আমার তিন মাসের নোট তৈরি করুন**. The API validates inputs, reads the locally verified NASA snapshot and returns a deterministic **three-month preparation checklist**, not crop-specific advice. The report appears below the form automatically.
+3. Review the three months, tick tasks as you complete them, and choose **Print / Save as PDF / প্রিন্ট / PDF হিসেবে সংরক্ষণ**. In the print dialog select **Save as PDF**; on Android use **Print → Save as PDF**. The printable layout is A4 and preserves both English and Bangla in the browser’s own text renderer.
+
+**Important:** The API does not save the submitted profile. A PDF is saved on *your own device* only when you explicitly print/save it. The 2024 historical rainfall and temperature beside each planned month are *reference values from a different year*, never a predicted value for the planning month. The routine asks users to log actual field conditions, confirm soil/irrigation information and consult a local agricultural adviser. It **does not choose a crop, prescribe sowing dates or generate a validated three-season rotation**.
 
 ### Scientifically bounded demonstration
 
@@ -78,7 +86,7 @@ Review the response metadata and SHA-256. NASA POWER data can be revised; if the
 
 ## Demo route and APIs
 
-The intended **prescreening demo** is: original animated visual → historical NASA climate data → choose rainfall/temperature month → inspect the accessible monthly data table and source → enter a pilot farm profile → show explicit missing inputs → explain the future multi-season rotation engine and its evidence gates. The present UI does not stage a fake recommendation.
+The intended **prescreening demo** is: original CSS-3D farm hero → Bangladesh atlas with accurate pilot pin → verified historical NASA climate → select rainfall/temperature month → inspect source and coverage → enter farm context and planning window → generate an actual bilingual three-month preparation report → use Print / Save as PDF → explain what reviewed crop-specific recommendations still require. No fabricated recommendation is staged.
 
 | API | Status |
 | --- | --- |
@@ -86,6 +94,7 @@ The intended **prescreening demo** is: original animated visual → historical N
 | `GET /api/v1/climate/rajshahi-pilot` | Implemented; requires validated local snapshot |
 | `GET /api/v1/climate/rajshahi-pilot/monthly` | Implemented; deterministic monthly aggregation |
 | `POST /api/v1/farms/validate` | Implemented; user inputs are not independently verified |
+| `POST /api/v1/plans/preview` | Implemented: deterministic three-month **preparation brief**, historical reference and missing-input flags; no agronomic prescription |
 | `GET /api/v1/crops` | Empty until local crop rules are source-reviewed |
 | `POST /api/v1/rotations/compare` | Deliberately returns `AGRONOMIC_RULES_NOT_APPROVED` until reviewed |
 
@@ -103,6 +112,6 @@ Challenge brief: https://www.spaceappschallenge.org/2026/challenges/field-shift-
 NASA POWER daily API: https://power.larc.nasa.gov/docs/services/api/temporal/daily/  
 NASA POWER data references: https://power.larc.nasa.gov/docs/referencing/  
 
-Software is offered under the [MIT License](LICENSE). That software license **does not relicense** NASA data, third-party agricultural resources, satellite imagery, fonts or other external assets. Every additional dataset requires source, permission and attribution review.
+Software is offered under the [MIT License](LICENSE). The Bangladesh cartographic silhouette adapts the public-domain Natural Earth 1:110m countries layer; it is illustrative, not a surveyed field map. That software license **does not relicense** NASA data, third-party agricultural resources, satellite imagery, fonts or other external assets. Every additional dataset requires source, permission and attribution review.
 
 **Team EARTH.exe:** Rezwan Hossain Prince (project lead), MD. Khairul Islam (QA/operations), Md. Siam Rayhan (application), Iftekhar Azad Ether (data/algorithms), Tulip Mondal (agricultural and source research). Project name **BoponX** has no association with SpaceX. The full challenge materials and local submission instructions should be rechecked when released.

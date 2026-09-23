@@ -114,6 +114,7 @@ export default function ClimateExplorer({ snapshot }: { snapshot: ClimateSnapsho
             <span>{mode === "rain" ? "MONTHLY RAINFALL · মাসিক বৃষ্টিপাত" : "MONTHLY TEMPERATURE · মাসিক তাপমাত্রা"}</span>
             <strong>{unit}</strong>
           </div>
+          <p className="mobile-chart-hint">Swipe to see all months → <span lang="bn">সব মাস দেখতে পাশে সোয়াইপ করুন →</span></p>
           <svg className="monthly-plot__svg" viewBox="0 0 690 250" role="img"
             aria-label={mode === "rain" ? "Historical monthly precipitation in millimetres; incomplete months omitted" : "Historical monthly mean temperature in degrees Celsius; incomplete months omitted"}>
             {[0, 1, 2, 3].map((index) => {
@@ -172,6 +173,10 @@ export default function ClimateExplorer({ snapshot }: { snapshot: ClimateSnapsho
           <div><span className="micro-label">3D DATA LANDSCAPE <span lang="bn">· ত্রিমাত্রিক ডেটা চিত্র</span></span>
             <h4>Twelve months. One landscape.<span lang="bn">বারো মাসের বৃষ্টি, এক দৃশ্য।</span></h4></div>
           <p>Column height represents the validated monthly precipitation total. Not satellite imagery or topography.<span lang="bn">স্তম্ভের উচ্চতা মাসিক বৃষ্টিপাত বোঝায়; এটি স্যাটেলাইট ছবি বা ভূমিরূপ নয়।</span></p>
+        </div>
+        <div className="rain-terrain__selected" aria-live="polite">
+          <div><b>SELECTED HISTORICAL MONTH</b><small lang="bn">নির্বাচিত ঐতিহাসিক মাস · ২০২৪ সাল</small></div>
+          <strong>{active ? monthLabel(active.month).en : "—"} · {num(active?.precipitation_total_mm ?? null)} mm <small lang="bn">{active ? monthLabel(active.month).bn : ""} · ঐতিহাসিক বৃষ্টি</small></strong>
         </div>
         <div className="rain-terrain__viewport">
           <div className="rain-terrain__plane" role="group" aria-label="Select one of twelve historical monthly precipitation columns">

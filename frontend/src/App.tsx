@@ -1,4 +1,6 @@
 import FieldScene from "./FieldScene";
+import BangladeshAtlas from "./BangladeshAtlas";
+import FarmReport, { type PlanBrief } from "./FarmReport";
 import ClimateExplorer from "./ClimateExplorer";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
@@ -11,6 +13,15 @@ import {
   type Location,
   type Status,
 } from "./api";
+
+const planningMonths: {en:string;bn:string}[] = [
+  {en:"January",bn:"জানুয়ারি"},{en:"February",bn:"ফেব্রুয়ারি"},
+  {en:"March",bn:"মার্চ"},{en:"April",bn:"এপ্রিল"},
+  {en:"May",bn:"মে"},{en:"June",bn:"জুন"},
+  {en:"July",bn:"জুলাই"},{en:"August",bn:"আগস্ট"},
+  {en:"September",bn:"সেপ্টেম্বর"},{en:"October",bn:"অক্টোবর"},
+  {en:"November",bn:"নভেম্বর"},{en:"December",bn:"ডিসেম্বর"},
+];
 
 const initialFarm: FarmProfile = {
   location_id: "rajshahi-pilot",
@@ -99,6 +110,10 @@ export default function App() {
   const [farmResult, setFarmResult] = useState<FarmValidation | null>(null);
   const [farmError, setFarmError] = useState("");
   const [farmBusy, setFarmBusy] = useState(false);
+  const [startMonth, setStartMonth] = useState<number>(() => (new Date().getMonth()+1)%12+1);
+  const [startYear, setStartYear] = useState<number>(() => Math.min(2035,Math.max(2026,new Date().getFullYear()+(new Date().getMonth()===11?1:0))));
+  const [candidateCrop, setCandidateCrop] = useState("");
+  const [brief, setBrief] = useState<PlanBrief | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -134,6 +149,7 @@ export default function App() {
   function changeFarm<K extends keyof FarmProfile>(key: K, value: FarmProfile[K]) {
     setFarm((current) => ({ ...current, [key]: value }));
     setFarmResult(null);
+    setBrief(null);
     setFarmError("");
   }
 
@@ -143,7 +159,16 @@ export default function App() {
     setFarmError("");
     setFarmResult(null);
     try {
-      setFarmResult(await apiPost<FarmValidation>("/api/v1/farms/validate", farm));
+      const checked = await apiPost<FarmValidation>("/api/v1/farms/validate", farm);
+      setFarmResult(checked);
+      const report = await apiPost<PlanBrief>("/api/v1/plans/preview", {
+        farm, start_month: startMonth, start_year: startYear,
+        candidate_crop: candidateCrop.trim() || null,
+      });
+      setBrief(report);
+      window.setTimeout(() => document.getElementById("boponx-report")?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+      }), 70);
     } catch (error) {
       setFarmError(error instanceof ApiError ? error.message : "Farm inputs could not be validated.");
     } finally {
@@ -163,8 +188,8 @@ export default function App() {
           <span className="brand-sub" lang="bn">বপনএক্স</span>
         </a>
         <nav aria-label="Primary">
-          <a href="#climate"><Duo en="NASA data" bn="NASA ডেটা" /></a>
-          <a href="#farm"><Duo en="Farm setup" bn="খামার তথ্য" /></a>
+          <a href="#climate"><Duo en="Climate" bn="জলবায়ু" /></a>
+          <a href="#farm"><Duo en="My plan" bn="আমার পরিকল্পনা" /></a>
           <a className="nav-github" href="https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026" target="_blank" rel="noreferrer">
             <Duo en="Source code" bn="সোর্স কোড" /> <span aria-hidden="true">↗</span>
           </a>
@@ -193,12 +218,12 @@ export default function App() {
             />
 
             <div className="hero-actions">
-              <a className="button primary" href="#climate">
-                <Duo en="Explore NASA climate data" bn="NASA জলবায়ু ডেটা দেখুন" />
+              <a className="button primary" href="#farm">
+                <Duo en="Create my 3-month brief" bn="আমার তিন মাসের প্রস্তুতি নোট" />
                 <span aria-hidden="true">↗</span>
               </a>
-              <a className="button ghost" href="#farm">
-                <Duo en="Set up a pilot farm" bn="পাইলট খামার সেট করুন" />
+              <a className="button ghost" href="#climate">
+                <Duo en="Explore NASA climate data" bn="NASA জলবায়ু ডেটা দেখুন" />
                 <span aria-hidden="true">↓</span>
               </a>
             </div>
@@ -224,6 +249,8 @@ export default function App() {
           <div><b>02</b><Duo en="Local context" bn="স্থানীয় বাস্তবতা" /></div>
           <div><b>03</b><Duo en="Explainable decisions" bn="ব্যাখ্যাযোগ্য সিদ্ধান্ত" /></div>
         </section>
+
+        <BangladeshAtlas dataReady={climateStatus === "ready"} />
 
         <section className="section climate-section" id="climate" aria-labelledby="climate-heading">
           <div className="section-heading-row">
@@ -351,8 +378,9 @@ export default function App() {
                 <label>
                   <Duo en="Regional pilot location" bn="পাইলট অঞ্চল" />
                   <select value={farm.location_id} onChange={(e) => changeFarm("location_id", e.target.value as FarmProfile["location_id"])}>
-                    <option value="rajshahi-pilot">Rajshahi regional pilot · রাজশাহী পাইলট</option>
+                    <option value="rajshahi-pilot">Rajshahi · রাজশাহী</option>
                   </select>
+                  <span className="form-helper">Provisional regional pilot · <span lang="bn">অস্থায়ী আঞ্চলিক পাইলট</span></span>
                 </label>
 
                 <label>
@@ -388,15 +416,40 @@ export default function App() {
                 </label>
               </div>
 
+              <div className="plan-inputs">
+                <div className="plan-inputs__headline">
+                  <strong>Build my printable 3-month brief</strong>
+                  <span lang="bn">আমার তিন মাসের প্রিন্টযোগ্য প্রস্তুতি নোট তৈরি করুন</span>
+                </div>
+                <div className="plan-inputs__grid">
+                  <label>
+                    <Duo en="Start month" bn="শুরুর মাস" />
+                    <select value={startMonth} onChange={(e)=>{setStartMonth(Number(e.target.value));setBrief(null)}}>
+                      {planningMonths.map((month,index)=><option value={index+1} key={month.en}>{month.en} · {month.bn}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <Duo en="Start year" bn="শুরুর বছর" />
+                    <select value={startYear} onChange={(e)=>{setStartYear(Number(e.target.value));setBrief(null)}}>
+                      {Array.from({length:10},(_,i)=>2026+i).map(year=><option value={year} key={year}>{year}</option>)}
+                    </select>
+                  </label>
+                  <label className="plan-inputs__candidate">
+                    <Duo en="Crop you are considering (optional; not a BoponX recommendation)" bn="আপনি যে ফসলের কথা ভাবছেন (ঐচ্ছিক; BoponX-এর সুপারিশ নয়)" />
+                    <input type="text" maxLength={80} value={candidateCrop} onChange={(e)=>{setCandidateCrop(e.target.value);setBrief(null)}} placeholder="Your own crop idea · আপনার ভাবনায় ফসল" />
+                  </label>
+                </div>
+              </div>
+
               <Duo
                 as="p"
                 className="form-privacy"
-                en="This validates inputs only. No account is created and the form does not save a personal farm profile."
-                bn="এটি শুধু ইনপুট যাচাই করে। কোনো অ্যাকাউন্ট তৈরি হয় না এবং ব্যক্তিগত খামার প্রোফাইল সংরক্ষণ করা হয় না।"
+                en="Your inputs produce a printable three-month preparation brief. No account is created, and this form does not save your farm profile. It does not select crops or planting dates."
+                bn="আপনার তথ্য থেকে প্রিন্টযোগ্য তিন মাসের প্রস্তুতি নোট তৈরি হবে। কোনো অ্যাকাউন্ট তৈরি বা খামারের তথ্য সংরক্ষণ করা হয় না। এটি ফসল বা বপনের তারিখ নির্ধারণ করে না।"
               />
 
               <button className="button primary submit-button" type="submit" disabled={farmBusy}>
-                <Duo en={farmBusy ? "Validating…" : "Validate farm inputs"} bn={farmBusy ? "যাচাই হচ্ছে…" : "খামারের তথ্য যাচাই করুন"} />
+                <Duo en={farmBusy ? "Preparing your brief…" : "Generate my 3-month brief"} bn={farmBusy ? "প্রস্তুতি নোট তৈরি হচ্ছে…" : "আমার তিন মাসের নোট তৈরি করুন"} />
                 <span aria-hidden="true">↗</span>
               </button>
 
@@ -412,29 +465,34 @@ export default function App() {
                   <Duo
                     as="p"
                     en={farmResult.missing_inputs.length ? `Still unknown: ${farmResult.missing_inputs.join(", ").replaceAll("_", " ")}.` : "All requested fields are supplied."}
-                    bn={farmResult.missing_inputs.length ? "কিছু তথ্য এখনো অজানা আছে।" : "চাওয়া সব তথ্য দেওয়া হয়েছে।"}
+                    bn={farmResult.missing_inputs.length ? `অজানা: ${farmResult.missing_inputs.map(x=>({
+                      previous_crop:"আগের ফসল",soil_ph:"মাটির pH",
+                      soil_texture:"মাটির ধরন",irrigation_mode:"সেচ সুবিধা",priorities:"অগ্রাধিকার",
+                    }[x] ?? x)).join(" · ")}।` : "চাওয়া সব তথ্য দেওয়া হয়েছে।"}
                   />
                 </div>
               )}
             </form>
 
             <aside className="planning-aside">
-              <div className="planning-topline"><span>03</span><Duo en="Next decision layer" bn="পরবর্তী সিদ্ধান্ত স্তর" /></div>
+              <div className="planning-topline"><span>03</span><Duo en="Your next steps" bn="আপনার পরবর্তী পদক্ষেপ" /></div>
               <div className="three-season">
                 <span>01</span><i /><span>02</span><i /><span>03</span>
               </div>
-              <h3>Plan the next<br /><em>3 seasons.</em></h3>
-              <p lang="bn" className="aside-bn">পরবর্তী ৩ মৌসুম পরিকল্পনা করুন।</p>
+              <h3>Start with<br /><em>3 months.</em></h3>
+              <p lang="bn" className="aside-bn">শুরু করুন পরবর্তী ৩ মাসের প্রস্তুতি দিয়ে।</p>
               <Duo
                 as="p"
-                en="Rotation comparisons will unlock after local crop profiles, calendars and soil constraints are source-reviewed."
-                bn="স্থানীয় ফসল প্রোফাইল, ফসল ক্যালেন্ডার ও মাটির শর্ত উৎসসহ যাচাই হওয়ার পর রোটেশন তুলনা চালু হবে।"
+                en="Submit your farm details for a printable, bilingual field-preparation checklist and 2024 NASA historical context. Reviewed crop-rotation advice is a separate development gate."
+                bn="আপনার তথ্য দিন, প্রিন্টযোগ্য বাংলা-ইংরেজি প্রস্তুতি তালিকা ও ২০২৪ সালের NASA ঐতিহাসিক তথ্য পান। ফসল আবর্তন পরামর্শ আলাদা গবেষণা-যাচাইয়ের কাজ।"
               />
-              <div className="aside-state"><span className="status-dot" aria-hidden="true" /><Duo en="Agronomic rule review pending" bn="কৃষিতাত্ত্বিক নিয়ম যাচাই বাকি" /></div>
+              <div className="aside-state"><span className="status-dot" aria-hidden="true" /><Duo en="Printable brief available · crop rules pending" bn="প্রস্তুতি নোট প্রস্তুত · ফসলের নিয়ম যাচাই বাকি" /></div>
               <Duo as="p" className="aside-footnote" en="No fictional yield, soil-health score or water-saving estimate is shown." bn="কোনো কল্পিত ফলন, মাটির স্বাস্থ্য স্কোর বা পানি সাশ্রয়ের অনুমান দেখানো হয় না।" />
             </aside>
           </div>
         </section>
+
+        {brief && <FarmReport brief={brief} />}
 
         <section className="manifesto">
           <div className="manifesto-flag" aria-hidden="true"><span /></div>
@@ -446,8 +504,8 @@ export default function App() {
           <Duo
             as="p"
             className="manifesto-copy"
-            en="BoponX is designed by Team EARTH.exe to make complex Earth-observation information understandable, inspectable and useful for real farming decisions."
-            bn="Team EARTH.exe-এর BoponX এমনভাবে তৈরি হচ্ছে যাতে জটিল পৃথিবী পর্যবেক্ষণ তথ্য কৃষকের জন্য সহজবোধ্য, যাচাইযোগ্য এবং বাস্তব সিদ্ধান্তে ব্যবহারযোগ্য হয়।"
+            en="BoponX is designed by Team EARTH.exe to make NASA environmental evidence understandable and traceable; agricultural choices remain with farmers and their local advisers."
+            bn="Team EARTH.exe-এর BoponX NASA পরিবেশগত তথ্য সহজবোধ্য ও যাচাইযোগ্য করে। কৃষি সিদ্ধান্ত নেবেন কৃষক ও তাঁদের স্থানীয় পরামর্শক।"
           />
         </section>
       </main>
@@ -458,6 +516,9 @@ export default function App() {
           <Duo en="From Space to Soil" bn="মহাকাশ থেকে মাটিতে" />
         </div>
         <div><Duo en="By Team EARTH.exe · Bangladesh · 2026" bn="Team EARTH.exe · বাংলাদেশ · ২০২৬" /></div>
+        <a className="footer-source" href="https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026" target="_blank" rel="noreferrer">
+          <Duo en="Project source code" bn="প্রকল্পের সোর্স কোড" /> ↗
+        </a>
         <a href="https://power.larc.nasa.gov/docs/services/api/temporal/daily/" target="_blank" rel="noreferrer">
           <Duo en="NASA POWER documentation" bn="NASA POWER ডকুমেন্টেশন" /> ↗
         </a>

@@ -74,7 +74,29 @@ inform decisions. This prototype's POWER/MERRA-2 reanalysis establishes an
 environmental-data pipeline, but it does **not yet demonstrate material use of
 a validated direct Earth-observation product in the rotation engine**.
 
+## Deterministic three-month preparation brief
+
+The `POST /api/v1/plans/preview` endpoint uses the farmer's explicitly entered
+profile, chosen planning start month/year, optional *farmer-considered* crop
+and primary priority. It aligns each of the next **three calendar months**
+with the **same calendar month in the one validated historical 2024 dataset**.
+For example, November 2026 is shown beside observed **November 2024** rainfall
+and mean temperature with the historical year displayed; this is **not a
+November 2026 weather forecast**. Missing historical months yield `null`,
+not an invented estimate. Bilingual tasks involve field logging, confirming
+missing information and discussing locally validated crop calendars with
+the agricultural extension service. No crop, sowing date, fertilizer,
+irrigation volume or numeric benefit is recommended. Crop-rotation comparison
+continues to fail closed pending local agronomic review.
+
+The report can be printed to **A4 PDF using the browser's native printing
+system**, which preserves locally available Bengali fonts. The API neither
+stores the farmer profile nor returns a pre-rendered PDF binary. The PDF
+exists on the farmer's device only after the user chooses Save as PDF.
+
 ## UI imagery and intellectual honesty
+
+The Bangladesh map silhouette adapts Natural Earth 1:110m country geometry (public domain; https://www.naturalearthdata.com/about/terms-of-use/); the pilot pin represents 24.37° N, 88.60° E and is not a surveyed farm location. The SVG rivers/terrain effects are original illustration, not geospatial river data.
 
 The animated orbital field/satellite scene is original conceptual CSS-3D
 artwork. The rainfall columns are a transformation of the pinned *historical*
