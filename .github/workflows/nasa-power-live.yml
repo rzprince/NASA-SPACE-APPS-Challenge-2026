@@ -1,0 +1,74 @@
+name: NASA POWER live pilot validation
+
+on:
+  push:
+    branches:
+      - chore/nasa-power-live-validation
+    paths:
+      - ".github/workflows/nasa-power-live.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acquire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Request one historical NASA POWER pilot snapshot
+        run: |
+          python -m data.acquisition.power \
+            --location rajshahi-pilot \
+            --latitude 24.37 --longitude 88.60 \
+            --start 20240101 --end 20241231
+      - name: Validate raw checksum, source and historical coverage
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          processed = Path("data/processed/power_rajshahi-pilot_20240101_20241231.json")
+          data = json.loads(processed.read_text())
+          evidence = data["evidence"]
+          digest = evidence["raw_sha256"]
+          raw = Path("data/raw") / f"power_{digest}.json"
+          assert hashlib.sha256(raw.read_bytes()).hexdigest() == digest, "Raw checksum mismatch"
+          assert evidence["ingestion_origin"] == "nasa_power_https", "Unverified origin"
+          assert evidence["provider"] == "NASA POWER", "Unexpected provider"
+          assert evidence["source_request_url"].startswith(
+              "https://power.larc.nasa.gov/api/temporal/daily/point?"
+          ), "Unexpected source URL"
+          assert data["schema_version"] == "power-pilot/v1", "Unexpected processed schema"
+          assert len(data["daily"]) == 366, "Expected a full leap-year date grid"
+          for name in ("T2M", "PRECTOTCORR"):
+              assert data["variables"][name]["provider_unit"], f"Missing unit for {name}"
+              coverage = data["summary"]["coverage"][name]
+              assert coverage["fraction"] >= 0.95, f"Inadequate {name} coverage"
+          print(json.dumps({
+              "snapshot_id": evidence["snapshot_id"],
+              "source_products": evidence["source_products"],
+              "variables": data["variables"],
+              "coverage": data["summary"]["coverage"],
+              "raw_sha256": digest,
+              "source_geometry": evidence["source_geometry"],
+              "historical_period": data["period"],
+          }, indent=2))
+          PY
+      - name: Save exact pilot data for team review
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boponx-nasa-power-rajshahi-2024
+          path: |
+            data/raw/power_*.json
+            data/processed/power_*.json
+          retention-days: 14
+          if-no-files-found: error
