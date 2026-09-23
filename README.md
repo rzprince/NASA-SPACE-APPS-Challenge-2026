@@ -6,7 +6,7 @@ BoponX is an evidence-first, mobile-first crop-rotation decision-support project
 
 ## Implementation status (23 September 2026)
 
-**Implemented:** NASA POWER daily acquisition/validation, a versioned processed-data format, FastAPI health/location/climate endpoints, farm-input validation, mobile-first React climate viewer, source-evidence display, and offline backend tests. **Not yet implemented:** source-reviewed crop-rule catalog, rotation comparison engine, direct-EO integration, installable PWA, public deployment, and farmer-facing agricultural advice. A live NASA dataset has not yet been acquired in the development runtime; the app displays an explicit unavailable state until a verified snapshot exists.
+**Implemented:** NASA POWER daily acquisition/validation, a versioned processed-data format, FastAPI health/location/climate endpoints, farm-input validation, mobile-first React climate viewer, source-evidence display, and offline backend tests. **Not yet implemented:** source-reviewed crop-rule catalog, rotation comparison engine, direct-EO integration, installable PWA, public deployment, and farmer-facing agricultural advice. A real 2024 NASA POWER snapshot was acquired and validated by GitHub Actions on 23 September 2026; it is available as a downloadable workflow artifact, **not** committed to Git. The app displays an explicit unavailable state until the validated files are placed in the local data directory. The returned POWER source metadata identifies MERRA2 reanalysis, not a direct satellite observation; direct EO integration remains a separate gate.
 
 ## Start the backend
 
@@ -42,6 +42,8 @@ python -m data.acquisition.power --location rajshahi-pilot --latitude 24.37 --lo
 The coordinate is an **illustrative regional reference point**, not a surveyed farm. The command requests the NASA POWER agroclimatology daily parameters `T2M` and `PRECTOTCORR` with explicit local-solar-time (`LST`) days. It saves an immutable raw response and a validated, provenance-tagged summary under ignored `data/raw/` and `data/processed/`. An already processed snapshot is reused; use `--refresh` to request a new one deliberately. On a network error it exits rather than creating synthetic NASA data.
 
 The route `GET /api/v1/climate/rajshahi-pilot` becomes available after a successful acquisition using the specified date range. Use `BOPONX_DATA_ROOT=/path/to/data` to change the data directory.
+
+**Verified data shortcut:** The [successful NASA POWER validation run](https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026/actions/runs/35860018103) includes the `boponx-nasa-power-rajshahi-2024` artifact (raw response + validated processed snapshot). Download the artifact ZIP and extract it into this repository's `data/` directory so that `data/raw/` and `data/processed/` are populated; then start the backend. The ZIP is not a crop recommendation, a farm measurement, or a live forecast.
 
 ## Run tests without NASA network access
 
