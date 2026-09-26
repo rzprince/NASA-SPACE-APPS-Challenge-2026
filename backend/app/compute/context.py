@@ -1,14 +1,16 @@
 """Location-aware context for BoponX.
 
 This module deliberately distinguishes environmental coverage from agronomic
-support. A map pin can resolve to a nearby Bangladesh agricultural region even
-when no reviewed crop-rotation rule pack exists for that location.
+support. A map pin can resolve to a nearby Bangladesh agricultural evidence
+region even when no reviewed crop-rotation rule pack exists for that location.
 """
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from math import asin, cos, radians, sin, sqrt
 from typing import Any
+
+from backend.app.compute.agronomy import calendar_evidence_for_region
 
 BANGLADESH_BOUNDS = {
     "south": 20.5,
@@ -71,12 +73,22 @@ NASA_SOURCES: tuple[dict[str, Any], ...] = (
     {
         "id": "nasa-power-daily",
         "name": "NASA POWER Daily",
-        "role": "historical_and_recent_climate_context",
+        "role": "recent_and_historical_climate_context",
         "kind": "model_assimilated_reanalysis_context",
-        "status": "live_point_query",
+        "status": "recent_point_query",
         "latency_note": "Availability depends on upstream products; values are not field measurements.",
         "resolution_note": "Source-grid context, not parcel-scale sensing.",
         "source_url": "https://power.larc.nasa.gov/docs/services/api/temporal/daily/",
+    },
+    {
+        "id": "nasa-power-climatology",
+        "name": "NASA POWER Climatology",
+        "role": "multi_year_baseline",
+        "kind": "historical_climate_context",
+        "status": "selected_location_query",
+        "latency_note": "Historical baseline; not current conditions or a forecast.",
+        "resolution_note": "Source-grid context, not parcel-scale sensing.",
+        "source_url": "https://power.larc.nasa.gov/docs/services/api/temporal/climatology/",
     },
     {
         "id": "nasa-gibs-imerg",
@@ -128,14 +140,15 @@ def build_context(lat: float, lon: float) -> dict[str, Any]:
         },
         "coverage": {
             "environmental_context": "available" if inside else "outside_bangladesh_pilot",
-            "local_agricultural_evidence": "source_indexed" if inside else "not_assessed",
+            "local_agricultural_evidence": "calendar_sources_indexed" if inside else "not_assessed",
             "rotation_decision": "evidence_review_required",
         },
+        "calendar_evidence": calendar_evidence_for_region(area.evidence_region) if inside else [],
         "agricultural_sources": [
             {
                 "name": "BAMIS / Department of Agricultural Extension crop-weather calendars",
                 "scope": f"{area.evidence_region} regional calendar index",
-                "status": "source_identified_not_encoded_as_rules",
+                "status": "calendar_sources_indexed_not_encoded_as_rules",
                 "source_url": "https://www.bamis.gov.bd/en/calendar",
             },
             {

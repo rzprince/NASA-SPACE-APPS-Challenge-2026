@@ -10,10 +10,12 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.app.compute.agronomy import calendar_evidence_for_region, supported_calendar_regions
 from backend.app.compute.context import build_context, list_areas
 from backend.app.compute.monthly import aggregate_monthly
 from backend.app.compute.plan import make_90_day_plan
-from backend.app.services.power_live import fetch_recent_power
+from backend.app.services.geocoder import reverse_bangladesh_place, search_bangladesh_places
+from backend.app.services.power_live import fetch_power_climatology, fetch_recent_power
 
 app = FastAPI(title="BoponX API")
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +51,7 @@ class PlanRequest(BaseModel):
     start_year: int = Field(ge=2026, le=2035)
     start_month: int = Field(ge=1, le=12)
     include_recent_power: bool = True
+    include_climate_baseline: bool = False
 
 
 def snapshot_path() -> Path:
@@ -93,6 +96,8 @@ def health() -> dict:
         "pinned_power_snapshot_ready": pinned_ready,
         "pinned_power_snapshot_id": snapshot_id,
         "location_context_ready": True,
+        "place_search_ready": True,
+        "regional_calendar_index_ready": True,
     }
 
 
@@ -100,7 +105,50 @@ def health() -> dict:
 def areas() -> dict:
     return {
         "areas": list_areas(),
-        "note": "These are regional evidence reference points, not administrative boundary polygons.",
+        "note": "These are regional agricultural evidence hubs, not administrative boundary polygons.",
+    }
+
+
+@app.get("/api/v1/places/search")
+def place_search(q: str = Query(min_length=2, max_length=120)) -> dict:
+    try:
+        results = search_bangladesh_places(q)
+    except Exception:
+        results = []
+    return {
+        "query": q,
+        "results": results,
+        "provider": "OpenStreetMap Nominatim",
+        "status": "available" if results else "no_results_or_service_unavailable",
+        "note": "Place search is for location selection only; it is not an agricultural evidence source.",
+    }
+
+
+@app.get("/api/v1/places/reverse")
+def place_reverse(
+    lat: float = Query(ge=-90, le=90),
+    lon: float = Query(ge=-180, le=180),
+) -> dict:
+    try:
+        place = reverse_bangladesh_place(lat, lon)
+    except Exception:
+        place = None
+    return {
+        "place": place,
+        "provider": "OpenStreetMap Nominatim",
+        "status": "available" if place else "unavailable",
+    }
+
+
+@app.get("/api/v1/agronomy/calendars")
+def agronomy_calendars(region: str = Query(min_length=2, max_length=80)) -> dict:
+    evidence = calendar_evidence_for_region(region)
+    return {
+        "region": region,
+        "calendar_evidence": evidence,
+        "supported_regions": supported_calendar_regions(),
+        "status": "calendar_sources_found" if evidence else "no_indexed_calendar_sources",
+        "warning": "Calendar presence means an official BAMIS regional crop-weather calendar exists. It is not a crop-suitability or rotation recommendation.",
     }
 
 
@@ -125,14 +173,37 @@ def recent_environment(
     except Exception:
         return {
             "status": "unavailable",
-            "mode": "live_query_failed",
+            "mode": "recent_query_failed",
             "provider": "NASA POWER",
             "coordinates": {"latitude": lat, "longitude": lon},
             "source_request_url": "https://power.larc.nasa.gov/docs/services/api/temporal/daily/",
             "limitations": [
-                "The live NASA request could not be completed. No replacement value was invented.",
+                "The recent NASA POWER request could not be completed. No replacement value was invented.",
                 "Use the map's dated IMERG layer for recent rainfall visualization and retry when connectivity is available.",
             ],
+        }
+
+
+@app.get("/api/v1/environment/baseline")
+def environment_baseline(
+    lat: float = Query(ge=-90, le=90),
+    lon: float = Query(ge=-180, le=180),
+    month: int = Query(ge=1, le=12),
+) -> dict:
+    context = build_context(lat, lon)
+    if not context["within_bangladesh"]:
+        raise HTTPException(status_code=400, detail={"code": "OUTSIDE_BANGLADESH_PILOT", "message": "Choose a location inside Bangladesh."})
+    try:
+        return fetch_power_climatology(lat, lon, month=month)
+    except Exception:
+        return {
+            "status": "unavailable",
+            "provider": "NASA POWER",
+            "kind": "historical_climatology",
+            "coordinates": {"latitude": lat, "longitude": lon},
+            "summary": None,
+            "source_request_url": "https://power.larc.nasa.gov/docs/services/api/temporal/climatology/",
+            "limitations": ["The POWER climatology request failed. No baseline value was invented."],
         }
 
 
@@ -191,6 +262,7 @@ def planning_preview(request: PlanRequest) -> dict:
     if not context["within_bangladesh"]:
         raise HTTPException(status_code=400, detail={"code": "OUTSIDE_BANGLADESH_PILOT"})
     recent = None
+    baseline = None
     if request.include_recent_power:
         try:
             recent = fetch_recent_power(request.farm.latitude, request.farm.longitude)
@@ -198,7 +270,21 @@ def planning_preview(request: PlanRequest) -> dict:
             recent = {
                 "status": "unavailable",
                 "provider": "NASA POWER",
-                "message": "Live selected-location context is unavailable. No fallback number was fabricated.",
+                "message": "Recent selected-location context is unavailable. No fallback number was fabricated.",
+            }
+    if request.include_climate_baseline:
+        try:
+            baseline = fetch_power_climatology(
+                request.farm.latitude,
+                request.farm.longitude,
+                month=request.start_month,
+            )
+        except Exception:
+            baseline = {
+                "status": "unavailable",
+                "provider": "NASA POWER",
+                "kind": "historical_climatology",
+                "message": "Selected-month climate baseline is unavailable. No fallback number was fabricated.",
             }
     try:
         return make_90_day_plan(
@@ -207,6 +293,7 @@ def planning_preview(request: PlanRequest) -> dict:
             start_year=request.start_year,
             start_month=request.start_month,
             recent_environment=recent,
+            baseline_environment=baseline,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "INVALID_PLAN_WINDOW", "message": str(exc)}) from exc
@@ -217,7 +304,7 @@ def crops() -> dict:
     return {
         "crops": [],
         "status": "PENDING_SOURCE_REVIEW",
-        "message": "Crop profiles remain unpublished until local calendars, requirements and reuse terms are reviewed.",
+        "message": "Calendar sources are indexed by region, but crop profiles and rotation rules remain unpublished until agronomic review.",
     }
 
 
@@ -227,6 +314,6 @@ def compare_rotations(profile: FarmerProfile) -> dict:
         status_code=409,
         detail={
             "code": "AGRONOMIC_RULES_NOT_APPROVED",
-            "message": "Rotation alternatives remain locked until source-reviewed local crop and sequence rules are integrated.",
+            "message": "Rotation alternatives remain locked until source-reviewed local crop requirements, soil constraints and crop-sequence rules are integrated.",
         },
     )

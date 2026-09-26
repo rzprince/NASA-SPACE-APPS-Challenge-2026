@@ -16,6 +16,7 @@ export default function DecisionReport({
   language: Language;
 }) {
   const recent = brief.recent_environment;
+  const baseline = brief.historical_baseline;
 
   function printReport() {
     const previous = document.title;
@@ -67,19 +68,23 @@ export default function DecisionReport({
         </div>
       </header>
 
-      {recent?.status === "available" && (
+      {(recent?.status === "available" || baseline?.status === "available") && (
         <section className="report-evidence-band">
           <div>
             <span>{txt(language, "Recent POWER period", "সাম্প্রতিক POWER সময়কাল")}</span>
-            <strong>{recent.period?.start} → {recent.period?.end}</strong>
+            <strong>{recent?.period?.start ?? "—"} → {recent?.period?.end ?? "—"}</strong>
           </div>
           <div>
-            <span>{txt(language, "Mean temperature", "গড় তাপমাত্রা")}</span>
-            <strong>{fmt(recent.summary?.temperature_mean_c, "°C")}</strong>
+            <span>{txt(language, "Recent mean temperature", "সাম্প্রতিক গড় তাপমাত্রা")}</span>
+            <strong>{fmt(recent?.summary?.temperature_mean_c, "°C")}</strong>
           </div>
           <div>
-            <span>{txt(language, "Complete-period rain", "সম্পূর্ণ সময়ের বৃষ্টি")}</span>
-            <strong>{fmt(recent.summary?.precipitation_total_mm, "mm")}</strong>
+            <span>{txt(language, "Planning-month baseline", "পরিকল্পনা মাসের বেসলাইন")}</span>
+            <strong>
+              {baseline?.status === "available" && baseline.summary
+                ? `${fmt(baseline.summary.temperature_mean_c, "°C")} · ${fmt(baseline.summary.precipitation_mean_daily_mm, "mm/day")}`
+                : "—"}
+            </strong>
           </div>
         </section>
       )}
@@ -137,6 +142,15 @@ export default function DecisionReport({
             <a href={source.source_url} target="_blank" rel="noreferrer" key={source.name}>
               <strong>{source.name}</strong>
               <span>{source.scope}</span>
+            </a>
+          ))}
+        </div>
+        <div>
+          <span className="kicker">{txt(language, "Regional crop calendars", "আঞ্চলিক ফসল ক্যালেন্ডার")}</span>
+          {brief.evidence.calendar_evidence.slice(0, 8).map((crop) => (
+            <a href={crop.source_url} target="_blank" rel="noreferrer" key={crop.id}>
+              <strong>{language === "bn" ? crop.name_bn : crop.name_en}</strong>
+              <span>{txt(language, "Official BAMIS calendar source — not a recommendation", "অফিসিয়াল BAMIS ক্যালেন্ডার উৎস — সুপারিশ নয়")}</span>
             </a>
           ))}
         </div>

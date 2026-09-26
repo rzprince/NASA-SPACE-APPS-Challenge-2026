@@ -9,7 +9,9 @@ import {
   type FarmerProfile,
   type Language,
   type LocationContext,
+  type PlaceResult,
   type PlanBrief,
+  type PowerBaseline,
   type RecentEnvironment,
   type Status,
 } from "./api";
@@ -47,11 +49,16 @@ export default function App() {
   const [language, setLanguage] = useState<Language>("bn");
   const [areas, setAreas] = useState<Area[]>([]);
   const [search, setSearch] = useState("");
+  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
+  const [placeSearchStatus, setPlaceSearchStatus] = useState<Status>("idle");
+  const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
   const [point, setPoint] = useState<Point | null>(null);
   const [context, setContext] = useState<LocationContext | null>(null);
   const [contextStatus, setContextStatus] = useState<Status>("idle");
   const [recent, setRecent] = useState<RecentEnvironment | null>(null);
   const [recentStatus, setRecentStatus] = useState<Status>("idle");
+  const [baseline, setBaseline] = useState<PowerBaseline | null>(null);
+  const [baselineStatus, setBaselineStatus] = useState<Status>("idle");
   const [locationError, setLocationError] = useState("");
   const [gpsBusy, setGpsBusy] = useState(false);
   const [plan, setPlan] = useState<PlanBrief | null>(null);
@@ -75,11 +82,45 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const query = search.trim();
+    if (query.length < 2) {
+      setPlaceResults([]);
+      setPlaceSearchStatus("idle");
+      return;
+    }
+    const controller = new AbortController();
+    setPlaceSearchStatus("loading");
+    const timer = window.setTimeout(() => {
+      apiGet<{ results: PlaceResult[] }>(
+        `/api/v1/places/search?q=${encodeURIComponent(query)}`,
+        controller.signal,
+      )
+        .then((payload) => {
+          setPlaceResults(payload.results);
+          setPlaceSearchStatus("ready");
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setPlaceResults([]);
+            setPlaceSearchStatus("unavailable");
+          }
+        });
+    }, 320);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [search]);
+
+  useEffect(() => {
     if (!point) {
       setContext(null);
       setRecent(null);
+      setBaseline(null);
+      setSelectedPlace(null);
       setContextStatus("idle");
       setRecentStatus("idle");
+      setBaselineStatus("idle");
       return;
     }
 
@@ -118,6 +159,40 @@ export default function App() {
     return () => controller.abort();
   }, [point]);
 
+  useEffect(() => {
+    if (!point) return;
+    const controller = new AbortController();
+    setBaselineStatus("loading");
+
+    apiGet<{ place: PlaceResult | null }>(
+      `/api/v1/places/reverse?lat=${point.latitude}&lon=${point.longitude}`,
+      controller.signal,
+    )
+      .then((payload) => {
+        if (payload.place) setSelectedPlace(payload.place);
+      })
+      .catch(() => {
+        // Reverse geocoding is optional; the map/context flow still works.
+      });
+
+    apiGet<PowerBaseline>(
+      `/api/v1/environment/baseline?lat=${point.latitude}&lon=${point.longitude}&month=${startMonth}`,
+      controller.signal,
+    )
+      .then((payload) => {
+        setBaseline(payload);
+        setBaselineStatus(payload.status === "available" ? "ready" : "unavailable");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setBaseline(null);
+          setBaselineStatus("unavailable");
+        }
+      });
+
+    return () => controller.abort();
+  }, [point, startMonth]);
+
   const filteredAreas = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return areas;
@@ -130,14 +205,23 @@ export default function App() {
   }, [areas, search]);
 
   function chooseArea(area: Area) {
+    setSelectedPlace(null);
     setPoint({ latitude: area.latitude, longitude: area.longitude });
     setSearch("");
+    setPlaceResults([]);
     window.setTimeout(() => {
       document.getElementById("location-workspace")?.scrollIntoView({
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
         block: "start",
       });
     }, 50);
+  }
+
+  function choosePlace(place: PlaceResult) {
+    setSelectedPlace(place);
+    setPoint({ latitude: place.latitude, longitude: place.longitude });
+    setSearch("");
+    setPlaceResults([]);
   }
 
   function useMyLocation() {
@@ -150,6 +234,7 @@ export default function App() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setGpsBusy(false);
+        setSelectedPlace(null);
         setPoint({
           latitude: Number(position.coords.latitude.toFixed(5)),
           longitude: Number(position.coords.longitude.toFixed(5)),
@@ -196,6 +281,7 @@ export default function App() {
         start_year: startYear,
         start_month: startMonth,
         include_recent_power: true,
+        include_climate_baseline: true,
       });
       setPlan(payload);
       window.setTimeout(() => {
@@ -314,25 +400,42 @@ export default function App() {
             </button>
 
             <label className="area-search">
-              <span>{t(language, "Search a region", "অঞ্চল খুঁজুন")}</span>
+              <span>{t(language, "Search place", "জায়গা খুঁজুন")}</span>
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder={t(language, "Rajshahi, Khulna, Rangpur…", "রাজশাহী, খুলনা, রংপুর…")}
+                placeholder={t(language, "Village, upazila, district…", "গ্রাম, উপজেলা, জেলা…")}
               />
             </label>
           </div>
 
           {search && (
-            <div className="area-results">
-              {filteredAreas.slice(0, 8).map((area) => (
+            <div className="area-results place-results">
+              {placeResults.slice(0, 6).map((place, index) => (
+                <button
+                  key={`${place.latitude}-${place.longitude}-${index}`}
+                  type="button"
+                  onClick={() => choosePlace(place)}
+                >
+                  <strong>{place.name ?? place.address.village ?? place.address.town ?? t(language, "Selected place", "নির্বাচিত জায়গা")}</strong>
+                  <small>
+                    {[place.address.upazila, place.address.district, place.address.division]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </small>
+                </button>
+              ))}
+              {placeResults.length === 0 && filteredAreas.slice(0, 6).map((area) => (
                 <button key={area.id} type="button" onClick={() => chooseArea(area)}>
                   <strong>{language === "bn" ? area.name_bn : area.name_en}</strong>
                   <small>{language === "bn" ? area.name_en : area.name_bn}</small>
                 </button>
               ))}
-              {filteredAreas.length === 0 && (
-                <p>{t(language, "No matching reference region. You can still tap the map.", "মিল পাওয়া যায়নি। তবুও মানচিত্রে ট্যাপ করে জায়গা বেছে নিতে পারেন।")}</p>
+              {placeSearchStatus === "loading" && (
+                <p>{t(language, "Searching Bangladesh places…", "বাংলাদেশের জায়গা খোঁজা হচ্ছে…")}</p>
+              )}
+              {placeSearchStatus !== "loading" && placeResults.length === 0 && filteredAreas.length === 0 && (
+                <p>{t(language, "No match found. Tap the map to choose the field directly.", "মিল পাওয়া যায়নি। সরাসরি জমি বেছে নিতে মানচিত্রে ট্যাপ করুন।")}</p>
               )}
             </div>
           )}
@@ -355,15 +458,24 @@ export default function App() {
                     <div>
                       <span className="kicker">{t(language, "Selected field area", "নির্বাচিত জমির এলাকা")}</span>
                       <h3>
-                        {context
-                          ? language === "bn"
-                            ? context.nearest_supported_region.name_bn
-                            : context.nearest_supported_region.name_en
-                          : t(language, "Resolving area…", "এলাকা শনাক্ত হচ্ছে…")}
+                        {selectedPlace?.name ??
+                          (context
+                            ? language === "bn"
+                              ? context.nearest_supported_region.name_bn
+                              : context.nearest_supported_region.name_en
+                            : t(language, "Resolving area…", "এলাকা শনাক্ত হচ্ছে…"))}
                       </h3>
                     </div>
                     <span className={`context-status ${contextStatus}`}>{statusLabel(contextStatus, language)}</span>
                   </div>
+
+                  {selectedPlace && (
+                    <div className="place-detail-line">
+                      <span>{selectedPlace.address.village ?? selectedPlace.address.town ?? ""}</span>
+                      <span>{selectedPlace.address.upazila ?? ""}</span>
+                      <span>{selectedPlace.address.district ?? ""}</span>
+                    </div>
+                  )}
 
                   <div className="coordinate-line">
                     <span>{point.latitude.toFixed(4)}°</span>
@@ -456,7 +568,23 @@ export default function App() {
                   </div>
                 )}
                 {recentStatus === "unavailable" && (
-                  <p className="unavailable-note">{t(language, "Live point query unavailable. No value was substituted.", "লাইভ পয়েন্ট কুয়েরি পাওয়া যায়নি। কোনো বিকল্প সংখ্যা বানানো হয়নি।")}</p>
+                  <p className="unavailable-note">{t(language, "Recent POWER query unavailable. No value was substituted.", "সাম্প্রতিক POWER কুয়েরি পাওয়া যায়নি। কোনো বিকল্প সংখ্যা বানানো হয়নি।")}</p>
+                )}
+              </article>
+
+              <article>
+                <span className="signal-type baseline">{t(language, "Historical baseline", "ঐতিহাসিক ভিত্তি")}</span>
+                <h3>{t(language, "POWER climatology", "POWER ক্লাইমেটোলজি")}</h3>
+                <p>{t(language, "A 2001–2020 reference for the selected planning month, used as context—not as a forecast.", "নির্বাচিত পরিকল্পনা মাসের ২০০১–২০২০ রেফারেন্স; এটি প্রেক্ষাপট, পূর্বাভাস নয়।")}</p>
+                {baselineStatus === "loading" && <p className="loading-copy">{t(language, "Loading baseline…", "বেসলাইন লোড হচ্ছে…")}</p>}
+                {baseline?.status === "available" && baseline.summary && (
+                  <div className="recent-metrics">
+                    <div><strong>{baseline.summary.temperature_mean_c ?? "—"}°C</strong><span>{t(language, "monthly climate mean", "মাসিক জলবায়ু গড়")}</span></div>
+                    <div><strong>{baseline.summary.precipitation_mean_daily_mm ?? "—"} mm/day</strong><span>{t(language, "climatological daily rain", "ক্লাইমেটোলজিক্যাল দৈনিক বৃষ্টি")}</span></div>
+                  </div>
+                )}
+                {baselineStatus === "unavailable" && (
+                  <p className="unavailable-note">{t(language, "Baseline unavailable. No value was invented.", "বেসলাইন পাওয়া যায়নি। কোনো সংখ্যা বানানো হয়নি।")}</p>
                 )}
               </article>
             </div>
@@ -464,6 +592,26 @@ export default function App() {
             <div className="advisory-strip">
               <strong>{t(language, "2026 data-quality note", "২০২৬ ডেটা-গুণমান নোট")}</strong>
               <p>{t(language, "SMAP Standard/NRT products had a reported geolocation issue for 14 May–28 July 2026. Affected dates must be checked before use.", "SMAP Standard/NRT ডেটায় ১৪ মে–২৮ জুলাই ২০২৬ সময়ের জন্য geolocation সমস্যা রিপোর্ট করা হয়েছিল। ওই সময়ের ডেটা ব্যবহারের আগে অবস্থা যাচাই করতে হবে।")}</p>
+            </div>
+
+            <div className="regional-evidence">
+              <div className="regional-evidence-head">
+                <div>
+                  <span className="kicker">{t(language, "Local crop evidence", "স্থানীয় ফসলের প্রমাণ")}</span>
+                  <h3>{t(language, "Calendars published for this regional hub", "এই আঞ্চলিক হাবের জন্য প্রকাশিত ক্যালেন্ডার")}</h3>
+                </div>
+                <p>{t(language, "These links mean an official BAMIS crop-weather calendar exists for the regional hub. They are not crop recommendations.", "এই লিংকগুলো শুধু দেখায় যে আঞ্চলিক হাবটির জন্য অফিসিয়াল BAMIS ফসল-আবহাওয়া ক্যালেন্ডার আছে। এগুলো ফসলের সুপারিশ নয়।")}</p>
+              </div>
+              <div className="calendar-chip-grid">
+                {context.calendar_evidence.length > 0 ? context.calendar_evidence.slice(0, 9).map((crop) => (
+                  <a href={crop.source_url} target="_blank" rel="noreferrer" key={crop.id}>
+                    <strong>{language === "bn" ? crop.name_bn : crop.name_en}</strong>
+                    <small>{language === "bn" ? crop.name_en : crop.name_bn}</small>
+                  </a>
+                )) : (
+                  <p>{t(language, "No indexed BAMIS calendar evidence for this regional hub yet.", "এই আঞ্চলিক হাবের জন্য এখনও ইনডেক্স করা BAMIS ক্যালেন্ডার প্রমাণ নেই।")}</p>
+                )}
+              </div>
             </div>
           </section>
         )}

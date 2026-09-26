@@ -29,6 +29,54 @@ export type AgriculturalSource = {
   source_url: string;
 };
 
+export type CalendarEvidence = {
+  id: string;
+  name_en: string;
+  name_bn: string;
+  evidence_type: string;
+  region: string;
+  source_name: string;
+  source_url: string;
+  status: string;
+  meaning: string;
+};
+
+export type PlaceResult = {
+  display_name: string | null;
+  name: string | null;
+  latitude: number;
+  longitude: number;
+  type: string | null;
+  category: string | null;
+  address: {
+    village: string | null;
+    town: string | null;
+    upazila: string | null;
+    district: string | null;
+    division: string | null;
+    country: string | null;
+    country_code: string;
+  };
+  provider: string;
+};
+
+export type PowerBaseline = {
+  status: "available" | "unavailable";
+  provider: string;
+  kind: string;
+  baseline_period?: { start_year: number; end_year: number };
+  coordinates?: { latitude: number; longitude: number };
+  summary?: {
+    calendar_month: number;
+    calendar_month_key: string;
+    temperature_mean_c: number | null;
+    precipitation_mean_daily_mm: number | null;
+  } | null;
+  source_products?: string[];
+  source_request_url?: string;
+  limitations?: string[];
+};
+
 export type LocationContext = {
   coordinates: { latitude: number; longitude: number };
   within_bangladesh: boolean;
@@ -41,6 +89,7 @@ export type LocationContext = {
     local_agricultural_evidence: string;
     rotation_decision: string;
   };
+  calendar_evidence: CalendarEvidence[];
   agricultural_sources: AgriculturalSource[];
   nasa_sources: NasaSource[];
   privacy: {
@@ -102,6 +151,7 @@ export type PlanBrief = {
   planning_window: { start: string; end: string };
   months: PlanMonth[];
   recent_environment: RecentEnvironment | null;
+  historical_baseline: PowerBaseline | null;
   rotation_explorer: {
     status: string;
     message_en: string;
@@ -110,6 +160,7 @@ export type PlanBrief = {
   evidence: {
     nasa_sources: NasaSource[];
     agricultural_sources: AgriculturalSource[];
+    calendar_evidence: CalendarEvidence[];
   };
   limitations: { en: string; bn: string };
 };

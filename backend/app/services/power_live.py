@@ -1,4 +1,4 @@
-"""Live NASA POWER point context with a fail-closed response contract."""
+"""Recent and historical NASA POWER context with fail-closed contracts."""
 from __future__ import annotations
 
 import json
@@ -7,6 +7,8 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 POWER_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
+POWER_CLIMATOLOGY_URL = "https://power.larc.nasa.gov/api/temporal/climatology/point"
+MONTH_KEYS = {1: "JAN", 2: "FEB", 3: "MAR", 4: "APR", 5: "MAY", 6: "JUN", 7: "JUL", 8: "AUG", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC"}
 MISSING_SENTINEL = -999.0
 
 
@@ -56,7 +58,7 @@ def fetch_recent_power(lat: float, lon: float, days: int = 14, lag_days: int = 7
     summary = summarize_power_payload(payload)
     return {
         "status": "available",
-        "mode": "live_nasa_power_request",
+        "mode": "recent_nasa_power_request",
         "provider": "NASA POWER",
         "source_products": payload.get("header", {}).get("sources", []),
         "period": {"start": start.isoformat(), "end": end.isoformat(), "time_standard": "LST"},
@@ -67,5 +69,65 @@ def fetch_recent_power(lat: float, lon: float, days: int = 14, lag_days: int = 7
             "This is regional gridded climate context, not a measurement taken in the farmer's field.",
             "The period ends several days before today to reduce failures from upstream data latency.",
             "This endpoint is not a weather forecast.",
+        ],
+    }
+
+
+
+def summarize_climatology_payload(payload: dict, month: int) -> dict:
+    if month not in MONTH_KEYS:
+        raise ValueError("month must be 1..12")
+    key = MONTH_KEYS[month]
+    parameter = payload.get("properties", {}).get("parameter", {})
+    t2m = parameter.get("T2M", {})
+    rain = parameter.get("PRECTOTCORR", {})
+
+    def value(values: dict):
+        raw = values.get(key)
+        if not isinstance(raw, (int, float)) or float(raw) == MISSING_SENTINEL:
+            return None
+        return round(float(raw), 2)
+
+    return {
+        "calendar_month": month,
+        "calendar_month_key": key,
+        "temperature_mean_c": value(t2m),
+        "precipitation_mean_daily_mm": value(rain),
+    }
+
+
+def fetch_power_climatology(
+    lat: float,
+    lon: float,
+    *,
+    month: int,
+    start_year: int = 2001,
+    end_year: int = 2020,
+) -> dict:
+    params = {
+        "parameters": "T2M,PRECTOTCORR",
+        "community": "AG",
+        "latitude": f"{lat:.5f}",
+        "longitude": f"{lon:.5f}",
+        "format": "JSON",
+        "start": str(start_year),
+        "end": str(end_year),
+    }
+    url = f"{POWER_CLIMATOLOGY_URL}?{urlencode(params)}"
+    request = Request(url, headers={"User-Agent": "BoponX/SpaceApps2026"})
+    with urlopen(request, timeout=12) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return {
+        "status": "available",
+        "provider": "NASA POWER",
+        "kind": "historical_climatology",
+        "baseline_period": {"start_year": start_year, "end_year": end_year},
+        "coordinates": {"latitude": lat, "longitude": lon},
+        "summary": summarize_climatology_payload(payload, month),
+        "source_products": payload.get("header", {}).get("sources", []),
+        "source_request_url": url,
+        "limitations": [
+            "This is a multi-year regional climatology, not a forecast or a field measurement.",
+            "PRECTOTCORR is shown as the POWER climatological daily precipitation value for the selected calendar month.",
         ],
     }

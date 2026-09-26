@@ -23,14 +23,15 @@ The long-term challenge flow is:
 
 ### Location-first web experience
 - Browser **Use my location** flow with permission only after a user action.
-- Searchable Bangladesh regional reference points.
+- Search for a village, upazila, district, or place in Bangladesh through a fail-closed OpenStreetMap/Nominatim location helper.
+- Regional agricultural evidence hubs remain separate from the place name so BoponX does not pretend a city label is an agronomic boundary.
 - Tap-to-select MapLibre map.
 - Exact coordinates are used for the current request and are not persisted by the API.
 - Environmental coverage, local agricultural evidence, and rotation-decision support are shown as separate states.
 
 ### NASA data and mapping
 - **NASA GPM IMERG Early** recent-rainfall visualization through NASA GIBS, with the map date shown.
-- **NASA POWER** selected-location point context through a live API request; no replacement number is invented when the request fails.
+- **NASA POWER** selected-location recent point context plus a 2001–2020 planning-month climatology baseline; no replacement number is invented when a request fails.
 - The existing integrity-checked **2024 Rajshahi NASA POWER / MERRA-2** snapshot remains available as a reproducible historical reference.
 - **SMAP SPL3SMP_E** is registered as the candidate regional surface-soil-moisture source, but numeric SMAP values are not exposed until the adapter, authentication, quality handling, and 2026 advisory checks are completed.
 
@@ -47,6 +48,11 @@ The current plan is a preparation and decision-support routine, not a crop presc
 - **Month 3 — Decide the next move:** review evidence, identify remaining unknowns, consult the appropriate local crop calendar, and prepare the next seasonal decision.
 
 The three months use different objectives and different task sets.
+
+### Location-specific crop evidence
+BoponX now indexes official BAMIS crop-weather-calendar presence by regional evidence hub for major crops such as Aman/Aus/Boro rice, wheat, mustard, lentil, jute, maize (Kharif-1), and green gram (Kharif-1). The UI shows only calendars that exist for the selected regional hub.
+
+Calendar presence is **not** treated as crop suitability or a recommendation. It is evidence that a local source exists and can be reviewed for the next rule-building stage.
 
 ### Rotation engine status
 The crop-rotation endpoint still fails closed with AGRONOMIC_RULES_NOT_APPROVED. BoponX will not fabricate planting dates, crop sequences, fertilizer advice, yield gains, water-saving percentages, or soil-health scores.
@@ -69,8 +75,12 @@ Every numeric environmental output should retain its dataset/product, time perio
 | --- | --- |
 | GET /api/v1/health | Data/context readiness |
 | GET /api/v1/areas | Bangladesh regional evidence reference points |
+| GET /api/v1/places/search?q= | Bangladesh place search for farmer location selection |
+| GET /api/v1/places/reverse?lat=&lon= | Optional reverse-geocode label for a map/GPS point |
 | GET /api/v1/context?lat=&lon= | Resolve the selected location to local coverage/evidence context |
-| GET /api/v1/environment/recent?lat=&lon= | Selected-location NASA POWER context |
+| GET /api/v1/agronomy/calendars?region= | Official BAMIS calendar-presence evidence for a regional hub |
+| GET /api/v1/environment/recent?lat=&lon= | Selected-location recent NASA POWER context |
+| GET /api/v1/environment/baseline?lat=&lon=&month= | Selected-month 2001–2020 NASA POWER climatology |
 | GET /api/v1/climate/rajshahi-pilot | Integrity-gated pinned historical pilot |
 | GET /api/v1/climate/rajshahi-pilot/monthly | Deterministic monthly aggregation of the pinned pilot |
 | POST /api/v1/farms/validate | Validate farmer-known context without inventing unknowns |
