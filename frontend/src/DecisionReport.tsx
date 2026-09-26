@@ -1,24 +1,19 @@
 import type { Language, PlanBrief } from "./api";
 
-function txt(language: Language, en: string, bn: string) {
+function t(language: Language, en: string, bn: string) {
   return language === "bn" ? bn : en;
 }
 
-function fmt(value: number | null | undefined, suffix: string) {
-  return value === null || value === undefined ? "—" : `${new Intl.NumberFormat("en-BD", { maximumFractionDigits: 1 }).format(value)} ${suffix}`;
+function metric(value: number | null | undefined, suffix: string) {
+  if (value === null || value === undefined) return "—";
+  return `${new Intl.NumberFormat("en-BD", { maximumFractionDigits: 1 }).format(value)}${suffix}`;
 }
 
-export default function DecisionReport({
-  brief,
-  language,
-}: {
-  brief: PlanBrief;
-  language: Language;
-}) {
+export default function DecisionReport({ brief, language }: { brief: PlanBrief; language: Language }) {
   const recent = brief.recent_environment;
   const baseline = brief.historical_baseline;
 
-  function printReport() {
+  function printBrief() {
     const previous = document.title;
     document.title = "BoponX-field-brief";
     window.print();
@@ -28,138 +23,123 @@ export default function DecisionReport({
   }
 
   return (
-    <section className="decision-report" id="farmer-report" aria-labelledby="report-title">
-      <div className="report-toolbar no-print">
-        <div>
-          <span className="kicker">{txt(language, "Field brief", "মাঠের সংক্ষিপ্ত পরিকল্পনা")}</span>
-          <strong>{txt(language, "Ready to review", "পর্যালোচনার জন্য প্রস্তুত")}</strong>
+    <section className="field-brief-section bx-section" id="field-brief">
+      <div className="brief-screen" data-reveal>
+        <div className="brief-screen-bar no-print">
+          <div>
+            <span className="brief-status-dot" />
+            <span>{t(language, "FIELD BRIEF GENERATED", "মাঠ পরিকল্পনা তৈরি হয়েছে")}</span>
+          </div>
+          <button type="button" onClick={printBrief}>{t(language, "Print / Save PDF", "প্রিন্ট / PDF সংরক্ষণ")} ↗</button>
         </div>
-        <button type="button" onClick={printReport}>
-          {txt(language, "Print / Save PDF", "প্রিন্ট / PDF সংরক্ষণ")}
-        </button>
-      </div>
 
-      <header className="report-cover">
-        <p className="report-mark">BoponX · বপনএক্স</p>
-        <h2 id="report-title">{txt(language, "Your next 90 days", "আপনার আগামী ৯০ দিন")}</h2>
-        <p className="report-sub">
-          {brief.location.region_name_en} · {brief.location.region_name_bn}
-        </p>
-        <div className="report-meta-grid">
+        <header className="brief-hero">
           <div>
-            <span>{txt(language, "Planning window", "পরিকল্পনার সময়")}</span>
-            <strong>{brief.planning_window.start} → {brief.planning_window.end}</strong>
+            <p className="section-kicker">{t(language, "The next 90 days", "আগামী ৯০ দিন")}</p>
+            <h2>{t(language, "Three months. Three different jobs.", "তিন মাস। তিনটি আলাদা কাজ।")}</h2>
+          </div>
+          <div className="brief-place">
+            <span>{brief.location.region_name_en}</span>
+            <strong>{brief.location.region_name_bn}</strong>
+            <small>{brief.location.coordinates.latitude.toFixed(4)}° N · {brief.location.coordinates.longitude.toFixed(4)}° E</small>
+          </div>
+        </header>
+
+        <div className="brief-evidence-strip">
+          <div>
+            <span>{t(language, "Recent temperature", "সাম্প্রতিক তাপমাত্রা")}</span>
+            <strong>{metric(recent?.summary?.temperature_mean_c, "°C")}</strong>
+            <small>{recent?.period ? `${recent.period.start} → ${recent.period.end}` : t(language, "unavailable", "পাওয়া যায়নি")}</small>
           </div>
           <div>
-            <span>{txt(language, "Farm point", "জমির পয়েন্ট")}</span>
-            <strong>{brief.location.coordinates.latitude.toFixed(4)}, {brief.location.coordinates.longitude.toFixed(4)}</strong>
+            <span>{t(language, "Recent rainfall", "সাম্প্রতিক বৃষ্টি")}</span>
+            <strong>{metric(recent?.summary?.precipitation_total_mm, " mm")}</strong>
+            <small>{t(language, "NASA POWER regional context", "NASA POWER আঞ্চলিক প্রেক্ষাপট")}</small>
           </div>
           <div>
-            <span>{txt(language, "Priority", "অগ্রাধিকার")}</span>
-            <strong>{brief.farmer_context.priority.replaceAll("_", " ")}</strong>
+            <span>{t(language, "Planning-month baseline", "পরিকল্পনা মাসের বেসলাইন")}</span>
+            <strong>{metric(baseline?.summary?.temperature_mean_c, "°C")}</strong>
+            <small>{baseline?.baseline_period ? `${baseline.baseline_period.start_year}–${baseline.baseline_period.end_year}` : "2001–2020"}</small>
+          </div>
+          <div>
+            <span>{t(language, "Local calendar sources", "স্থানীয় ক্যালেন্ডার উৎস")}</span>
+            <strong>{brief.evidence.calendar_evidence.length}</strong>
+            <small>BAMIS · {brief.location.region_name_en}</small>
           </div>
         </div>
-        <div className="report-warning">
-          {txt(
-            language,
-            "Decision support, not a crop prescription. Regional NASA data do not replace observations from your field.",
-            "এটি সিদ্ধান্ত-সহায়তা, ফসলের প্রেসক্রিপশন নয়। আঞ্চলিক NASA তথ্য আপনার জমির বাস্তব পর্যবেক্ষণের বিকল্প নয়।",
-          )}
-        </div>
-      </header>
 
-      {(recent?.status === "available" || baseline?.status === "available") && (
-        <section className="report-evidence-band">
-          <div>
-            <span>{txt(language, "Recent POWER period", "সাম্প্রতিক POWER সময়কাল")}</span>
-            <strong>{recent?.period?.start ?? "—"} → {recent?.period?.end ?? "—"}</strong>
-          </div>
-          <div>
-            <span>{txt(language, "Recent mean temperature", "সাম্প্রতিক গড় তাপমাত্রা")}</span>
-            <strong>{fmt(recent?.summary?.temperature_mean_c, "°C")}</strong>
-          </div>
-          <div>
-            <span>{txt(language, "Planning-month baseline", "পরিকল্পনা মাসের বেসলাইন")}</span>
-            <strong>
-              {baseline?.status === "available" && baseline.summary
-                ? `${fmt(baseline.summary.temperature_mean_c, "°C")} · ${fmt(baseline.summary.precipitation_mean_daily_mm, "mm/day")}`
-                : "—"}
-            </strong>
-          </div>
-        </section>
-      )}
-
-      <div className="month-report-grid">
-        {brief.months.map((month) => (
-          <article className="month-report" key={month.planning_month}>
-            <div className="month-count">{String(month.index).padStart(2, "0")}</div>
-            <div className="month-heading">
-              <span>{month.planning_month}</span>
-              <h3>{txt(language, month.phase.en, month.phase.bn)}</h3>
-              <p>{txt(language, month.objective.en, month.objective.bn)}</p>
-            </div>
-            <ol>
-              {month.tasks.map((task) => (
-                <li key={task.code}>
-                  <span className="check-box" aria-hidden="true" />
+        <div className="brief-timeline">
+          {brief.months.map((month, index) => (
+            <article className="brief-month" key={month.planning_month}>
+              <div className="month-rail">
+                <span>{String(month.index).padStart(2, "0")}</span>
+                {index < brief.months.length - 1 && <i />}
+              </div>
+              <div className="month-content">
+                <div className="month-title-row">
                   <div>
-                    <p>{language === "bn" ? task.bn : task.en}</p>
-                    <small>{language === "bn" ? task.en : task.bn}</small>
+                    <small>{month.planning_month}</small>
+                    <h3>{t(language, month.phase.en, month.phase.bn)}</h3>
                   </div>
-                </li>
-              ))}
-            </ol>
-            <div className="field-note">
-              <span>{txt(language, "Field note", "মাঠের নোট")}</span>
-              <i /><i />
-            </div>
-          </article>
-        ))}
+                  <span className="month-name">{t(language, month.month_name.en, month.month_name.bn)}</span>
+                </div>
+                <p className="month-objective">{t(language, month.objective.en, month.objective.bn)}</p>
+                <div className="month-task-grid">
+                  {month.tasks.map((task, taskIndex) => (
+                    <div className="brief-task" key={task.code}>
+                      <span>{String(taskIndex + 1).padStart(2, "0")}</span>
+                      <div>
+                        <strong>{language === "bn" ? task.bn : task.en}</strong>
+                        <small>{language === "bn" ? task.en : task.bn}</small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="field-notes-lines">
+                  <span>{t(language, "Farmer / adviser notes", "কৃষক / পরামর্শকের নোট")}</span>
+                  <i /><i />
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="rotation-lock-panel">
+          <div className="rotation-lock-icon"><span>↻</span><i /></div>
+          <div>
+            <p className="section-kicker">{t(language, "Three-season rotation explorer", "তিন-মৌসুম ফসল আবর্তন")}</p>
+            <h3>{t(language, "The evidence gate is active.", "প্রমাণ যাচাইয়ের গেট সক্রিয়।")}</h3>
+            <p>{t(language, brief.rotation_explorer.message_en, brief.rotation_explorer.message_bn)}</p>
+          </div>
+          <span className="lock-chip">{t(language, "NOT YET PRESCRIPTIVE", "এখনও প্রেসক্রিপশন নয়")}</span>
+        </div>
+
+        <div className="brief-source-columns">
+          <div>
+            <span className="brief-source-title">NASA</span>
+            {brief.evidence.nasa_sources.map((source) => (
+              <a href={source.source_url} target="_blank" rel="noreferrer" key={source.id}>
+                <strong>{source.name}</strong>
+                <small>{source.role.replaceAll("_", " ")}</small>
+              </a>
+            ))}
+          </div>
+          <div>
+            <span className="brief-source-title">{t(language, "Local evidence", "স্থানীয় প্রমাণ")}</span>
+            {brief.evidence.calendar_evidence.slice(0, 8).map((crop) => (
+              <a href={crop.source_url} target="_blank" rel="noreferrer" key={crop.id}>
+                <strong>{language === "bn" ? crop.name_bn : crop.name_en}</strong>
+                <small>{t(language, "BAMIS calendar source · not a recommendation", "BAMIS ক্যালেন্ডার উৎস · সুপারিশ নয়")}</small>
+              </a>
+            ))}
+          </div>
+        </div>
+
+        <footer className="brief-footer">
+          <p>{language === "bn" ? brief.limitations.bn : brief.limitations.en}</p>
+          <span>BoponX · Team EARTH.exe · Bangladesh</span>
+        </footer>
       </div>
-
-      <section className="rotation-gate">
-        <div className="gate-icon" aria-hidden="true">↻</div>
-        <div>
-          <span className="kicker">{txt(language, "Three-season rotation explorer", "তিন-মৌসুম ফসল আবর্তন")}</span>
-          <h3>{txt(language, "Evidence gate is still active", "প্রমাণ যাচাই এখনো বাকি")}</h3>
-          <p>{txt(language, brief.rotation_explorer.message_en, brief.rotation_explorer.message_bn)}</p>
-        </div>
-      </section>
-
-      <section className="report-sources">
-        <div>
-          <span className="kicker">{txt(language, "NASA evidence", "NASA প্রমাণ")}</span>
-          {brief.evidence.nasa_sources.map((source) => (
-            <a href={source.source_url} target="_blank" rel="noreferrer" key={source.id}>
-              <strong>{source.name}</strong>
-              <span>{source.role.replaceAll("_", " ")}</span>
-            </a>
-          ))}
-        </div>
-        <div>
-          <span className="kicker">{txt(language, "Local evidence", "স্থানীয় প্রমাণ")}</span>
-          {brief.evidence.agricultural_sources.map((source) => (
-            <a href={source.source_url} target="_blank" rel="noreferrer" key={source.name}>
-              <strong>{source.name}</strong>
-              <span>{source.scope}</span>
-            </a>
-          ))}
-        </div>
-        <div>
-          <span className="kicker">{txt(language, "Regional crop calendars", "আঞ্চলিক ফসল ক্যালেন্ডার")}</span>
-          {brief.evidence.calendar_evidence.slice(0, 8).map((crop) => (
-            <a href={crop.source_url} target="_blank" rel="noreferrer" key={crop.id}>
-              <strong>{language === "bn" ? crop.name_bn : crop.name_en}</strong>
-              <span>{txt(language, "Official BAMIS calendar source — not a recommendation", "অফিসিয়াল BAMIS ক্যালেন্ডার উৎস — সুপারিশ নয়")}</span>
-            </a>
-          ))}
-        </div>
-      </section>
-
-      <footer className="report-foot">
-        <p>{language === "bn" ? brief.limitations.bn : brief.limitations.en}</p>
-        <p>BoponX · Team EARTH.exe · Bangladesh</p>
-      </footer>
     </section>
   );
 }
