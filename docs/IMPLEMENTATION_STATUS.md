@@ -2,12 +2,13 @@
 **Reviewed:** 26 September 2026 · **Owner:** Team EARTH.exe
 
 ## Working in the current redesign branch
-- Location-first farmer flow with browser geolocation, searchable regional reference points, and map-pin selection.
+- Location-first farmer flow with browser geolocation, Bangladesh place search (village/upazila/district/place), regional evidence-hub fallback, and map-pin selection.
 - MapLibre interface with an OpenStreetMap basemap and a dated NASA GIBS IMERG near-real-time rainfall overlay.
 - Location-context API separating environmental availability, local evidence availability, and crop-rotation support.
 - Regional reference coverage for Dhaka, Mymensingh, Cumilla, Chattogram, Sylhet, Rangpur, Dinajpur, Bogura, Rajshahi, Jashore, Faridpur, Khulna, Barishal, and Rangamati. These are reference hubs, not administrative-boundary polygons.
-- Selected-location NASA POWER point context with explicit live-query failure state and no fabricated fallback numbers.
+- Selected-location recent NASA POWER point context plus a 2001–2020 planning-month climatology baseline, with explicit failure states and no fabricated fallback numbers.
 - Existing integrity-gated 2024 Rajshahi NASA POWER/MERRA-2 historical pipeline retained.
+- Official BAMIS crop-weather-calendar presence is indexed by regional evidence hub and shown as source evidence, not as suitability or recommendation.
 - Farmer intake rewritten around observable facts. Soil pH is conditional on an existing soil-test report and is rejected otherwise.
 - Bangla-first interface with English toggle, large controls, unknown/not-sure options, mobile layouts, reduced-motion support, and print styling.
 - Stage-aware 90-day plan with distinct Month 1, Month 2, and Month 3 objectives.

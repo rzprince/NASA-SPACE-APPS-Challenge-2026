@@ -83,3 +83,30 @@ The current plan is not a crop schedule:
 3. **Decide the next move** — review evidence and prepare the next seasonal decision.
 
 Crop-specific instructions remain blocked until source-reviewed local crop/soil/rotation rules exist.
+
+
+## Regional BAMIS calendar index
+
+The application now stores a small, reviewed index of **calendar presence**, not agronomic rules, for major crops and BAMIS regional hubs. The index is based on the official BAMIS crop-weather-calendar pages and is used only to decide which source links are relevant to the selected regional evidence hub.
+
+Current indexed crops:
+- Rice Aman
+- Rice Aus
+- Rice Boro
+- Wheat
+- Mustard
+- Lentil
+- Jute
+- Maize (Kharif-1)
+- Green Gram (Kharif-1)
+
+A crop appearing in this index means only that BAMIS publishes a regional crop-weather calendar for that crop. It does **not** mean BoponX has concluded that the crop is suitable for the farmer's field.
+
+Official source root:
+https://www.bamis.gov.bd/en/calendar
+
+## Place-name resolution
+
+OpenStreetMap Nominatim is used only to help a farmer search a Bangladesh place name or label a selected coordinate. It is not a NASA source, soil source, or agronomic source. The agricultural evidence region is still resolved separately so a place label is never silently treated as an official agricultural boundary.
+
+If Nominatim is unavailable, GPS/map-pin selection and the regional-evidence fallback still work.

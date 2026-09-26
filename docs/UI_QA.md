@@ -3,7 +3,8 @@
 ## Location
 - [ ] “Use my location” asks permission only after the button is pressed.
 - [ ] Denying GPS leaves search and map selection fully usable.
-- [ ] Search can select several different Bangladesh regions.
+- [ ] Search can find a specific Bangladesh village/upazila/district/place when the geocoder is available.
+- [ ] Search failure leaves regional fallback and map-pin selection usable.
 - [ ] Tapping the map moves the farm marker.
 - [ ] Moving location changes the resolved regional context.
 - [ ] Exact coordinates are not written to localStorage, cookies, or backend persistence.
@@ -35,6 +36,7 @@
 - [ ] Core workflow remains understandable if map tiles fail.
 
 ## Data failure
-- [ ] NASA POWER live query failure shows unavailable with no replacement number.
+- [ ] NASA POWER recent query failure shows unavailable with no replacement number.
+- [ ] NASA POWER climatology failure shows unavailable with no replacement number.
 - [ ] GIBS layer failure does not block location selection.
 - [ ] Any cached data shows its timestamp and cache state.
