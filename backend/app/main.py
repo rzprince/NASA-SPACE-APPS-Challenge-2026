@@ -51,6 +51,7 @@ class PlanRequest(BaseModel):
     start_year: int = Field(ge=2026, le=2035)
     start_month: int = Field(ge=1, le=12)
     include_recent_power: bool = True
+    include_climate_baseline: bool = False
 
 
 def snapshot_path() -> Path:
@@ -261,6 +262,7 @@ def planning_preview(request: PlanRequest) -> dict:
     if not context["within_bangladesh"]:
         raise HTTPException(status_code=400, detail={"code": "OUTSIDE_BANGLADESH_PILOT"})
     recent = None
+    baseline = None
     if request.include_recent_power:
         try:
             recent = fetch_recent_power(request.farm.latitude, request.farm.longitude)
@@ -270,6 +272,20 @@ def planning_preview(request: PlanRequest) -> dict:
                 "provider": "NASA POWER",
                 "message": "Recent selected-location context is unavailable. No fallback number was fabricated.",
             }
+    if request.include_climate_baseline:
+        try:
+            baseline = fetch_power_climatology(
+                request.farm.latitude,
+                request.farm.longitude,
+                month=request.start_month,
+            )
+        except Exception:
+            baseline = {
+                "status": "unavailable",
+                "provider": "NASA POWER",
+                "kind": "historical_climatology",
+                "message": "Selected-month climate baseline is unavailable. No fallback number was fabricated.",
+            }
     try:
         return make_90_day_plan(
             request.farm.model_dump(),
@@ -277,6 +293,7 @@ def planning_preview(request: PlanRequest) -> dict:
             start_year=request.start_year,
             start_month=request.start_month,
             recent_environment=recent,
+            baseline_environment=baseline,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "INVALID_PLAN_WINDOW", "message": str(exc)}) from exc

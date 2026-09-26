@@ -151,6 +151,7 @@ export type PlanBrief = {
   planning_window: { start: string; end: string };
   months: PlanMonth[];
   recent_environment: RecentEnvironment | null;
+  historical_baseline: PowerBaseline | null;
   rotation_explorer: {
     status: string;
     message_en: string;
@@ -159,6 +160,7 @@ export type PlanBrief = {
   evidence: {
     nasa_sources: NasaSource[];
     agricultural_sources: AgriculturalSource[];
+    calendar_evidence: CalendarEvidence[];
   };
   limitations: { en: string; bn: string };
 };

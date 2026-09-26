@@ -281,6 +281,7 @@ export default function App() {
         start_year: startYear,
         start_month: startMonth,
         include_recent_power: true,
+        include_climate_baseline: true,
       });
       setPlan(payload);
       window.setTimeout(() => {

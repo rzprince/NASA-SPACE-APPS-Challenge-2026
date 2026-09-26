@@ -89,6 +89,7 @@ def make_90_day_plan(
     start_year: int,
     start_month: int,
     recent_environment: dict[str, Any] | None = None,
+    baseline_environment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not 1 <= start_month <= 12:
         raise ValueError("Unsupported start month")
@@ -142,6 +143,7 @@ def make_90_day_plan(
         "planning_window": {"start": months[0]["planning_month"], "end": months[-1]["planning_month"]},
         "months": months,
         "recent_environment": recent_environment,
+        "historical_baseline": baseline_environment,
         "rotation_explorer": {
             "status": "EVIDENCE_REVIEW_REQUIRED",
             "message_en": "Rotation alternatives stay locked until crop calendars, crop requirements, soil constraints and crop-sequence rules for this region are source-reviewed.",
@@ -150,6 +152,7 @@ def make_90_day_plan(
         "evidence": {
             "nasa_sources": context["nasa_sources"],
             "agricultural_sources": context["agricultural_sources"],
+            "calendar_evidence": context.get("calendar_evidence", []),
         },
         "limitations": {
             "en": "This is a location-aware preparation and decision-support routine, not a crop prescription or forecast. Satellite and reanalysis data describe regional context; field observations and locally reviewed agricultural rules are still required for crop-specific decisions.",
