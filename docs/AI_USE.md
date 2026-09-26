@@ -1,24 +1,16 @@
-# BoponX AI use and human-review disclosure
-
+# BoponX AI-use disclosure
 **Team EARTH.exe · September 2026**
 
-The team used **ChatGPT (OpenAI)** as a software-development assistant for
-requirements analysis, architecture drafting, frontend design/copy, Python and
-TypeScript scaffolding, testing ideas and documentation. Project lead Rezwan
-Hossain Prince authorized repository updates and is responsible for accepting
-and reviewing the work. Generated code and prose may contain defects: GitHub
-Actions checks, deterministic tests, source inspections and local user testing
-are separate human/engineering review steps, not automatic scientific approval.
+The team has used **ChatGPT (OpenAI)** as a development assistant for requirements analysis, architecture, source review, TypeScript/React and Python implementation, test design, documentation, and repository updates.
 
-**No language model runs in the current BoponX product.** NASA data acquisition,
-daily/monthly calculations, three-month preparation-checklist composition, file verification, API input validation and any
-future crop feasibility constraints are ordinary deterministic code. No AI
-model synthesizes NASA measurements, soil data, crop recommendations, numeric
-suitability rankings or next-season predictions. The proposed future AI
-explanation layer is optional and will be restricted to explaining structured,
-source-linked results after science review.
+The current BoponX runtime does **not** use a language model to calculate environmental indicators or create crop recommendations.
 
-The CSS-3D field scene and decorative imagery are original CSS geometry, not NASA photographs. The Bangladesh country silhouette is derived from **Natural Earth 1:110m public-domain country polygons**, with an explicitly provisional POWER reference pin; decorative rivers are conceptual, not geospatial hydrography. No AI-generated farming advice has been reviewed or shipped.
+Deterministic code handles location/context resolution, NASA POWER completeness and aggregation checks, farmer-input validation, 90-day plan phase selection, and future agronomic feasibility constraints when they are approved.
 
-Any updated official NASA Space Apps AI-use disclosure instructions will be
-rechecked before the final competition submission.
+A language model must not invent NASA measurements, infer field pH, invent crop calendars or planting dates, generate scientific trends from prose, create unsupported yield/water/soil-health claims, or silently replace missing observations.
+
+Team EARTH.exe remains responsible for reviewing generated code, source interpretation, licensing, scientific claims, interface wording, and competition compliance. Automated tests are not agronomic review or usability testing.
+
+The current redesign uses code-built UI, MapLibre, open map tiles, and NASA GIBS data layers. It removes the previous decorative CSS-3D presentation from the active experience so motion communicates location/data changes instead of existing as decoration.
+
+Updated official NASA Space Apps AI-use disclosure instructions should replace this working disclosure before final submission.

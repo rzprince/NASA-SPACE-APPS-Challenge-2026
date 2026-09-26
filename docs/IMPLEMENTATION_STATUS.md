@@ -1,46 +1,49 @@
-# BoponX implementation status — October prescreening preview
+# BoponX implementation status
+**Reviewed:** 26 September 2026 · **Owner:** Team EARTH.exe
 
-**Last reviewed:** 24 September 2026 · **Owner:** Team EARTH.exe
+## Working in the current redesign branch
+- Location-first farmer flow with browser geolocation, searchable regional reference points, and map-pin selection.
+- MapLibre interface with an OpenStreetMap basemap and a dated NASA GIBS IMERG near-real-time rainfall overlay.
+- Location-context API separating environmental availability, local evidence availability, and crop-rotation support.
+- Regional reference coverage for Dhaka, Mymensingh, Cumilla, Chattogram, Sylhet, Rangpur, Dinajpur, Bogura, Rajshahi, Jashore, Faridpur, Khulna, Barishal, and Rangamati. These are reference hubs, not administrative-boundary polygons.
+- Selected-location NASA POWER point context with explicit live-query failure state and no fabricated fallback numbers.
+- Existing integrity-gated 2024 Rajshahi NASA POWER/MERRA-2 historical pipeline retained.
+- Farmer intake rewritten around observable facts. Soil pH is conditional on an existing soil-test report and is rejected otherwise.
+- Bangla-first interface with English toggle, large controls, unknown/not-sure options, mobile layouts, reduced-motion support, and print styling.
+- Stage-aware 90-day plan with distinct Month 1, Month 2, and Month 3 objectives.
+- Printable bilingual field brief with area, farmer context, recent environmental context when available, evidence links, and the rotation-evidence gate.
+- Deterministic backend tests for location resolution, pH gating, stage-aware planning, and POWER completeness behavior.
 
-## Implemented in the repository
+## Deliberately not represented as complete
+- Nationwide agronomic decision coverage.
+- A reviewed crop catalog or crop-specific three-season rotation engine.
+- Planting/transplanting dates.
+- Soil pH inferred from Earth observations.
+- SMAP numeric integration into a farmer decision.
+- IMERG values as a computed decision input; the current IMERG integration is a dated map/evidence layer.
+- Yield, soil-health, water-saving, fertilizer, pesticide, or profit predictions.
+- Weather forecasts.
+- Field-level measurements from regional NASA products.
+- NASA endorsement.
 
-- Python NASA POWER daily acquisition, schema/unit/missing-value checks and historical processing.
-- Original 2024 Rajshahi-area response independently acquired in GitHub Actions:
-  366/366 valid temperature and precipitation dates; SHA-256 recorded and source
-  product identified as **MERRA-2 reanalysis**.
-- Raw-vs-processed pinned snapshot verification script and synthetic tamper tests.
-- FastAPI climate/health/location/farm-input endpoints and coverage-aware historical
-  monthly aggregation (mean °C; total mm only with complete daily coverage).
-- Deterministic `POST /api/v1/plans/preview` returning a bilingual three-month preparation/monitoring routine, historical reference months and explicit missing fields; browser A4 Print / Save as PDF workflow. It never prescribes planting dates or a crop.
-- React + TypeScript interface with English/Bangla presentation, enhanced Bangla
-  readability, original pointer-responsive CSS-3D environmental artwork and
-  3D historical rainfall columns, accessible monthly picker/table, evidence drawer
-  responsive farm intake and the Natural Earth public-domain Bangladesh atlas with a clearly provisional Rajshahi pin.
-- Automated Python test and frontend build workflows. Crop-comparison API explicitly
-  returns `AGRONOMIC_RULES_NOT_APPROVED`.
+## Scientific next gates
+1. Verify and implement the IMERG data adapter needed for quantitative selected-location precipitation evidence, retaining timestamps/quality/provenance.
+2. Implement SMAP SPL3SMP_E retrieval only after Earthdata authentication, QA handling, and the 2026 geolocation advisory are explicitly handled.
+3. Build a Bangladesh agricultural source register with reuse terms for BAMIS/BARC/BRRI/BARI/SRDI materials.
+4. Translate only approved, geographically appropriate crop calendars/requirements/sequence constraints into deterministic rule packs.
+5. Add at least two evidence-backed three-season rotation alternatives in a supported region, with uncertainty and trade-offs visible.
+6. Add multi-year historical baselines appropriate to the final challenge statement instead of treating one historical year as climate change evidence.
 
-## Not completed or not represented as completed
-
-- Local agronomic review of crop calendars, soil and sequence rules; no user-facing
-  crop rotation outcomes, water-saving predictions, soil scores or yield claims.
-- Validated direct satellite-observation product integrated into the decision engine
-  (IMERG/SMAP remain candidates); POWER meteorology is MERRA-2 reanalysis.
-- Direct PDF file generation without a browser print dialog, tested Bengali print output on Samsung, crop-specific three-month planting instructions and agricultural validation.
-- Public hosted app, separate mobile app, installed offline PWA, full language
-  localization of every technical message, field usability study and final video.
-- Submission itself; the team must upload/test the actual public video and links.
-
-## Release checks still requiring a person
-
-Confirm the user's existing extracted NASA ZIP in `data/raw` and
-`data/processed`; run `python -m scripts.verify_pilot` before recording.
-Test 360px Android layout, desktop layout, Bangla readability, month buttons, three-month report and A4 Save as PDF output,
-evidence links, reduced-motion mode and offline local demo. Record the actual
-240-second concept-focused video only after those checks pass.
-
-See `docs/OCTOBER_1_PRESCREEN.md` and `docs/EVIDENCE_REGISTER.md`.
-
-**Critical distinction:** This prescreening preview demonstrates a credible
-data-to-user workflow and the architecture for rotation analysis. It is not yet
-the completed Field Shift decision-support engine. Full challenge materials and
-local submission details must be rechecked at their official release.
+## Human QA still required
+Automated CI can verify tests and builds, but it does not verify visual quality. Before presenting the redesign:
+- inspect the location map and NASA layer on desktop
+- test browser GPS permission granted/denied
+- test multiple Bangladesh locations
+- verify the map pin and regional context change together
+- test Samsung-size mobile layout
+- verify Bangla readability
+- verify reduced-motion mode
+- print/save the report on desktop and Android
+- confirm no crop recommendation is exposed accidentally
+- confirm IMERG/GIBS tile attribution and map date are visible
+- rehearse offline/degraded behavior

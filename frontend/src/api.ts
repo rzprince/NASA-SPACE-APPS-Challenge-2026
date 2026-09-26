@@ -1,59 +1,117 @@
-/** Versioned, deliberately small BoponX API contract. */
-export type Status = "loading" | "ready" | "unavailable";
+export type Language = "bn" | "en";
+export type Status = "idle" | "loading" | "ready" | "unavailable";
 
-export type Location = {
+export type Area = {
   id: string;
-  name: string;
+  name_en: string;
+  name_bn: string;
   latitude: number;
   longitude: number;
-  location_note: string;
+  evidence_region: string;
 };
 
-export type ClimateDay = {
-  date: string;
-  T2M: number | null;
-  PRECTOTCORR: number | null;
-};
-
-export type Coverage = { valid_days: number; expected_days: number; fraction: number };
-
-export type ClimateSnapshot = {
-  schema_version: "power-pilot/v1";
-  location_id: string;
-  period: { start: string; end: string; time_standard: string };
-  variables: Record<string, { provider_unit: string; description: string | null }>;
-  summary: {
-    temperature_mean_valid_days: number;
-    precipitation_total_full_period: number | null;
-    precipitation_sum_valid_days: number;
-    coverage: Record<string, Coverage>;
-  };
-  daily: ClimateDay[];
-  evidence: {
-    provider: string;
-    source_request_url: string;
-    raw_sha256: string;
-    snapshot_id: string;
-    ingestion_origin: string;
-    data_kind: string;
-    source_products: string[];
-  };
-};
-
-export type FarmProfile = {
-  location_id: "rajshahi-pilot";
-  previous_crop: string | null;
-  soil_ph: number | null;
-  soil_texture: "sandy" | "loamy" | "clayey" | "unknown";
-  irrigation_mode: "none" | "limited" | "reliable" | "unknown";
-  priorities: ("water" | "soil" | "production_stability")[];
-};
-
-export type FarmValidation = {
+export type NasaSource = {
+  id: string;
+  name: string;
+  role: string;
+  kind: string;
   status: string;
-  profile: FarmProfile;
-  missing_inputs: string[];
-  warnings: string[];
+  latency_note: string;
+  resolution_note: string;
+  source_url: string;
+  advisory?: string;
+};
+
+export type AgriculturalSource = {
+  name: string;
+  scope: string;
+  status: string;
+  source_url: string;
+};
+
+export type LocationContext = {
+  coordinates: { latitude: number; longitude: number };
+  within_bangladesh: boolean;
+  nearest_supported_region: Area & {
+    distance_km: number;
+    note: string;
+  };
+  coverage: {
+    environmental_context: string;
+    local_agricultural_evidence: string;
+    rotation_decision: string;
+  };
+  agricultural_sources: AgriculturalSource[];
+  nasa_sources: NasaSource[];
+  privacy: {
+    coordinates_persisted: boolean;
+    note: string;
+  };
+};
+
+export type RecentEnvironment = {
+  status: "available" | "unavailable";
+  mode?: string;
+  provider: string;
+  source_products?: string[];
+  period?: { start: string; end: string; time_standard: string };
+  coordinates?: { latitude: number; longitude: number };
+  summary?: {
+    days_requested: number;
+    temperature_valid_days: number;
+    precipitation_valid_days: number;
+    temperature_mean_c: number | null;
+    precipitation_total_mm: number | null;
+  };
+  source_request_url?: string;
+  limitations?: string[];
+  message?: string;
+};
+
+export type FarmerProfile = {
+  latitude: number;
+  longitude: number;
+  previous_crop: string | null;
+  water_source: "rainfed" | "irrigated" | "both" | "unknown";
+  water_after_heavy_rain: "drains" | "stays" | "sometimes" | "unknown";
+  soil_test: "yes" | "no" | "unknown";
+  soil_ph: number | null;
+  priority: "water" | "soil" | "production_stability";
+};
+
+export type PlanTask = { code: string; en: string; bn: string };
+export type PlanMonth = {
+  index: number;
+  planning_month: string;
+  month_name: { en: string; bn: string };
+  phase: { en: string; bn: string };
+  objective: { en: string; bn: string };
+  tasks: PlanTask[];
+};
+
+export type PlanBrief = {
+  status: string;
+  location: {
+    coordinates: { latitude: number; longitude: number };
+    region_id: string;
+    region_name_en: string;
+    region_name_bn: string;
+    distance_to_reference_km: number;
+  };
+  farmer_context: FarmerProfile;
+  planning_window: { start: string; end: string };
+  months: PlanMonth[];
+  recent_environment: RecentEnvironment | null;
+  rotation_explorer: {
+    status: string;
+    message_en: string;
+    message_bn: string;
+  };
+  evidence: {
+    nasa_sources: NasaSource[];
+    agricultural_sources: AgriculturalSource[];
+  };
+  limitations: { en: string; bn: string };
 };
 
 export class ApiError extends Error {
@@ -95,6 +153,7 @@ async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
   } catch {
     throw new ApiError(response.status, "INVALID_RESPONSE", "The API returned an unreadable response.");
   }
+
   if (!response.ok) {
     const detail =
       typeof payload === "object" && payload !== null && "detail" in payload
@@ -106,5 +165,6 @@ async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
     }
     throw new ApiError(response.status, "REQUEST_FAILED", "Request was not accepted.");
   }
+
   return payload as T;
 }

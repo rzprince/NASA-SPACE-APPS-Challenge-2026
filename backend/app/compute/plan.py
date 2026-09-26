@@ -1,182 +1,158 @@
-"""Bilingual three-month *preparation* routine; explicitly not crop or planting advice.
+"""Deterministic, stage-aware 90-day preparation plan.
 
-NASA POWER historical context is included with its actual 2024 year. Nothing in
-this module chooses a crop, predicts future rain, or authorizes a sowing date.
+The routine is intentionally useful without pretending to be a crop prescription.
+Every month has a different objective. Crop-specific instructions remain blocked
+until source-reviewed agronomic rules are integrated.
 """
 from __future__ import annotations
 
 from datetime import date
 from typing import Any
 
-MISSING = {
-    "previous_crop": ("Previous crop", "আগের ফসল"),
-    "soil_ph": ("Soil pH", "মাটির pH"),
-    "soil_texture": ("Soil texture", "মাটির ধরন"),
-    "irrigation_mode": ("Irrigation availability", "সেচ সুবিধা"),
-    "priorities": ("Planning priority", "পরিকল্পনার অগ্রাধিকার"),
+MONTH_NAMES = {
+    1: ("January", "জানুয়ারি"), 2: ("February", "ফেব্রুয়ারি"), 3: ("March", "মার্চ"),
+    4: ("April", "এপ্রিল"), 5: ("May", "মে"), 6: ("June", "জুন"),
+    7: ("July", "জুলাই"), 8: ("August", "আগস্ট"), 9: ("September", "সেপ্টেম্বর"),
+    10: ("October", "অক্টোবর"), 11: ("November", "নভেম্বর"), 12: ("December", "ডিসেম্বর"),
 }
-PRIORITIES = {
-    "water": ("Water resilience", "পানি ব্যবস্থাপনা"),
-    "soil": ("Soil health", "মাটির স্বাস্থ্য"),
-    "production_stability": ("Production stability", "উৎপাদন স্থিতিশীলতা"),
-}
+
 TASKS = {
-    "record_rain": (
-        "Each week, record actual rainfall, standing water, and any irrigation used in your own field.",
-        "প্রতি সপ্তাহে আপনার জমিতে বাস্তবে হওয়া বৃষ্টি, জমে থাকা পানি এবং দেওয়া সেচের তথ্য লিখে রাখুন।",
+    "baseline_crop": (
+        "Write down the last crop and roughly when it left the field. If you are unsure, ask the person who worked the field last season.",
+        "শেষবার কোন ফসল ছিল এবং আনুমানিক কখন জমি খালি হয়েছে তা লিখুন। নিশ্চিত না হলে আগের মৌসুমে যিনি জমিতে কাজ করেছেন তাঁর কাছে জেনে নিন।",
     ),
-    "verify_previous_crop": (
-        "Record the previous crop and its harvest date before discussing any new rotation.",
-        "নতুন ফসল আবর্তনের বিষয়ে পরামর্শের আগে আগের ফসল ও কাটার তারিখ লিখে রাখুন।",
+    "baseline_water": (
+        "For two weeks, note where the field gets water from and whether irrigation was actually needed.",
+        "দুই সপ্তাহ ধরে জমির পানি কোথা থেকে আসে এবং বাস্তবে সেচ দিতে হয়েছে কি না তা লিখে রাখুন।",
     ),
-    "get_soil_test": (
-        "Ask a local agricultural extension officer where to test soil pH; do not guess it.",
-        "মাটির pH কোথায় পরীক্ষা করা যায়, তা স্থানীয় কৃষি সম্প্রসারণ কর্মকর্তার কাছে জেনে নিন; অনুমান করবেন না।",
+    "baseline_drainage": (
+        "After the next heavy rain, note whether water drains quickly, stays for hours, or remains into the next day.",
+        "পরবর্তী ভারী বৃষ্টির পর পানি দ্রুত নেমে যায়, কয়েক ঘণ্টা থাকে, নাকি পরের দিনও থাকে—তা লিখে রাখুন।",
     ),
-    "confirm_soil_texture": (
-        "Confirm your soil texture with a local agricultural adviser before choosing crop constraints.",
-        "ফসলের শর্ত নির্ধারণের আগে স্থানীয় কৃষি পরামর্শকের সঙ্গে মাটির ধরন যাচাই করুন।",
+    "soil_test_path": (
+        "Do not guess soil pH. If a future crop choice depends on soil chemistry, ask the local extension office where a soil test can be done.",
+        "মাটির pH অনুমান করবেন না। ভবিষ্যৎ ফসল বাছাইয়ে মাটির রাসায়নিক তথ্য দরকার হলে স্থানীয় কৃষি অফিসে মাটি পরীক্ষা কোথায় করা যায় জেনে নিন।",
     ),
-    "check_water": (
-        "Check locally available irrigation water and discuss realistic access with an agricultural adviser.",
-        "স্থানীয় সেচের পানি কতটা পাওয়া যায়, তা যাচাই করে কৃষি পরামর্শকের সঙ্গে আলোচনা করুন।",
+    "soil_report_record": (
+        "Keep the soil-test report date and source with the farm notes; only use the numbers that actually appear on that report.",
+        "মাটি পরীক্ষার রিপোর্টের তারিখ ও উৎস জমির নোটের সঙ্গে রাখুন; রিপোর্টে যে সংখ্যাগুলো আছে শুধু সেগুলোই ব্যবহার করুন।",
     ),
-    "record_irrigation": (
-        "Write down when you irrigate and whether water remains in the field afterward.",
-        "কখন সেচ দিয়েছেন এবং পরে জমিতে পানি জমেছে কি না, তা লিখে রাখুন।",
+    "recent_rain_context": (
+        "Check the latest available NASA rainfall layer for your selected area, then compare it with what you actually saw in the field.",
+        "নির্বাচিত এলাকার সর্বশেষ পাওয়া NASA বৃষ্টির স্তর দেখুন এবং মাঠে বাস্তবে যা দেখেছেন তার সঙ্গে মিলিয়ে নিন।",
     ),
-    "soil_priority": (
-        "Take your soil test and previous-crop record to a qualified adviser to discuss soil-health priorities.",
-        "মাটির পরীক্ষা ও আগের ফসলের তথ্য নিয়ে যোগ্য কৃষি পরামর্শকের সঙ্গে মাটির স্বাস্থ্য নিয়ে আলোচনা করুন।",
+    "weekly_water_log": (
+        "Once each week, record rain, irrigation, and standing water as three separate observations.",
+        "প্রতি সপ্তাহে বৃষ্টি, সেচ এবং জমে থাকা পানি—এই তিনটি বিষয় আলাদা করে লিখুন।",
     ),
-    "water_priority": (
-        "Review your rainfall and irrigation notes with a local adviser before selecting a water-dependent crop.",
-        "পানির চাহিদা বেশি এমন ফসল বাছাইয়ের আগে স্থানীয় পরামর্শকের সঙ্গে বৃষ্টি ও সেচের নোট পর্যালোচনা করুন।",
+    "water_priority_check": (
+        "Before the next irrigation decision, review recent rain and your field notes together instead of relying on the satellite layer alone.",
+        "পরবর্তী সেচের সিদ্ধান্তের আগে শুধু স্যাটেলাইট স্তরের ওপর নির্ভর না করে সাম্প্রতিক বৃষ্টি ও নিজের মাঠের নোট একসঙ্গে দেখুন।",
     ),
-    "stability_priority": (
-        "Discuss locally documented crop calendars and available resources with the extension office.",
-        "স্থানীয় কৃষি সম্প্রসারণ অফিসের সঙ্গে যাচাইকৃত ফসল ক্যালেন্ডার ও প্রয়োজনীয় সম্পদ নিয়ে আলোচনা করুন।",
+    "soil_priority_check": (
+        "Photograph or note visible surface changes, crop residue, cracking, or persistent standing water so a local adviser has field evidence to review.",
+        "মাটির ওপরের দৃশ্যমান পরিবর্তন, ফসলের অবশিষ্টাংশ, ফাটল বা দীর্ঘ সময় পানি জমে থাকা ছবি বা নোটে রাখুন যাতে স্থানীয় পরামর্শক মাঠের প্রমাণ দেখতে পারেন।",
     ),
-    "review_crop": (
-        "If you are considering a crop, ask an extension officer to check its local season, soil and water requirements before planting.",
-        "কোনো ফসলের কথা ভাবলে রোপণের আগে কৃষি কর্মকর্তার কাছে স্থানীয় মৌসুম, মাটি ও পানির উপযোগিতা যাচাই করুন।",
+    "stability_priority_check": (
+        "Record any week when water access, heavy rain, labour, or field condition disrupted normal farm work.",
+        "যে সপ্তাহে পানি, ভারী বৃষ্টি, শ্রম বা জমির অবস্থার কারণে স্বাভাবিক কাজ ব্যাহত হয়েছে তা লিখে রাখুন।",
     ),
-    "review_notes": (
-        "At month-end, review your field notes and update any information that is still unknown.",
-        "মাস শেষে জমির নোটগুলো দেখুন এবং অজানা থাকা তথ্য সম্ভব হলে পূরণ করুন।",
+    "decision_review": (
+        "At the end of the third month, review the field notes and mark which facts are known, uncertain, or still missing.",
+        "তৃতীয় মাসের শেষে মাঠের নোট দেখে কোন তথ্য জানা, অনিশ্চিত বা এখনও অনুপস্থিত তা চিহ্নিত করুন।",
     ),
-    "no_planting_dates": (
-        "Do not treat this draft as a sowing date or crop prescription. Confirm an actionable calendar locally.",
-        "এই খসড়াকে বপনের তারিখ বা ফসলের প্রেসক্রিপশন মনে করবেন না। স্থানীয়ভাবে চাষের সময়সূচি যাচাই করুন।",
+    "calendar_check": (
+        "Use the crop-weather calendar for your region as evidence to discuss the next seasonal option; BoponX will not invent a planting date.",
+        "পরবর্তী মৌসুমের বিকল্প নিয়ে আলোচনায় আপনার অঞ্চলের ফসল-আবহাওয়া ক্যালেন্ডারকে প্রমাণ হিসেবে ব্যবহার করুন; BoponX নিজে কোনো বপনের তারিখ বানাবে না।",
+    ),
+    "rotation_gate": (
+        "Do not lock a crop rotation until the selected area's crop calendars and sequence rules have passed source review.",
+        "নির্বাচিত এলাকার ফসল ক্যালেন্ডার ও আবর্তন নিয়ম উৎস-পর্যালোচনা না হওয়া পর্যন্ত ফসল আবর্তন চূড়ান্ত করবেন না।",
+    ),
+    "export_report": (
+        "Print or save this report with the location, timestamps, field notes, and evidence links before discussing the next decision.",
+        "পরবর্তী সিদ্ধান্ত নিয়ে আলোচনার আগে অবস্থান, সময়, মাঠের নোট ও প্রমাণের লিংকসহ এই রিপোর্টটি প্রিন্ট বা সংরক্ষণ করুন।",
     ),
 }
 
 
-def missing_fields(profile: dict[str, Any]) -> list[str]:
-    missing = []
-    if profile.get("previous_crop") is None:
-        missing.append("previous_crop")
-    if profile.get("soil_ph") is None:
-        missing.append("soil_ph")
-    if profile.get("soil_texture") == "unknown":
-        missing.append("soil_texture")
-    if profile.get("irrigation_mode") == "unknown":
-        missing.append("irrigation_mode")
-    if not profile.get("priorities"):
-        missing.append("priorities")
-    return missing
+def _month(start_year: int, start_month: int, offset: int) -> tuple[int, int]:
+    year = start_year + (start_month - 1 + offset) // 12
+    month = (start_month - 1 + offset) % 12 + 1
+    return year, month
 
 
-def three_month_preview(
+def make_90_day_plan(
     profile: dict[str, Any],
-    monthly: dict[str, Any],
+    context: dict[str, Any],
     *,
     start_year: int,
     start_month: int,
-    candidate_crop: str | None,
+    recent_environment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Create an auditable, non-prescriptive field-observation routine."""
-    if profile["location_id"] != "rajshahi-pilot":
-        raise ValueError("Only the provisional Rajshahi pilot is supported")
-    if not 1 <= start_month <= 12 or not 2026 <= start_year <= 2035:
-        raise ValueError("Unsupported planning window")
-    if monthly["schema_version"] != "boponx-monthly/v1":
-        raise ValueError("Unsupported climate aggregation version")
-    if monthly["location_id"] != profile["location_id"]:
-        raise ValueError("Location mismatch between farm and NASA dataset")
-    source_years = {row["month"][:4] for row in monthly["metrics"]}
-    if len(source_years) != 1:
-        raise ValueError("Preview requires a single documented historical reference year")
-    source_year = source_years.pop()
-    source_months = {int(row["month"][5:7]): row for row in monthly["metrics"]}
-    missing = missing_fields(profile)
-    priority = (profile["priorities"] or [None])[0]
-    months: list[dict[str, Any]] = []
-    for index in range(3):
-        year = start_year + (start_month - 1 + index) // 12
-        month = (start_month - 1 + index) % 12 + 1
-        reference = source_months.get(month)
-        task_codes = ["record_rain"]
-        if index == 0:
-            if "previous_crop" in missing:
-                task_codes.append("verify_previous_crop")
-            if "soil_ph" in missing:
-                task_codes.append("get_soil_test")
-            if "soil_texture" in missing:
-                task_codes.append("confirm_soil_texture")
-        if profile["irrigation_mode"] in ("none", "limited", "unknown"):
-            task_codes.append("check_water")
-        else:
-            task_codes.append("record_irrigation")
-        if priority:
-            task_codes.append({"water": "water_priority", "soil": "soil_priority",
-                               "production_stability": "stability_priority"}[priority])
-        if candidate_crop:
-            task_codes.append("review_crop")
-        task_codes += ["review_notes", "no_planting_dates"]
+    if not 1 <= start_month <= 12:
+        raise ValueError("Unsupported start month")
+    if not 2026 <= start_year <= 2035:
+        raise ValueError("Unsupported start year")
+
+    soil_test = profile.get("soil_test", "unknown")
+    priority = profile.get("priority", "production_stability")
+
+    month1 = ["baseline_crop", "baseline_water", "baseline_drainage"]
+    month1.append("soil_report_record" if soil_test == "yes" else "soil_test_path")
+
+    month2 = ["recent_rain_context", "weekly_water_log"]
+    month2.append({
+        "water": "water_priority_check",
+        "soil": "soil_priority_check",
+        "production_stability": "stability_priority_check",
+    }[priority])
+
+    month3 = ["decision_review", "calendar_check", "rotation_gate", "export_report"]
+
+    phases = [
+        ("Know the field", "জমিকে বুঝুন", "Build a trustworthy baseline before making a seasonal choice.", "মৌসুমি সিদ্ধান্তের আগে মাঠের নির্ভরযোগ্য ভিত্তি তৈরি করুন।", month1),
+        ("Watch the change", "পরিবর্তন দেখুন", "Compare recent Earth-observation context with what is actually happening in the field.", "সাম্প্রতিক Earth observation তথ্যের সঙ্গে মাঠের বাস্তব অবস্থা মিলিয়ে দেখুন।", month2),
+        ("Decide the next move", "পরবর্তী পদক্ষেপ ঠিক করুন", "Turn three months of evidence into questions and constraints for the next seasonal decision.", "তিন মাসের প্রমাণকে পরবর্তী মৌসুমি সিদ্ধান্তের প্রশ্ন ও সীমাবদ্ধতায় রূপ দিন।", month3),
+    ]
+
+    months = []
+    for index, (title_en, title_bn, objective_en, objective_bn, task_codes) in enumerate(phases):
+        year, month = _month(start_year, start_month, index)
         months.append({
-            "month_index": index + 1,
-            "planning_month": date(year, month, 1).strftime("%Y-%m"),
-            "historical_reference_month": f"{source_year}-{month:02d}" if reference else None,
-            "historical_temperature_c": reference["temperature_mean_c"] if reference else None,
-            "historical_precipitation_mm": reference["precipitation_total_mm"] if reference else None,
-            "historical_valid_days": {
-                "temperature": reference["temperature_valid_days"] if reference else 0,
-                "precipitation": reference["precipitation_valid_days"] if reference else 0,
-                "expected": reference["days_expected"] if reference else 0,
-            },
-            "tasks": [
-                {"code": code, "en": TASKS[code][0], "bn": TASKS[code][1]}
-                for code in dict.fromkeys(task_codes)
-            ],
+            "index": index + 1,
+            "planning_month": f"{year:04d}-{month:02d}",
+            "month_name": {"en": MONTH_NAMES[month][0], "bn": MONTH_NAMES[month][1]},
+            "phase": {"en": title_en, "bn": title_bn},
+            "objective": {"en": objective_en, "bn": objective_bn},
+            "tasks": [{"code": code, "en": TASKS[code][0], "bn": TASKS[code][1]} for code in task_codes],
         })
+
+    region = context["nearest_supported_region"]
     return {
-        "schema_version": "boponx-preparation-brief/v1",
-        "status": "DRAFT_NOT_AN_AGRONOMIC_CROP_PLAN",
-        "location_id": profile["location_id"],
-        "farm": {
-            "previous_crop": profile["previous_crop"],
-            "soil_ph": profile["soil_ph"],
-            "soil_texture": profile["soil_texture"],
-            "irrigation_mode": profile["irrigation_mode"],
-            "priority": priority,
-            "priority_label": PRIORITIES.get(priority) if priority else None,
-            "candidate_crop_farmer_entered": candidate_crop,
-            "missing_inputs": [{"field": key, "en": MISSING[key][0], "bn": MISSING[key][1]}
-                               for key in missing],
+        "status": "DECISION_PREPARATION_READY",
+        "location": {
+            "coordinates": context["coordinates"],
+            "region_id": region["id"],
+            "region_name_en": region["name_en"],
+            "region_name_bn": region["name_bn"],
+            "distance_to_reference_km": region["distance_km"],
         },
+        "farmer_context": profile,
         "planning_window": {"start": months[0]["planning_month"], "end": months[-1]["planning_month"]},
         "months": months,
+        "recent_environment": recent_environment,
+        "rotation_explorer": {
+            "status": "EVIDENCE_REVIEW_REQUIRED",
+            "message_en": "Rotation alternatives stay locked until crop calendars, crop requirements, soil constraints and crop-sequence rules for this region are source-reviewed.",
+            "message_bn": "এই অঞ্চলের ফসল ক্যালেন্ডার, ফসলের চাহিদা, মাটির সীমাবদ্ধতা ও ফসল-ক্রমের নিয়ম উৎস-পর্যালোচনা না হওয়া পর্যন্ত আবর্তন বিকল্প দেখানো হবে না।",
+        },
         "evidence": {
-            "provider": monthly["provider"],
-            "source_products": monthly["source_products"],
-            "snapshot_id": monthly["snapshot_id"],
-            "source_request_url": monthly["source_request_url"],
-            "historical_year": source_year,
-            "time_standard": monthly["period"]["time_standard"],
+            "nasa_sources": context["nasa_sources"],
+            "agricultural_sources": context["agricultural_sources"],
         },
         "limitations": {
-            "en": "Preparation and monitoring only. Historical 2024 regional MERRA-2 data are not a forecast or farm measurement. No crop, planting date, soil treatment or water volume is prescribed. Confirm any farm action with local agricultural extension.",
-            "bn": "এটি শুধু প্রস্তুতি ও পর্যবেক্ষণের খসড়া। ২০২৪ সালের আঞ্চলিক MERRA-2 তথ্য ভবিষ্যৎ পূর্বাভাস বা নির্দিষ্ট জমির পরিমাপ নয়। এখানে কোনো ফসল, বপনের তারিখ, মাটির চিকিৎসা বা সেচের পরিমাণ নির্ধারণ করা হয়নি। মাঠপর্যায়ের সিদ্ধান্তের আগে স্থানীয় কৃষি সম্প্রসারণ কর্মকর্তার পরামর্শ নিন।",
+            "en": "This is a location-aware preparation and decision-support routine, not a crop prescription or forecast. Satellite and reanalysis data describe regional context; field observations and locally reviewed agricultural rules are still required for crop-specific decisions.",
+            "bn": "এটি অবস্থানভিত্তিক প্রস্তুতি ও সিদ্ধান্ত-সহায়তা রুটিন; এটি ফসলের প্রেসক্রিপশন বা আবহাওয়ার পূর্বাভাস নয়। স্যাটেলাইট ও পুনর্বিশ্লেষণ তথ্য আঞ্চলিক প্রেক্ষাপট দেয়; ফসলভিত্তিক সিদ্ধান্তে মাঠের পর্যবেক্ষণ ও স্থানীয়ভাবে যাচাইকৃত কৃষি নিয়ম এখনও প্রয়োজন।",
         },
     }

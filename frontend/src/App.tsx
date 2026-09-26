@@ -1,526 +1,646 @@
-import FieldScene from "./FieldScene";
-import BangladeshAtlas from "./BangladeshAtlas";
-import FarmReport, { type PlanBrief } from "./FarmReport";
-import ClimateExplorer from "./ClimateExplorer";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import LocationMap from "./LocationMap";
+import DecisionReport from "./DecisionReport";
 import {
   ApiError,
   apiGet,
   apiPost,
-  type ClimateSnapshot,
-  type FarmProfile,
-  type FarmValidation,
-  type Location,
+  type Area,
+  type FarmerProfile,
+  type Language,
+  type LocationContext,
+  type PlanBrief,
+  type RecentEnvironment,
   type Status,
 } from "./api";
 
-const planningMonths: {en:string;bn:string}[] = [
-  {en:"January",bn:"জানুয়ারি"},{en:"February",bn:"ফেব্রুয়ারি"},
-  {en:"March",bn:"মার্চ"},{en:"April",bn:"এপ্রিল"},
-  {en:"May",bn:"মে"},{en:"June",bn:"জুন"},
-  {en:"July",bn:"জুলাই"},{en:"August",bn:"আগস্ট"},
-  {en:"September",bn:"সেপ্টেম্বর"},{en:"October",bn:"অক্টোবর"},
-  {en:"November",bn:"নভেম্বর"},{en:"December",bn:"ডিসেম্বর"},
-];
+type Point = { latitude: number; longitude: number };
 
-const initialFarm: FarmProfile = {
-  location_id: "rajshahi-pilot",
-  previous_crop: null,
-  soil_ph: null,
-  soil_texture: "unknown",
-  irrigation_mode: "unknown",
-  priorities: [],
-};
+const cropOptions = [
+  ["rice", "ধান"],
+  ["wheat", "গম"],
+  ["maize", "ভুট্টা"],
+  ["pulse", "ডাল"],
+  ["mustard", "সরিষা"],
+  ["vegetables", "সবজি"],
+  ["jute", "পাট"],
+  ["other", "অন্য ফসল"],
+] as const;
 
-const priorityLabels: Record<FarmProfile["priorities"][number], { en: string; bn: string }> = {
-  water: { en: "Water resilience", bn: "পানি ব্যবস্থাপনা" },
-  soil: { en: "Soil health", bn: "মাটির স্বাস্থ্য" },
-  production_stability: { en: "Production stability", bn: "উৎপাদন স্থিতিশীলতা" },
-};
-
-const soilLabels = {
-  unknown: { en: "Unknown / not tested", bn: "অজানা / পরীক্ষা করা হয়নি" },
-  sandy: { en: "Sandy", bn: "বেলে" },
-  loamy: { en: "Loamy", bn: "দোআঁশ" },
-  clayey: { en: "Clayey", bn: "এঁটেল" },
-} as const;
-
-const irrigationLabels = {
-  unknown: { en: "Unknown", bn: "অজানা" },
-  none: { en: "No irrigation", bn: "সেচ নেই" },
-  limited: { en: "Limited irrigation", bn: "সীমিত সেচ" },
-  reliable: { en: "Reliable irrigation", bn: "নির্ভরযোগ্য সেচ" },
-} as const;
-
-function Duo({
-  en,
-  bn,
-  as = "span",
-  className = "",
-}: {
-  en: ReactNode;
-  bn: ReactNode;
-  as?: "span" | "p" | "div";
-  className?: string;
-}) {
-  const Tag = as;
-  return (
-    <Tag className={`duo ${className}`}>
-      <span className="duo-en">{en}</span>
-      <span className="duo-bn" lang="bn">{bn}</span>
-    </Tag>
-  );
+function t(language: Language, en: string, bn: string) {
+  return language === "bn" ? bn : en;
 }
 
-function format(value: number, digits = 1): string {
-  return new Intl.NumberFormat("en-BD", { maximumFractionDigits: digits }).format(value);
+function todayMinus(days: number) {
+  const d = new Date(Date.now() - days * 86400000);
+  return d.toISOString().slice(0, 10);
 }
 
-function StatusTag({ status }: { status: Status }) {
-  const label =
-    status === "ready"
-      ? { en: "NASA dataset validated", bn: "NASA ডেটা যাচাই হয়েছে" }
-      : status === "loading"
-        ? { en: "Checking data", bn: "ডেটা যাচাই হচ্ছে" }
-        : { en: "Dataset not loaded", bn: "ডেটাসেট লোড হয়নি" };
-  return (
-    <span className={`status-pill ${status}`}>
-      <span aria-hidden="true" className="status-dot" />
-      <Duo en={label.en} bn={label.bn} />
-    </span>
-  );
-}
-
-function SectionIndex({ n, en, bn }: { n: string; en: string; bn: string }) {
-  return (
-    <div className="section-index">
-      <span>{n}</span>
-      <Duo en={en} bn={bn} />
-    </div>
-  );
+function statusLabel(status: Status, language: Language) {
+  if (status === "loading") return t(language, "Loading", "লোড হচ্ছে");
+  if (status === "ready") return t(language, "Ready", "প্রস্তুত");
+  if (status === "unavailable") return t(language, "Unavailable", "পাওয়া যায়নি");
+  return t(language, "Waiting", "অপেক্ষায়");
 }
 
 export default function App() {
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [apiOnline, setApiOnline] = useState<boolean | null>(null);
-  const [climate, setClimate] = useState<ClimateSnapshot | null>(null);
-  const [climateStatus, setClimateStatus] = useState<Status>("loading");
-  const [climateMessage, setClimateMessage] = useState("");
-  const [farm, setFarm] = useState<FarmProfile>(initialFarm);
-  const [farmResult, setFarmResult] = useState<FarmValidation | null>(null);
-  const [farmError, setFarmError] = useState("");
-  const [farmBusy, setFarmBusy] = useState(false);
-  const [startMonth, setStartMonth] = useState<number>(() => (new Date().getMonth()+1)%12+1);
-  const [startYear, setStartYear] = useState<number>(() => Math.min(2035,Math.max(2026,new Date().getFullYear()+(new Date().getMonth()===11?1:0))));
-  const [candidateCrop, setCandidateCrop] = useState("");
-  const [brief, setBrief] = useState<PlanBrief | null>(null);
+  const [language, setLanguage] = useState<Language>("bn");
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [search, setSearch] = useState("");
+  const [point, setPoint] = useState<Point | null>(null);
+  const [context, setContext] = useState<LocationContext | null>(null);
+  const [contextStatus, setContextStatus] = useState<Status>("idle");
+  const [recent, setRecent] = useState<RecentEnvironment | null>(null);
+  const [recentStatus, setRecentStatus] = useState<Status>("idle");
+  const [locationError, setLocationError] = useState("");
+  const [gpsBusy, setGpsBusy] = useState(false);
+  const [plan, setPlan] = useState<PlanBrief | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planError, setPlanError] = useState("");
+  const [previousCrop, setPreviousCrop] = useState("");
+  const [waterSource, setWaterSource] = useState<FarmerProfile["water_source"]>("unknown");
+  const [waterAfterRain, setWaterAfterRain] = useState<FarmerProfile["water_after_heavy_rain"]>("unknown");
+  const [soilTest, setSoilTest] = useState<FarmerProfile["soil_test"]>("unknown");
+  const [soilPh, setSoilPh] = useState("");
+  const [priority, setPriority] = useState<FarmerProfile["priority"]>("production_stability");
+  const [startMonth, setStartMonth] = useState(() => new Date().getMonth() + 1);
+  const [startYear, setStartYear] = useState(() => Math.max(2026, new Date().getFullYear()));
+
+  const imergDate = useMemo(() => todayMinus(1), []);
 
   useEffect(() => {
-    let active = true;
-    apiGet<{ status: string }>("/api/v1/health")
-      .then(() => { if (active) setApiOnline(true); })
-      .catch(() => { if (active) setApiOnline(false); });
-    apiGet<{ locations: Location[] }>("/api/v1/locations")
-      .then((data) => { if (active) setLocations(data.locations); })
-      .catch(() => {});
-    apiGet<ClimateSnapshot>("/api/v1/climate/rajshahi-pilot")
-      .then((data) => {
-        if (!active) return;
-        if (data.evidence.ingestion_origin !== "nasa_power_https") {
-          setClimateStatus("unavailable");
-          setClimateMessage("This snapshot is not a verified NASA POWER acquisition.");
-          return;
-        }
-        setClimate(data);
-        setClimateStatus("ready");
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        setClimateStatus("unavailable");
-        setClimateMessage(error instanceof ApiError ? error.message : "Climate data could not be loaded.");
-      });
-    return () => { active = false; };
+    apiGet<{ areas: Area[] }>("/api/v1/areas")
+      .then((payload) => setAreas(payload.areas))
+      .catch(() => setAreas([]));
   }, []);
 
-  const location = locations.find((item) => item.id === farm.location_id);
-  const rainCoverage = climate?.summary.coverage.PRECTOTCORR;
-  const tempCoverage = climate?.summary.coverage.T2M;
+  useEffect(() => {
+    if (!point) {
+      setContext(null);
+      setRecent(null);
+      setContextStatus("idle");
+      setRecentStatus("idle");
+      return;
+    }
 
-  function changeFarm<K extends keyof FarmProfile>(key: K, value: FarmProfile[K]) {
-    setFarm((current) => ({ ...current, [key]: value }));
-    setFarmResult(null);
-    setBrief(null);
-    setFarmError("");
+    const controller = new AbortController();
+    setContextStatus("loading");
+    setRecentStatus("loading");
+    setLocationError("");
+    setPlan(null);
+
+    apiGet<LocationContext>(
+      `/api/v1/context?lat=${point.latitude}&lon=${point.longitude}`,
+      controller.signal,
+    )
+      .then((payload) => {
+        setContext(payload);
+        setContextStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setContextStatus("unavailable");
+        setLocationError(error instanceof ApiError ? error.message : "Location context could not be loaded.");
+      });
+
+    apiGet<RecentEnvironment>(
+      `/api/v1/environment/recent?lat=${point.latitude}&lon=${point.longitude}`,
+      controller.signal,
+    )
+      .then((payload) => {
+        setRecent(payload);
+        setRecentStatus(payload.status === "available" ? "ready" : "unavailable");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setRecentStatus("unavailable");
+      });
+
+    return () => controller.abort();
+  }, [point]);
+
+  const filteredAreas = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return areas;
+    return areas.filter(
+      (area) =>
+        area.name_en.toLowerCase().includes(query) ||
+        area.name_bn.includes(search.trim()) ||
+        area.evidence_region.toLowerCase().includes(query),
+    );
+  }, [areas, search]);
+
+  function chooseArea(area: Area) {
+    setPoint({ latitude: area.latitude, longitude: area.longitude });
+    setSearch("");
+    window.setTimeout(() => {
+      document.getElementById("location-workspace")?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+      });
+    }, 50);
   }
 
-  async function validateFarm(event: FormEvent<HTMLFormElement>) {
+  function useMyLocation() {
+    setLocationError("");
+    if (!navigator.geolocation) {
+      setLocationError(t(language, "This browser does not provide location access.", "এই ব্রাউজারে অবস্থান ব্যবহারের সুবিধা নেই।"));
+      return;
+    }
+    setGpsBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGpsBusy(false);
+        setPoint({
+          latitude: Number(position.coords.latitude.toFixed(5)),
+          longitude: Number(position.coords.longitude.toFixed(5)),
+        });
+      },
+      () => {
+        setGpsBusy(false);
+        setLocationError(
+          t(
+            language,
+            "Location permission was not granted. Search an area or tap the map instead.",
+            "অবস্থানের অনুমতি পাওয়া যায়নি। এলাকা খুঁজুন বা মানচিত্রে ট্যাপ করুন।",
+          ),
+        );
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
+    );
+  }
+
+  async function generatePlan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFarmBusy(true);
-    setFarmError("");
-    setFarmResult(null);
+    if (!point || !context?.within_bangladesh) {
+      setPlanError(t(language, "Choose a Bangladesh field location first.", "প্রথমে বাংলাদেশের একটি জমির অবস্থান বেছে নিন।"));
+      return;
+    }
+
+    const profile: FarmerProfile = {
+      latitude: point.latitude,
+      longitude: point.longitude,
+      previous_crop: previousCrop || null,
+      water_source: waterSource,
+      water_after_heavy_rain: waterAfterRain,
+      soil_test: soilTest,
+      soil_ph: soilTest === "yes" && soilPh.trim() ? Number(soilPh) : null,
+      priority,
+    };
+
+    setPlanBusy(true);
+    setPlanError("");
     try {
-      const checked = await apiPost<FarmValidation>("/api/v1/farms/validate", farm);
-      setFarmResult(checked);
-      const report = await apiPost<PlanBrief>("/api/v1/plans/preview", {
-        farm, start_month: startMonth, start_year: startYear,
-        candidate_crop: candidateCrop.trim() || null,
+      await apiPost("/api/v1/farms/validate", profile);
+      const payload = await apiPost<PlanBrief>("/api/v1/plans/preview", {
+        farm: profile,
+        start_year: startYear,
+        start_month: startMonth,
+        include_recent_power: true,
       });
-      setBrief(report);
-      window.setTimeout(() => document.getElementById("boponx-report")?.scrollIntoView({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
-      }), 70);
+      setPlan(payload);
+      window.setTimeout(() => {
+        document.getElementById("farmer-report")?.scrollIntoView({
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+          block: "start",
+        });
+      }, 80);
     } catch (error) {
-      setFarmError(error instanceof ApiError ? error.message : "Farm inputs could not be validated.");
+      setPlanError(error instanceof ApiError ? error.message : "The plan could not be generated.");
     } finally {
-      setFarmBusy(false);
+      setPlanBusy(false);
     }
   }
 
   return (
-    <div className="site">
-      <header className="topbar">
-        <a className="brand" href="#top" aria-label="BoponX home">
-          <span className="brand-emblem" aria-hidden="true">
-            <span className="flag-sun" />
-            <span className="seed-stroke" />
+    <div className="app-shell">
+      <header className="site-header">
+        <a href="#top" className="brand-lockup" aria-label="BoponX home">
+          <span className="brand-seed" aria-hidden="true">◒</span>
+          <span>
+            <b>BoponX</b>
+            <small>বপনএক্স</small>
           </span>
-          <span className="brand-word">Bopon<span>X</span></span>
-          <span className="brand-sub" lang="bn">বপনএক্স</span>
         </a>
-        <nav aria-label="Primary">
-          <a href="#climate"><Duo en="Climate" bn="জলবায়ু" /></a>
-          <a href="#farm"><Duo en="My plan" bn="আমার পরিকল্পনা" /></a>
-          <a className="nav-github" href="https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026" target="_blank" rel="noreferrer">
-            <Duo en="Source code" bn="সোর্স কোড" /> <span aria-hidden="true">↗</span>
-          </a>
+        <nav className="header-nav" aria-label="Primary navigation">
+          <a href="#location-workspace">{t(language, "My field", "আমার জমি")}</a>
+          <a href="#how-it-works">{t(language, "How it works", "কীভাবে কাজ করে")}</a>
+          <a href="#evidence">{t(language, "Evidence", "প্রমাণ")}</a>
         </nav>
+        <button
+          className="language-switch"
+          type="button"
+          onClick={() => setLanguage((value) => (value === "bn" ? "en" : "bn"))}
+        >
+          {language === "bn" ? "English" : "বাংলা"}
+        </button>
       </header>
 
       <main id="top">
-        <section className="hero">
-          <div className="hero-grid-lines" aria-hidden="true" />
-          <div className="hero-copy">
-            <div className="eyebrow">
-              <span className="eyebrow-sun" aria-hidden="true" />
-              <Duo en="An EARTH.exe initiative · NASA Space Apps 2026" bn="EARTH.exe উদ্যোগ · NASA Space Apps 2026" />
-            </div>
-
-            <div className="hero-title-wrap">
-              <p className="hero-bengali-title" lang="bn">মহাকাশ থেকে মাটিতে</p>
-              <h1>From <span>Space</span><br />to Soil.</h1>
-            </div>
-
-            <Duo
-              as="p"
-              className="hero-lead"
-              en="A climate-resilient crop-rotation decision platform designed for farmers, advisers and communities."
-              bn="কৃষক, কৃষি পরামর্শক ও স্থানীয় মানুষের জন্য জলবায়ু-সহনশীল ফসল আবর্তন সিদ্ধান্ত সহায়তা প্ল্যাটফর্ম।"
-            />
-
-            <div className="hero-actions">
-              <a className="button primary" href="#farm">
-                <Duo en="Create my 3-month brief" bn="আমার তিন মাসের প্রস্তুতি নোট" />
-                <span aria-hidden="true">↗</span>
+        <section className="hero-new">
+          <div className="hero-field-lines" aria-hidden="true" />
+          <div className="hero-copy-new">
+            <p className="eyebrow-new">
+              {t(language, "Field decisions from Earth evidence", "পৃথিবীর তথ্য থেকে জমির সিদ্ধান্ত")}
+            </p>
+            <h1>
+              {t(
+                language,
+                "Start with the field. Bring in the right data.",
+                "শুরু হোক আপনার জমি থেকে। তথ্য আসুক শুধু প্রয়োজনমতো।",
+              )}
+            </h1>
+            <p className="hero-intro">
+              {t(
+                language,
+                "BoponX connects a farmer's own observations with location-specific NASA environmental context and reviewed local agricultural evidence. It is designed to compare seasonal choices—not to bury a farmer in charts.",
+                "BoponX কৃষকের নিজের অভিজ্ঞতাকে অবস্থানভিত্তিক NASA পরিবেশগত তথ্য এবং যাচাইকৃত স্থানীয় কৃষি প্রমাণের সঙ্গে যুক্ত করে। লক্ষ্য হলো মৌসুমি সিদ্ধান্ত তুলনা করা—কৃষককে চার্টের ভিড়ে হারিয়ে দেওয়া নয়।",
+              )}
+            </p>
+            <div className="hero-cta-row">
+              <a className="primary-cta" href="#location-workspace">
+                {t(language, "Choose my field", "আমার জমি বেছে নিন")}
+                <span aria-hidden="true">→</span>
               </a>
-              <a className="button ghost" href="#climate">
-                <Duo en="Explore NASA climate data" bn="NASA জলবায়ু ডেটা দেখুন" />
-                <span aria-hidden="true">↓</span>
-              </a>
-            </div>
-
-            <div className="hero-meta">
-              <StatusTag status={climateStatus} />
-              <span className={`api-state ${apiOnline === false ? "down" : ""}`}>
-                <span aria-hidden="true" className="status-dot" />
-                <Duo
-                  en={apiOnline === false ? "API disconnected" : "Rajshahi pilot · Bangladesh"}
-                  bn={apiOnline === false ? "API সংযোগ নেই" : "রাজশাহী পাইলট · বাংলাদেশ"}
-                />
+              <span className="hero-note">
+                {t(language, "No account. No location saved by default.", "কোনো অ্যাকাউন্ট নয়। ডিফল্টভাবে অবস্থান সংরক্ষণও নয়।")}
               </span>
             </div>
           </div>
 
-          <FieldScene />
-        </section>
-
-        <section className="trust-strip" aria-label="BoponX principles">
-          <div><b>NASA</b><Duo en="Data at the core" bn="মূল শক্তি হলো ডেটা" /></div>
-          <div><b>01</b><Duo en="Deterministic science" bn="যাচাইযোগ্য বিজ্ঞান" /></div>
-          <div><b>02</b><Duo en="Local context" bn="স্থানীয় বাস্তবতা" /></div>
-          <div><b>03</b><Duo en="Explainable decisions" bn="ব্যাখ্যাযোগ্য সিদ্ধান্ত" /></div>
-        </section>
-
-        <BangladeshAtlas dataReady={climateStatus === "ready"} />
-
-        <section className="section climate-section" id="climate" aria-labelledby="climate-heading">
-          <div className="section-heading-row">
-            <SectionIndex n="01" en="Environmental context" bn="পরিবেশগত প্রেক্ষাপট" />
-            <div className="section-title-block">
-              <h2 id="climate-heading">See the climate.<br /><span>See the evidence.</span></h2>
-              <p lang="bn">জলবায়ু দেখুন। প্রমাণ দেখুন।</p>
+          <div className="hero-system" aria-label={t(language, "BoponX decision flow", "BoponX সিদ্ধান্ত প্রবাহ")}>
+            <div className="system-node farmer">
+              <span>01</span>
+              <strong>{t(language, "Your field", "আপনার জমি")}</strong>
+              <small>{t(language, "Location + what you know", "অবস্থান + আপনি যা জানেন")}</small>
             </div>
-            <Duo
-              as="p"
-              className="section-description"
-              en="The pilot shows 2024 regional historical temperature and rainfall from NASA POWER / MERRA-2 reanalysis. These are not direct satellite rainfall readings, field measurements or future forecasts."
-              bn="পাইলটে NASA POWER / MERRA-2 পুনর্বিশ্লেষণ থেকে ২০২৪ সালের আঞ্চলিক তাপমাত্রা ও বৃষ্টির ইতিহাস দেখানো হচ্ছে। এগুলো সরাসরি স্যাটেলাইটে মাপা বৃষ্টি, নির্দিষ্ট জমির মাপ বা ভবিষ্যৎ পূর্বাভাস নয়।"
-            />
-          </div>
-
-          <div className="climate-frame">
-            <div className="frame-top">
-              <div>
-                <Duo className="frame-label" en="Selected region" bn="নির্বাচিত অঞ্চল" />
-                <strong>{location?.name ?? "Rajshahi regional pilot"}</strong>
-                <span className="subline">{location ? `${location.latitude}° N · ${location.longitude}° E` : "24.37° N · 88.60° E"} · provisional reference point</span>
-                <span className="subline bn" lang="bn">অস্থায়ী আঞ্চলিক রেফারেন্স পয়েন্ট</span>
-              </div>
-              <StatusTag status={climateStatus} />
+            <i aria-hidden="true" />
+            <div className="system-node earth">
+              <span>02</span>
+              <strong>{t(language, "Earth context", "পৃথিবীর প্রেক্ষাপট")}</strong>
+              <small>NASA IMERG · SMAP · POWER</small>
             </div>
-
-            {climate ? (
-              <>
-                <div className="metric-grid">
-                  <article className="metric-card">
-                    <Duo className="metric-label" en="Mean temperature · valid days" bn="গড় তাপমাত্রা · বৈধ দিন" />
-                    <strong>{format(climate.summary.temperature_mean_valid_days)}<small> {climate.variables.T2M.provider_unit === "C" ? "°C" : climate.variables.T2M.provider_unit}</small></strong>
-                    <Duo as="p" en={`${tempCoverage?.valid_days ?? "—"} of ${tempCoverage?.expected_days ?? "—"} days reported`} bn={`${tempCoverage?.valid_days ?? "—"} / ${tempCoverage?.expected_days ?? "—"} দিনের ডেটা পাওয়া গেছে`} />
-                  </article>
-
-                  <article className="metric-card feature">
-                    <Duo className="metric-label" en="Period precipitation" bn="সময়ের মোট বৃষ্টিপাত" />
-                    <strong>
-                      {climate.summary.precipitation_total_full_period === null
-                        ? "Incomplete"
-                        : format(climate.summary.precipitation_total_full_period, 2)}
-                      {climate.summary.precipitation_total_full_period !== null && <small> {climate.variables.PRECTOTCORR.provider_unit.replace("/day", "")}</small>}
-                    </strong>
-                    <Duo as="p" en={`${rainCoverage?.valid_days ?? "—"} of ${rainCoverage?.expected_days ?? "—"} days reported`} bn={`${rainCoverage?.valid_days ?? "—"} / ${rainCoverage?.expected_days ?? "—"} দিনের বৃষ্টিপাত ডেটা`} />
-                  </article>
-
-                  <article className="metric-card">
-                    <Duo className="metric-label" en="Historical period" bn="ঐতিহাসিক সময়কাল" />
-                    <strong className="date-metric">{climate.period.start.slice(0, 4) === climate.period.end.slice(0, 4) ? `Jan–Dec ${climate.period.start.slice(0, 4)}` : `${climate.period.start.slice(0, 7)} – ${climate.period.end.slice(0, 7)}`}</strong>
-                    <Duo as="p" en={`Daily records · ${climate.period.time_standard} (local solar time) · NASA POWER`} bn="দৈনিক রেকর্ড · স্থানীয় সৌর সময় · NASA POWER" />
-                  </article>
-                </div>
-
-                <ClimateExplorer snapshot={climate} />
-
-                <details className="evidence">
-                  <summary>
-                    <Duo en="View NASA evidence and limitations" bn="NASA প্রমাণ ও সীমাবদ্ধতা দেখুন" />
-                    <span aria-hidden="true">↗</span>
-                  </summary>
-                  <dl>
-                    <div><dt><Duo en="Provider" bn="উৎস" /></dt><dd>{climate.evidence.provider}</dd></div>
-                    <div><dt><Duo en="Snapshot" bn="স্ন্যাপশট" /></dt><dd>{climate.evidence.snapshot_id}</dd></div>
-                    <div><dt><Duo en="Underlying data product" bn="মূল ডেটা উৎস" /></dt><dd>{climate.evidence.source_products.join(", ") || "Not reported"} · reanalysis / পুনর্বিশ্লেষণ; not direct satellite rainfall / সরাসরি স্যাটেলাইটে মাপা বৃষ্টি নয়</dd></div>
-                    <div><dt><Duo en="Source kind" bn="ডেটার ধরন" /></dt><dd>{climate.evidence.data_kind}</dd></div>
-                    <div><dt><Duo en="Raw SHA-256" bn="র’ SHA-256" /></dt><dd className="hash">{climate.evidence.raw_sha256}</dd></div>
-                  </dl>
-                  <a href={climate.evidence.source_request_url} target="_blank" rel="noreferrer">
-                    <Duo en="View original POWER request" bn="মূল POWER রিকোয়েস্ট দেখুন" /> ↗
-                  </a>
-                </details>
-              </>
-            ) : (
-              <div className="climate-empty" role="status">
-                <span className="empty-orbit" aria-hidden="true"><i /><b /></span>
-                <Duo
-                  as="div"
-                  className="empty-heading"
-                  en={climateStatus === "loading" ? "Checking the data pipeline…" : "NASA climate data is not loaded yet"}
-                  bn={climateStatus === "loading" ? "ডেটা পাইপলাইন যাচাই হচ্ছে…" : "NASA জলবায়ু ডেটা এখনো লোড হয়নি"}
-                />
-                <Duo
-                  as="p"
-                  en={climateStatus === "loading" ? "BoponX is looking for the verified pilot snapshot." : climateMessage}
-                  bn={climateStatus === "loading" ? "BoponX যাচাইকৃত পাইলট স্ন্যাপশট খুঁজছে।" : "যাচাইকৃত ডেটা পাওয়া গেলে এই অংশটি স্বয়ংক্রিয়ভাবে সক্রিয় হবে।"}
-                />
-                <Duo
-                  as="p"
-                  className="empty-caption"
-                  en="No sample climate values are substituted."
-                  bn="কোনো নমুনা বা কল্পিত জলবায়ু মান দেখানো হচ্ছে না।"
-                />
-              </div>
-            )}
+            <i aria-hidden="true" />
+            <div className="system-node decision">
+              <span>03</span>
+              <strong>{t(language, "Season decision", "মৌসুমি সিদ্ধান্ত")}</strong>
+              <small>{t(language, "Compare, explain, print", "তুলনা, ব্যাখ্যা, প্রিন্ট")}</small>
+            </div>
           </div>
         </section>
 
-        <section className="section farm-section" id="farm" aria-labelledby="farm-heading">
-          <div className="section-heading-row">
-            <SectionIndex n="02" en="Farm context" bn="খামারের প্রেক্ষাপট" />
-            <div className="section-title-block">
-              <h2 id="farm-heading">Your farm.<br /><span>Your priorities.</span></h2>
-              <p lang="bn">আপনার খামার। আপনার অগ্রাধিকার।</p>
+        <section className="location-section" id="location-workspace">
+          <div className="section-intro">
+            <p className="section-number">01</p>
+            <div>
+              <span className="kicker">{t(language, "Location first", "প্রথমে অবস্থান")}</span>
+              <h2>{t(language, "Where is your field?", "আপনার জমি কোথায়?")}</h2>
             </div>
-            <Duo
-              as="p"
-              className="section-description"
-              en="Record only what you know. Unknown soil characteristics stay unknown; BoponX does not silently invent missing information."
-              bn="আপনি যা জানেন শুধু সেটিই দিন। মাটির অজানা তথ্য অজানাই থাকবে; BoponX কোনো অনুপস্থিত তথ্য নিজের মতো করে বানাবে না।"
-            />
+            <p>
+              {t(
+                language,
+                "Choose a place once. BoponX then limits the environmental and agricultural evidence to that area.",
+                "একবার জায়গা বেছে নিন। এরপর BoponX শুধু সেই এলাকার প্রাসঙ্গিক পরিবেশ ও কৃষি তথ্য দেখাবে।",
+              )}
+            </p>
           </div>
 
-          <div className="farm-layout">
-            <form className="farm-form" onSubmit={validateFarm}>
-              <div className="form-head">
-                <div>
-                  <Duo className="form-overline" en="Pilot farm profile" bn="পাইলট খামার প্রোফাইল" />
-                  <h3>Tell BoponX what you know. <span lang="bn">যা জানেন, সেটাই বলুন।</span></h3>
-                </div>
-                <div className="form-badge">BD · 01</div>
-              </div>
+          <div className="location-actions">
+            <button className="gps-button" type="button" onClick={useMyLocation} disabled={gpsBusy}>
+              <span className="gps-icon" aria-hidden="true">⌖</span>
+              <span>
+                <strong>{gpsBusy ? t(language, "Finding location…", "অবস্থান খোঁজা হচ্ছে…") : t(language, "Use my location", "আমার অবস্থান ব্যবহার করুন")}</strong>
+                <small>{t(language, "Permission is requested only when you tap.", "শুধু ট্যাপ করলে অনুমতি চাওয়া হবে।")}</small>
+              </span>
+            </button>
 
-              <div className="form-grid">
-                <label>
-                  <Duo en="Regional pilot location" bn="পাইলট অঞ্চল" />
-                  <select value={farm.location_id} onChange={(e) => changeFarm("location_id", e.target.value as FarmProfile["location_id"])}>
-                    <option value="rajshahi-pilot">Rajshahi · রাজশাহী</option>
-                  </select>
-                  <span className="form-helper">Provisional regional pilot · <span lang="bn">অস্থায়ী আঞ্চলিক পাইলট</span></span>
-                </label>
-
-                <label>
-                  <Duo en="Previous crop" bn="আগের ফসল" />
-                  <input value={farm.previous_crop ?? ""} onChange={(e) => changeFarm("previous_crop", e.target.value || null)} placeholder="Unknown · অজানা" maxLength={80} />
-                </label>
-
-                <label>
-                  <Duo en="Known soil pH" bn="জানা মাটির pH" />
-                  <input type="number" min="0" max="14" step="0.1" value={farm.soil_ph ?? ""} onChange={(e) => changeFarm("soil_ph", e.target.value === "" ? null : Number(e.target.value))} placeholder="Unknown · অজানা" />
-                </label>
-
-                <label>
-                  <Duo en="Soil texture" bn="মাটির ধরন" />
-                  <select value={farm.soil_texture} onChange={(e) => changeFarm("soil_texture", e.target.value as FarmProfile["soil_texture"])}>
-                    {Object.entries(soilLabels).map(([value, labels]) => <option key={value} value={value}>{labels.en} · {labels.bn}</option>)}
-                  </select>
-                </label>
-
-                <label>
-                  <Duo en="Irrigation availability" bn="সেচ সুবিধা" />
-                  <select value={farm.irrigation_mode} onChange={(e) => changeFarm("irrigation_mode", e.target.value as FarmProfile["irrigation_mode"])}>
-                    {Object.entries(irrigationLabels).map(([value, labels]) => <option key={value} value={value}>{labels.en} · {labels.bn}</option>)}
-                  </select>
-                </label>
-
-                <label>
-                  <Duo en="Primary planning priority" bn="প্রধান পরিকল্পনা অগ্রাধিকার" />
-                  <select value={farm.priorities[0] ?? ""} onChange={(e) => changeFarm("priorities", e.target.value ? [e.target.value as FarmProfile["priorities"][number]] : [])}>
-                    <option value="">Choose · নির্বাচন করুন</option>
-                    {Object.entries(priorityLabels).map(([value, labels]) => <option value={value} key={value}>{labels.en} · {labels.bn}</option>)}
-                  </select>
-                </label>
-              </div>
-
-              <div className="plan-inputs">
-                <div className="plan-inputs__headline">
-                  <strong>Build my printable 3-month brief</strong>
-                  <span lang="bn">আমার তিন মাসের প্রিন্টযোগ্য প্রস্তুতি নোট তৈরি করুন</span>
-                </div>
-                <div className="plan-inputs__grid">
-                  <label>
-                    <Duo en="Start month" bn="শুরুর মাস" />
-                    <select value={startMonth} onChange={(e)=>{setStartMonth(Number(e.target.value));setBrief(null)}}>
-                      {planningMonths.map((month,index)=><option value={index+1} key={month.en}>{month.en} · {month.bn}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <Duo en="Start year" bn="শুরুর বছর" />
-                    <select value={startYear} onChange={(e)=>{setStartYear(Number(e.target.value));setBrief(null)}}>
-                      {Array.from({length:10},(_,i)=>2026+i).map(year=><option value={year} key={year}>{year}</option>)}
-                    </select>
-                  </label>
-                  <label className="plan-inputs__candidate">
-                    <Duo en="Crop you are considering (optional; not a BoponX recommendation)" bn="আপনি যে ফসলের কথা ভাবছেন (ঐচ্ছিক; BoponX-এর সুপারিশ নয়)" />
-                    <input type="text" maxLength={80} value={candidateCrop} onChange={(e)=>{setCandidateCrop(e.target.value);setBrief(null)}} placeholder="Your own crop idea · আপনার ভাবনায় ফসল" />
-                  </label>
-                </div>
-              </div>
-
-              <Duo
-                as="p"
-                className="form-privacy"
-                en="Your inputs produce a printable three-month preparation brief. No account is created, and this form does not save your farm profile. It does not select crops or planting dates."
-                bn="আপনার তথ্য থেকে প্রিন্টযোগ্য তিন মাসের প্রস্তুতি নোট তৈরি হবে। কোনো অ্যাকাউন্ট তৈরি বা খামারের তথ্য সংরক্ষণ করা হয় না। এটি ফসল বা বপনের তারিখ নির্ধারণ করে না।"
+            <label className="area-search">
+              <span>{t(language, "Search a region", "অঞ্চল খুঁজুন")}</span>
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t(language, "Rajshahi, Khulna, Rangpur…", "রাজশাহী, খুলনা, রংপুর…")}
               />
+            </label>
+          </div>
 
-              <button className="button primary submit-button" type="submit" disabled={farmBusy}>
-                <Duo en={farmBusy ? "Preparing your brief…" : "Generate my 3-month brief"} bn={farmBusy ? "প্রস্তুতি নোট তৈরি হচ্ছে…" : "আমার তিন মাসের নোট তৈরি করুন"} />
-                <span aria-hidden="true">↗</span>
-              </button>
+          {search && (
+            <div className="area-results">
+              {filteredAreas.slice(0, 8).map((area) => (
+                <button key={area.id} type="button" onClick={() => chooseArea(area)}>
+                  <strong>{language === "bn" ? area.name_bn : area.name_en}</strong>
+                  <small>{language === "bn" ? area.name_en : area.name_bn}</small>
+                </button>
+              ))}
+              {filteredAreas.length === 0 && (
+                <p>{t(language, "No matching reference region. You can still tap the map.", "মিল পাওয়া যায়নি। তবুও মানচিত্রে ট্যাপ করে জায়গা বেছে নিতে পারেন।")}</p>
+              )}
+            </div>
+          )}
 
-              {farmError && (
-                <div className="form-feedback error" role="alert">
-                  <Duo en={farmError} bn="খামারের তথ্য যাচাই করা যায়নি।" />
+          <div className="map-and-context">
+            <LocationMap point={point} onPick={setPoint} language={language} imergDate={imergDate} />
+
+            <aside className="context-panel">
+              {!point && (
+                <div className="context-empty">
+                  <span className="context-compass" aria-hidden="true">◎</span>
+                  <h3>{t(language, "Choose one place", "একটি জায়গা বেছে নিন")}</h3>
+                  <p>{t(language, "GPS, search, or a tap on the map all lead to the same location-aware workflow.", "GPS, সার্চ বা মানচিত্রে ট্যাপ—সব পথেই একই অবস্থানভিত্তিক প্রক্রিয়া শুরু হবে।")}</p>
                 </div>
               )}
 
-              {farmResult && (
-                <div className="form-feedback success" role="status">
-                  <Duo as="div" className="feedback-title" en="Farm inputs recorded for validation." bn="খামারের তথ্য যাচাইয়ের জন্য গ্রহণ করা হয়েছে।" />
-                  <Duo
-                    as="p"
-                    en={farmResult.missing_inputs.length ? `Still unknown: ${farmResult.missing_inputs.join(", ").replaceAll("_", " ")}.` : "All requested fields are supplied."}
-                    bn={farmResult.missing_inputs.length ? `অজানা: ${farmResult.missing_inputs.map(x=>({
-                      previous_crop:"আগের ফসল",soil_ph:"মাটির pH",
-                      soil_texture:"মাটির ধরন",irrigation_mode:"সেচ সুবিধা",priorities:"অগ্রাধিকার",
-                    }[x] ?? x)).join(" · ")}।` : "চাওয়া সব তথ্য দেওয়া হয়েছে।"}
-                  />
-                </div>
-              )}
-            </form>
+              {point && (
+                <>
+                  <div className="context-head">
+                    <div>
+                      <span className="kicker">{t(language, "Selected field area", "নির্বাচিত জমির এলাকা")}</span>
+                      <h3>
+                        {context
+                          ? language === "bn"
+                            ? context.nearest_supported_region.name_bn
+                            : context.nearest_supported_region.name_en
+                          : t(language, "Resolving area…", "এলাকা শনাক্ত হচ্ছে…")}
+                      </h3>
+                    </div>
+                    <span className={`context-status ${contextStatus}`}>{statusLabel(contextStatus, language)}</span>
+                  </div>
 
-            <aside className="planning-aside">
-              <div className="planning-topline"><span>03</span><Duo en="Your next steps" bn="আপনার পরবর্তী পদক্ষেপ" /></div>
-              <div className="three-season">
-                <span>01</span><i /><span>02</span><i /><span>03</span>
-              </div>
-              <h3>Start with<br /><em>3 months.</em></h3>
-              <p lang="bn" className="aside-bn">শুরু করুন পরবর্তী ৩ মাসের প্রস্তুতি দিয়ে।</p>
-              <Duo
-                as="p"
-                en="Submit your farm details for a printable, bilingual field-preparation checklist and 2024 NASA historical context. Reviewed crop-rotation advice is a separate development gate."
-                bn="আপনার তথ্য দিন, প্রিন্টযোগ্য বাংলা-ইংরেজি প্রস্তুতি তালিকা ও ২০২৪ সালের NASA ঐতিহাসিক তথ্য পান। ফসল আবর্তন পরামর্শ আলাদা গবেষণা-যাচাইয়ের কাজ।"
-              />
-              <div className="aside-state"><span className="status-dot" aria-hidden="true" /><Duo en="Printable brief available · crop rules pending" bn="প্রস্তুতি নোট প্রস্তুত · ফসলের নিয়ম যাচাই বাকি" /></div>
-              <Duo as="p" className="aside-footnote" en="No fictional yield, soil-health score or water-saving estimate is shown." bn="কোনো কল্পিত ফলন, মাটির স্বাস্থ্য স্কোর বা পানি সাশ্রয়ের অনুমান দেখানো হয় না।" />
+                  <div className="coordinate-line">
+                    <span>{point.latitude.toFixed(4)}°</span>
+                    <span>{point.longitude.toFixed(4)}°</span>
+                    <small>{t(language, "used for this request", "এই অনুরোধের জন্য ব্যবহৃত")}</small>
+                  </div>
+
+                  {context && (
+                    <div className="coverage-stack">
+                      <div>
+                        <span className="coverage-icon ready" />
+                        <p>
+                          <strong>{t(language, "NASA environmental context", "NASA পরিবেশগত তথ্য")}</strong>
+                          <small>{t(language, "Available for this Bangladesh location", "এই বাংলাদেশের অবস্থানের জন্য পাওয়া যায়")}</small>
+                        </p>
+                      </div>
+                      <div>
+                        <span className="coverage-icon review" />
+                        <p>
+                          <strong>{t(language, "Local agricultural evidence", "স্থানীয় কৃষি প্রমাণ")}</strong>
+                          <small>{t(language, "Regional sources identified; rules still under review", "আঞ্চলিক উৎস শনাক্ত; নিয়ম এখনও পর্যালোচনায়")}</small>
+                        </p>
+                      </div>
+                      <div>
+                        <span className="coverage-icon locked" />
+                        <p>
+                          <strong>{t(language, "Crop-rotation decision", "ফসল আবর্তন সিদ্ধান্ত")}</strong>
+                          <small>{t(language, "Locked until evidence rules are approved", "প্রমাণভিত্তিক নিয়ম অনুমোদন না হওয়া পর্যন্ত বন্ধ")}</small>
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {locationError && <p className="inline-error">{locationError}</p>}
+                </>
+              )}
             </aside>
           </div>
         </section>
 
-        {brief && <FarmReport brief={brief} />}
+        {point && context && (
+          <section className="signal-section" id="evidence">
+            <div className="section-intro compact">
+              <p className="section-number">02</p>
+              <div>
+                <span className="kicker">{t(language, "Only what matters here", "শুধু এই এলাকার প্রয়োজনীয় তথ্য")}</span>
+                <h2>{t(language, "Earth signals for this location", "এই অবস্থানের Earth signals")}</h2>
+              </div>
+              <p>
+                {t(
+                  language,
+                  "Each source has a different job. BoponX keeps recent rainfall, soil-moisture context, and climate history separate.",
+                  "প্রতিটি উৎসের কাজ আলাদা। BoponX সাম্প্রতিক বৃষ্টি, মাটির আর্দ্রতার প্রেক্ষাপট এবং জলবায়ু ইতিহাস আলাদা রাখে।",
+                )}
+              </p>
+            </div>
 
-        <section className="manifesto">
-          <div className="manifesto-flag" aria-hidden="true"><span /></div>
-          <div>
-            <Duo className="manifesto-kicker" en="Built in Bangladesh · engineered for trust" bn="বাংলাদেশে নির্মিত · বিশ্বাসের জন্য প্রকৌশল" />
-            <h2>Local roots.<br /><span>Orbital perspective.</span></h2>
-            <p lang="bn">স্থানীয় শিকড়। মহাকাশের দৃষ্টিভঙ্গি।</p>
+            <div className="signal-grid">
+              <article>
+                <span className="signal-type nrt">{t(language, "Near-real-time", "নিকট-বাস্তব সময়")}</span>
+                <h3>GPM IMERG Early</h3>
+                <p>{t(language, "Recent rainfall layer for the selected map area.", "নির্বাচিত মানচিত্র এলাকার সাম্প্রতিক বৃষ্টির স্তর।")}</p>
+                <dl>
+                  <div><dt>{t(language, "Map date", "মানচিত্রের তারিখ")}</dt><dd>{imergDate}</dd></div>
+                  <div><dt>{t(language, "Resolution", "রেজোলিউশন")}</dt><dd>0.1° · ~10 km</dd></div>
+                  <div><dt>{t(language, "Latency", "লেটেন্সি")}</dt><dd>{t(language, "minimum ~4 h", "সর্বনিম্ন ~৪ ঘণ্টা")}</dd></div>
+                </dl>
+              </article>
+
+              <article>
+                <span className="signal-type eo">{t(language, "Earth observation", "Earth observation")}</span>
+                <h3>SMAP</h3>
+                <p>{t(language, "Regional surface-soil-moisture context. Never treated as soil pH.", "আঞ্চলিক উপরিভাগের মাটির আর্দ্রতার প্রেক্ষাপট। কখনোই soil pH হিসেবে ধরা হয় না।")}</p>
+                <dl>
+                  <div><dt>{t(language, "Product", "প্রোডাক্ট")}</dt><dd>SPL3SMP_E V6</dd></div>
+                  <div><dt>{t(language, "Resolution", "রেজোলিউশন")}</dt><dd>9 km · daily</dd></div>
+                  <div><dt>{t(language, "App status", "অ্যাপ স্ট্যাটাস")}</dt><dd>{t(language, "adapter pending", "অ্যাডাপ্টার বাকি")}</dd></div>
+                </dl>
+              </article>
+
+              <article>
+                <span className="signal-type history">{t(language, "Climate context", "জলবায়ু প্রেক্ষাপট")}</span>
+                <h3>NASA POWER</h3>
+                <p>{t(language, "Selected-location gridded temperature and rainfall context.", "নির্বাচিত অবস্থানের গ্রিডভিত্তিক তাপমাত্রা ও বৃষ্টির প্রেক্ষাপট।")}</p>
+                {recentStatus === "loading" && <p className="loading-copy">{t(language, "Checking latest available point context…", "সর্বশেষ পাওয়া পয়েন্ট তথ্য দেখা হচ্ছে…")}</p>}
+                {recent?.status === "available" && (
+                  <div className="recent-metrics">
+                    <div><strong>{recent.summary?.temperature_mean_c ?? "—"}°C</strong><span>{t(language, "period mean", "সময়ের গড়")}</span></div>
+                    <div><strong>{recent.summary?.precipitation_total_mm ?? "—"} mm</strong><span>{t(language, "complete-period rain", "সম্পূর্ণ সময়ের বৃষ্টি")}</span></div>
+                  </div>
+                )}
+                {recentStatus === "unavailable" && (
+                  <p className="unavailable-note">{t(language, "Live point query unavailable. No value was substituted.", "লাইভ পয়েন্ট কুয়েরি পাওয়া যায়নি। কোনো বিকল্প সংখ্যা বানানো হয়নি।")}</p>
+                )}
+              </article>
+            </div>
+
+            <div className="advisory-strip">
+              <strong>{t(language, "2026 data-quality note", "২০২৬ ডেটা-গুণমান নোট")}</strong>
+              <p>{t(language, "SMAP Standard/NRT products had a reported geolocation issue for 14 May–28 July 2026. Affected dates must be checked before use.", "SMAP Standard/NRT ডেটায় ১৪ মে–২৮ জুলাই ২০২৬ সময়ের জন্য geolocation সমস্যা রিপোর্ট করা হয়েছিল। ওই সময়ের ডেটা ব্যবহারের আগে অবস্থা যাচাই করতে হবে।")}</p>
+            </div>
+          </section>
+        )}
+
+        <section className="farmer-section" id="farmer">
+          <div className="section-intro">
+            <p className="section-number">03</p>
+            <div>
+              <span className="kicker">{t(language, "What the farmer already knows", "কৃষক যা আগে থেকেই জানেন")}</span>
+              <h2>{t(language, "No laboratory quiz.", "কোনো ল্যাবরেটরি কুইজ নয়।")}</h2>
+            </div>
+            <p>
+              {t(
+                language,
+                "Answer from experience. Every uncertain question has an 'I don't know' path.",
+                "অভিজ্ঞতা থেকে উত্তর দিন। প্রতিটি অনিশ্চিত প্রশ্নেই ‘জানি না’ অপশন আছে।",
+              )}
+            </p>
           </div>
-          <Duo
-            as="p"
-            className="manifesto-copy"
-            en="BoponX is designed by Team EARTH.exe to make NASA environmental evidence understandable and traceable; agricultural choices remain with farmers and their local advisers."
-            bn="Team EARTH.exe-এর BoponX NASA পরিবেশগত তথ্য সহজবোধ্য ও যাচাইযোগ্য করে। কৃষি সিদ্ধান্ত নেবেন কৃষক ও তাঁদের স্থানীয় পরামর্শক।"
-          />
+
+          <form className="farmer-form-new" onSubmit={generatePlan}>
+            <fieldset disabled={!point || !context?.within_bangladesh}>
+              <legend>{t(language, "1 · What was grown last?", "১ · আগে কী চাষ হয়েছিল?")}</legend>
+              <div className="choice-grid crops">
+                {cropOptions.map(([en, bn]) => (
+                  <button
+                    type="button"
+                    key={en}
+                    className={previousCrop === en ? "choice active" : "choice"}
+                    onClick={() => setPreviousCrop(previousCrop === en ? "" : en)}
+                  >
+                    <span className="crop-glyph" aria-hidden="true">{en === "rice" ? "⌇" : en === "mustard" ? "✣" : "◌"}</span>
+                    <strong>{language === "bn" ? bn : en[0].toUpperCase() + en.slice(1)}</strong>
+                  </button>
+                ))}
+                <button type="button" className={!previousCrop ? "choice unknown active" : "choice unknown"} onClick={() => setPreviousCrop("")}>
+                  <strong>{t(language, "Not sure", "নিশ্চিত নই")}</strong>
+                </button>
+              </div>
+            </fieldset>
+
+            <div className="form-two">
+              <fieldset disabled={!point || !context?.within_bangladesh}>
+                <legend>{t(language, "2 · How does the field usually get water?", "২ · জমিতে সাধারণত পানি আসে কীভাবে?")}</legend>
+                <div className="choice-stack">
+                  {[
+                    ["rainfed", "Mostly rain", "মূলত বৃষ্টি"],
+                    ["irrigated", "Mostly irrigation", "মূলত সেচ"],
+                    ["both", "Rain + irrigation", "বৃষ্টি + সেচ"],
+                    ["unknown", "Not sure", "নিশ্চিত নই"],
+                  ].map(([value, en, bn]) => (
+                    <label className={waterSource === value ? "radio-card active" : "radio-card"} key={value}>
+                      <input type="radio" name="water" checked={waterSource === value} onChange={() => setWaterSource(value as FarmerProfile["water_source"])} />
+                      <span>{t(language, en, bn)}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset disabled={!point || !context?.within_bangladesh}>
+                <legend>{t(language, "3 · After heavy rain, what usually happens?", "৩ · ভারী বৃষ্টির পর সাধারণত কী হয়?")}</legend>
+                <div className="choice-stack">
+                  {[
+                    ["drains", "Water drains quickly", "পানি দ্রুত নেমে যায়"],
+                    ["stays", "Water stays a long time", "পানি অনেকক্ষণ থাকে"],
+                    ["sometimes", "It depends", "সময়ভেদে আলাদা"],
+                    ["unknown", "Not sure", "নিশ্চিত নই"],
+                  ].map(([value, en, bn]) => (
+                    <label className={waterAfterRain === value ? "radio-card active" : "radio-card"} key={value}>
+                      <input type="radio" name="drainage" checked={waterAfterRain === value} onChange={() => setWaterAfterRain(value as FarmerProfile["water_after_heavy_rain"])} />
+                      <span>{t(language, en, bn)}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
+
+            <fieldset disabled={!point || !context?.within_bangladesh}>
+              <legend>{t(language, "4 · Do you have a soil-test report?", "৪ · আপনার কাছে কি মাটি পরীক্ষার রিপোর্ট আছে?")}</legend>
+              <div className="soil-test-row">
+                {[
+                  ["yes", "Yes", "হ্যাঁ"],
+                  ["no", "No", "না"],
+                  ["unknown", "Not sure", "নিশ্চিত নই"],
+                ].map(([value, en, bn]) => (
+                  <label className={soilTest === value ? "radio-card compact active" : "radio-card compact"} key={value}>
+                    <input type="radio" name="soiltest" checked={soilTest === value} onChange={() => setSoilTest(value as FarmerProfile["soil_test"])} />
+                    <span>{t(language, en, bn)}</span>
+                  </label>
+                ))}
+                {soilTest === "yes" && (
+                  <label className="ph-optional">
+                    <span>{t(language, "pH from report (optional)", "রিপোর্টের pH (ঐচ্ছিক)")}</span>
+                    <input type="number" min="0" max="14" step="0.1" value={soilPh} onChange={(event) => setSoilPh(event.target.value)} placeholder="e.g. 6.5" />
+                  </label>
+                )}
+              </div>
+              <p className="field-help">{t(language, "BoponX never guesses pH from satellite data.", "BoponX স্যাটেলাইট ডেটা থেকে কখনো pH অনুমান করে না।")}</p>
+            </fieldset>
+
+            <fieldset disabled={!point || !context?.within_bangladesh}>
+              <legend>{t(language, "5 · What matters most right now?", "৫ · এখন সবচেয়ে গুরুত্বপূর্ণ কী?")}</legend>
+              <div className="priority-grid">
+                {[
+                  ["water", "Use water carefully", "পানি সাশ্রয় ও ব্যবস্থাপনা"],
+                  ["soil", "Protect the soil", "মাটির যত্ন"],
+                  ["production_stability", "Stable production", "স্থিতিশীল উৎপাদন"],
+                ].map(([value, en, bn]) => (
+                  <label className={priority === value ? "priority-card active" : "priority-card"} key={value}>
+                    <input type="radio" name="priority" checked={priority === value} onChange={() => setPriority(value as FarmerProfile["priority"])} />
+                    <span className="priority-mark" aria-hidden="true" />
+                    <strong>{t(language, en, bn)}</strong>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <div className="plan-window">
+              <label>
+                <span>{t(language, "Start month", "শুরুর মাস")}</span>
+                <select value={startMonth} onChange={(event) => setStartMonth(Number(event.target.value))}>
+                  {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
+                    <option value={month} key={month}>{month}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>{t(language, "Year", "বছর")}</span>
+                <select value={startYear} onChange={(event) => setStartYear(Number(event.target.value))}>
+                  {Array.from({ length: 10 }, (_, index) => 2026 + index).map((year) => (
+                    <option value={year} key={year}>{year}</option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" className="generate-button" disabled={!point || !context?.within_bangladesh || planBusy}>
+                {planBusy ? t(language, "Building field brief…", "মাঠের পরিকল্পনা তৈরি হচ্ছে…") : t(language, "Build my 90-day field brief", "আমার ৯০ দিনের মাঠ পরিকল্পনা তৈরি করুন")}
+                <span aria-hidden="true">→</span>
+              </button>
+            </div>
+            {planError && <p className="inline-error">{planError}</p>}
+          </form>
+        </section>
+
+        {plan && <DecisionReport brief={plan} language={language} />}
+
+        <section className="how-section" id="how-it-works">
+          <div className="section-intro compact">
+            <p className="section-number">04</p>
+            <div>
+              <span className="kicker">{t(language, "Under the surface", "ভেতরের প্রক্রিয়া")}</span>
+              <h2>{t(language, "Evidence moves in one direction.", "প্রমাণ এক দিকেই এগোয়।")}</h2>
+            </div>
+            <p>{t(language, "NASA data informs the context. Reviewed agricultural rules constrain the options. The farmer keeps the decision.", "NASA ডেটা প্রেক্ষাপট দেয়। যাচাইকৃত কৃষি নিয়ম বিকল্প সীমিত করে। সিদ্ধান্ত থাকে কৃষকের হাতে।")}</p>
+          </div>
+
+          <div className="pipeline">
+            <div><span>1</span><strong>{t(language, "Location", "অবস্থান")}</strong><small>GPS · search · map</small></div>
+            <i />
+            <div><span>2</span><strong>{t(language, "Earth evidence", "Earth evidence")}</strong><small>IMERG · SMAP · POWER</small></div>
+            <i />
+            <div><span>3</span><strong>{t(language, "Local evidence", "স্থানীয় প্রমাণ")}</strong><small>BAMIS · BARC · reviewed rules</small></div>
+            <i />
+            <div><span>4</span><strong>{t(language, "Comparison", "তুলনা")}</strong><small>{t(language, "deterministic rules", "deterministic নিয়ম")}</small></div>
+            <i />
+            <div><span>5</span><strong>{t(language, "Farmer decision", "কৃষকের সিদ্ধান্ত")}</strong><small>{t(language, "explain · print · verify", "ব্যাখ্যা · প্রিন্ট · যাচাই")}</small></div>
+          </div>
         </section>
       </main>
 
-      <footer>
-        <div className="footer-brand">
-          <b>Bopon<span>X</span></b>
-          <Duo en="From Space to Soil" bn="মহাকাশ থেকে মাটিতে" />
+      <footer className="site-footer">
+        <div>
+          <strong>BoponX · বপনএক্স</strong>
+          <p>{t(language, "From Space to Soil", "মহাকাশ থেকে মাটিতে")}</p>
         </div>
-        <div><Duo en="By Team EARTH.exe · Bangladesh · 2026" bn="Team EARTH.exe · বাংলাদেশ · ২০২৬" /></div>
-        <a className="footer-source" href="https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026" target="_blank" rel="noreferrer">
-          <Duo en="Project source code" bn="প্রকল্পের সোর্স কোড" /> ↗
-        </a>
-        <a href="https://power.larc.nasa.gov/docs/services/api/temporal/daily/" target="_blank" rel="noreferrer">
-          <Duo en="NASA POWER documentation" bn="NASA POWER ডকুমেন্টেশন" /> ↗
+        <p>{t(language, "Team EARTH.exe · Bangladesh · NASA Space Apps Challenge 2026", "Team EARTH.exe · বাংলাদেশ · NASA Space Apps Challenge 2026")}</p>
+        <a href="https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026" target="_blank" rel="noreferrer">
+          GitHub ↗
         </a>
       </footer>
     </div>
