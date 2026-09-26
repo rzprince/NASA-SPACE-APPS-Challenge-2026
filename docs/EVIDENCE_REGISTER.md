@@ -1,93 +1,111 @@
 # BoponX evidence register and scientific boundary
 **Reviewed:** 26 September 2026
 
-BoponX separates near-real-time Earth observation, regional environmental context, historical/reanalysis context, farmer-entered observations, and reviewed local agronomic rules. A value from one class must never be silently promoted into another.
+BoponX separates evidence by meaning. A satellite/reanalysis value must never be silently promoted into a field measurement, soil test or crop recommendation.
 
-## GPM IMERG Early / NASA GIBS
-Purpose in the current web app:
-- dated recent-rainfall map layer over the selected farmer area
-- establishes a direct NASA Earth-observation path in the interface
+## Challenge frame
 
-Official NASA material identifies IMERG V07B as the current algorithm and describes Early Run as the lowest-latency product. Documented minimum latency is about four hours; gridded resolution is 0.1 degree / roughly 10 km and 30-minute products are available.
+The official 2026 Field Shift summary asks for a decision-support tool using NASA Earth observations together with local soil information, crop characteristics and farmer priorities to help farmers explore crop-rotation strategies for soil health and adaptation.
 
-BoponX wording is **near-real-time** or **latest available**, never “live forecast”.
+BoponX implements the evidence pipeline now and keeps the final crop-rotation recommendation layer gated until the local agronomic rules are sourced and reviewable.
 
-Current implementation:
-- NASA GIBS IMERG NRT map layer is wired into MapLibre
-- the map date is displayed
-- quantitative IMERG-derived farmer decisions are not enabled yet
+Source:
+https://www.spaceappschallenge.org/2026/challenges/field-shift-adapting-farms-with-nasa-data/
+
+## GPM IMERG Early V07B
+
+Current NASA documentation:
+- coverage: January 1998–present
+- current algorithm: V07B
+- minimum latency: about 4 hours
+- spatial resolution: 0.1 degree / about 10 km
+- 30-minute products available
+
+Current BoponX use:
+- dated NASA GIBS rainfall layer around the farmer-selected field
+- described as near-real-time / latest available
+- never described as a future forecast
+
+BoponX does not yet derive a quantitative crop rule from IMERG precipitation.
 
 Sources:
 https://gpm.nasa.gov/data/directory
 https://gpm.nasa.gov/data/imerg
+
+## NASA GIBS / true-color imagery
+
+Current BoponX map can toggle NASA GIBS true-color imagery and the GPM IMERG rainfall layer while preserving OpenStreetMap navigation.
+
+GIBS imagery is visualization of Earth-observation products. It is not itself an agronomic recommendation.
+
+Source:
 https://worldview.earthdata.nasa.gov/
 
 ## SMAP SPL3SMP_E Version 6
-Intended role: regional surface-soil-moisture context.
 
-It is not soil pH, a nutrient test, or parcel-level laboratory chemistry.
+Role:
+- candidate regional surface-soil-moisture evidence
 
-Current NSIDC material describes SPL3SMP_E Version 6 as a daily 9 km EASE-Grid surface-soil-moisture product. Direct data access requires Earthdata Login.
+Official NSIDC information:
+- dataset: SPL3SMP_E
+- version: 6
+- daily
+- 9 km EASE-Grid
 
-NSIDC reports a geolocation issue affecting SMAP Standard/NRT products from 14 May through 28 July 2026. BoponX does not expose numeric SMAP values for affected dates until current status and QA handling are verified.
+Critical 2026 advisory:
+NSIDC reports a geolocation issue affecting Standard/NRT products from **14 May to 28 July 2026**. Standard products for that interval are being reprocessed; NRT products will not be replaced.
+
+Current BoponX behavior:
+- the source, resolution and warning are visible
+- numeric soil-moisture use is QA-gated
+- SMAP is never treated as pH or nutrient chemistry
 
 Source:
 https://nsidc.org/data/spl3smp_e/versions/6
 
-## NASA POWER selected-location context
-The API can request daily T2M and PRECTOTCORR for the farmer-selected coordinates. The current endpoint asks for a recent 14-day window ending seven days before today to reduce failures from upstream latency.
+## NASA POWER recent context
 
-The response records the exact request URL, reports valid-day coverage, suppresses a precipitation total when any requested day is missing, reports unavailable when a request fails, and never substitutes a fabricated number.
+The backend requests:
+- T2M
+- PRECTOTCORR
+- selected farmer coordinates
+- a recent 14-day period ending seven days before the request to reduce incomplete-upstream failures
+- LST time standard
 
-POWER values are gridded regional context and are not measurements taken in the farmer's field.
+The response preserves valid-day counts, exact source request URL, provider/source-product metadata, time period, coordinates and limitations.
+
+A precipitation total is suppressed if the requested period is incomplete.
+
+POWER values are regional gridded context, not field measurements and not a weather forecast.
 
 Source:
 https://power.larc.nasa.gov/docs/services/api/temporal/daily/
 
-## Pinned 2024 Rajshahi POWER snapshot
-- Reference point: 24.37° N, 88.60° E
-- Period: 2024-01-01 through 2024-12-31
-- Variables: T2M, PRECTOTCORR
-- Time convention: LST
-- Returned source: MERRA-2 reanalysis
-- Valid dates: 366/366
-- Mean valid daily T2M: 25.71254098360656 °C
-- Full-period precipitation: 1,863.19 mm
-- Raw SHA-256: 512420f8cd947e21a84aa1e43292674be7e047fadfbcdd4ae4b3684647726495
+## NASA POWER climatology
 
-A single historical year cannot establish a climate trend or predict a future planting season.
+The selected planning month also requests a 2001–2020 POWER climatology.
 
-## Location context
-The current resolver uses a Bangladesh bounding box plus regional evidence reference points for Dhaka, Mymensingh, Cumilla, Chattogram, Sylhet, Rangpur, Dinajpur, Bogura, Rajshahi, Jashore, Faridpur, Khulna, Barishal, and Rangamati. The nearest-reference calculation uses deterministic Haversine distance.
+Purpose:
+- show historical context alongside recent observations
+- avoid treating one historical year as climate evidence
 
-These points do not claim to be official administrative polygons or agro-ecological-zone boundaries. They are a regional evidence-routing layer.
+It is not a current-condition measurement or forecast.
 
-## Bangladesh agricultural evidence
-Current source index:
-- BAMIS / Department of Agricultural Extension crop-weather calendar index: https://www.bamis.gov.bd/en/calendar
-- BARC crop zoning: https://apps.barc.gov.bd/cropzoning/
-- BRRI rice resources: https://brri.gov.bd/
-- BARI/SRDI materials remain candidate evidence sources
+Source:
+https://power.larc.nasa.gov/docs/services/api/temporal/climatology/
 
-No local crop calendar has yet been converted into a software recommendation rule in this redesign.
+## Real Bangladesh NASA visual case study
 
-## Farmer-entered evidence
-Current farmer questions focus on location, previous crop, rain-fed/irrigated/both/unknown, heavy-rain drainage behavior, whether a soil-test report exists, and farmer priority.
+The active website uses a real NASA Earth Observatory / USGS Landsat image of **Baniachong, Bangladesh** from the NASA story “Fine-Tuning Irrigation in Asia”.
 
-Numeric pH is optional and accepted only if the farmer explicitly indicates a soil-test report exists. Unknown answers remain unknown.
+NASA describes how Landsat thermal information and other satellite data were used in South Asian irrigation research. BoponX presents this as a precedent for connecting Earth observations to farmer decisions; it does not copy the study's irrigation results as BoponX outcomes.
 
-## 90-day plan semantics
-The current plan is not a crop schedule:
-1. **Know the field** — build the baseline.
-2. **Watch the change** — compare NASA regional context with field observations.
-3. **Decide the next move** — review evidence and prepare the next seasonal decision.
+Source:
+https://science.nasa.gov/earth/earth-observatory/fine-tuning-irrigation-in-asia-148203/
 
-Crop-specific instructions remain blocked until source-reviewed local crop/soil/rotation rules exist.
+## Bangladesh crop-calendar evidence
 
-
-## Regional BAMIS calendar index
-
-The application now stores a small, reviewed index of **calendar presence**, not agronomic rules, for major crops and BAMIS regional hubs. The index is based on the official BAMIS crop-weather-calendar pages and is used only to decide which source links are relevant to the selected regional evidence hub.
+BoponX maintains a calendar-presence index for major crops across official BAMIS regional hubs. This is only a routing layer to relevant evidence.
 
 Current indexed crops:
 - Rice Aman
@@ -100,13 +118,27 @@ Current indexed crops:
 - Maize (Kharif-1)
 - Green Gram (Kharif-1)
 
-A crop appearing in this index means only that BAMIS publishes a regional crop-weather calendar for that crop. It does **not** mean BoponX has concluded that the crop is suitable for the farmer's field.
+A crop appearing in the interface means an official BAMIS regional calendar exists. It does not mean the crop has been recommended for the field.
 
-Official source root:
+Source:
 https://www.bamis.gov.bd/en/calendar
 
-## Place-name resolution
+## Farmer-entered evidence
 
-OpenStreetMap Nominatim is used only to help a farmer search a Bangladesh place name or label a selected coordinate. It is not a NASA source, soil source, or agronomic source. The agricultural evidence region is still resolved separately so a place label is never silently treated as an official agricultural boundary.
+Farmer-known inputs:
+- field location
+- previous crop
+- rain-fed / irrigated / both / unknown
+- what happens after heavy rain
+- whether a soil-test report exists
+- current priority
 
-If Nominatim is unavailable, GPS/map-pin selection and the regional-evidence fallback still work.
+Numeric pH is accepted only when the farmer explicitly says a soil-test report exists.
+
+Unknown answers remain unknown.
+
+## Decision boundary
+
+The current 90-day routine is decision preparation, not a crop prescription.
+
+The three-season rotation explorer must remain gated until crop requirements, seasonal windows, relevant local soil constraints, crop-sequence constraints, geographic applicability, reuse terms and agronomic review are encoded as deterministic, testable rule packs.
