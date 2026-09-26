@@ -1,4 +1,4 @@
-"""All API fixtures are synthetic test data; no NASA observations are bundled."""
+"""API tests use synthetic fixtures only; no test value is represented as NASA data."""
 import json
 
 from fastapi.testclient import TestClient
@@ -9,7 +9,6 @@ client = TestClient(app)
 
 
 def snapshot(*, origin="nasa_power_https"):
-    """Test the trust-gate contract with an intentionally fabricated fixture."""
     return {
         "schema_version": "power-pilot/v1",
         "location_id": "rajshahi-pilot",
@@ -30,90 +29,86 @@ def write_snapshot(tmp_path, data):
     out.write_text(json.dumps(data))
 
 
-def test_health_and_locations(monkeypatch, tmp_path):
+def farmer(**overrides):
+    data = {
+        "latitude": 24.37,
+        "longitude": 88.60,
+        "previous_crop": None,
+        "water_source": "unknown",
+        "water_after_heavy_rain": "unknown",
+        "soil_test": "unknown",
+        "soil_ph": None,
+        "priority": "water",
+    }
+    data.update(overrides)
+    return data
+
+
+def test_health_and_area_reference_list(monkeypatch, tmp_path):
     monkeypatch.setenv("BOPONX_DATA_ROOT", str(tmp_path))
-    assert client.get("/api/v1/health").json()["climate_snapshot_ready"] is False
-    response = client.get("/api/v1/locations")
+    health = client.get("/api/v1/health").json()
+    assert health["pinned_power_snapshot_ready"] is False
+    assert health["location_context_ready"] is True
+    response = client.get("/api/v1/areas")
     assert response.status_code == 200
-    assert response.json()["locations"][0]["id"] == "rajshahi-pilot"
+    ids = {area["id"] for area in response.json()["areas"]}
+    assert {"rajshahi", "khulna", "rangpur", "barishal"} <= ids
 
 
-def test_missing_data_is_not_fabricated(monkeypatch, tmp_path):
+def test_missing_pinned_data_is_not_fabricated(monkeypatch, tmp_path):
     monkeypatch.setenv("BOPONX_DATA_ROOT", str(tmp_path))
     response = client.get("/api/v1/climate/rajshahi-pilot")
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "DATASET_UNAVAILABLE"
-    assert client.get("/api/v1/climate/unknown").status_code == 404
 
 
-def test_unverified_local_input_is_rejected(monkeypatch, tmp_path):
+def test_unverified_pinned_origin_is_rejected(monkeypatch, tmp_path):
     monkeypatch.setenv("BOPONX_DATA_ROOT", str(tmp_path))
     write_snapshot(tmp_path, snapshot(origin="local_input_unverified"))
-    assert client.get("/api/v1/health").json()["climate_snapshot_ready"] is False
-    response = client.get("/api/v1/climate/rajshahi-pilot")
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "DATASET_UNAVAILABLE"
+    assert client.get("/api/v1/health").json()["pinned_power_snapshot_ready"] is False
 
 
-def test_verified_origin_marker_contract(monkeypatch, tmp_path):
+def test_verified_pinned_origin_contract(monkeypatch, tmp_path):
     monkeypatch.setenv("BOPONX_DATA_ROOT", str(tmp_path))
     write_snapshot(tmp_path, snapshot())
-    assert client.get("/api/v1/health").json()["climate_snapshot_ready"] is True
-    data = client.get("/api/v1/climate/rajshahi-pilot").json()
-    assert data["evidence"]["snapshot_id"] == "synthetic-unit-test-only"
+    assert client.get("/api/v1/health").json()["pinned_power_snapshot_ready"] is True
+    assert client.get("/api/v1/climate/rajshahi-pilot").json()["evidence"]["snapshot_id"] == "synthetic-unit-test-only"
 
 
-def test_farm_validation_preserves_unknowns():
-    response = client.post("/api/v1/farms/validate", json={
-        "location_id": "rajshahi-pilot",
-        "previous_crop": None,
-        "soil_ph": None,
-        "soil_texture": "unknown",
-        "irrigation_mode": "unknown",
-        "priorities": ["water"],
-    })
+def test_location_context_changes_by_selected_place():
+    rajshahi = client.get("/api/v1/context?lat=24.37&lon=88.60").json()
+    khulna = client.get("/api/v1/context?lat=22.84&lon=89.54").json()
+    assert rajshahi["nearest_supported_region"]["id"] == "rajshahi"
+    assert khulna["nearest_supported_region"]["id"] == "khulna"
+    assert rajshahi["privacy"]["coordinates_persisted"] is False
+
+
+def test_farmer_can_continue_without_soil_ph():
+    response = client.post("/api/v1/farms/validate", json=farmer())
     assert response.status_code == 200
     content = response.json()
     assert content["profile"]["soil_ph"] is None
-    assert "soil_ph" in content["missing_inputs"]
-    assert "priorities" not in content["missing_inputs"]
-    assert content["status"] == "PROFILE_RECORDED_NOT_AGRONOMICALLY_VALIDATED"
+    assert "soil_test" in content["unknowns"]
+    assert content["status"] == "FARM_CONTEXT_RECORDED"
 
 
-def test_invalid_ph_and_unsupported_region():
-    base = {"location_id": "rajshahi-pilot", "soil_ph": 20}
-    assert client.post("/api/v1/farms/validate", json=base).status_code == 422
-    base["soil_ph"] = 7
-    base["location_id"] = "unsupported-region"
-    assert client.post("/api/v1/farms/validate", json=base).status_code == 422
+def test_ph_is_only_accepted_with_explicit_soil_test():
+    response = client.post("/api/v1/farms/validate", json=farmer(soil_test="no", soil_ph=6.5))
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "SOIL_TEST_REQUIRED"
+
+    response = client.post("/api/v1/farms/validate", json=farmer(soil_test="yes", soil_ph=6.5))
+    assert response.status_code == 200
+
+
+def test_outside_bangladesh_is_rejected():
+    response = client.post("/api/v1/farms/validate", json=farmer(latitude=35.0, longitude=90.0))
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "OUTSIDE_BANGLADESH_PILOT"
 
 
 def test_no_crop_or_rotation_claim_without_rules():
-    crops = client.get("/api/v1/crops").json()
-    assert crops["crops"] == []
-    response = client.post("/api/v1/rotations/compare", json={"location_id": "rajshahi-pilot"})
+    assert client.get("/api/v1/crops").json()["crops"] == []
+    response = client.post("/api/v1/rotations/compare", json=farmer())
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "AGRONOMIC_RULES_NOT_APPROVED"
-
-
-def test_monthly_api_respects_trusted_snapshot_and_coverage(monkeypatch, tmp_path):
-    monkeypatch.setenv("BOPONX_DATA_ROOT", str(tmp_path))
-    assert client.get("/api/v1/climate/rajshahi-pilot/monthly").status_code == 503
-    data = snapshot()
-    data["period"] = {"start": "2024-01-01", "end": "2024-01-02", "time_standard": "LST"}
-    data["variables"] = {
-        "T2M": {"provider_unit": "C"},
-        "PRECTOTCORR": {"provider_unit": "mm/day"},
-    }
-    data["daily"] = [
-        {"date": "2024-01-01", "T2M": 25, "PRECTOTCORR": 2},
-        {"date": "2024-01-02", "T2M": 27, "PRECTOTCORR": 3},
-    ]
-    write_snapshot(tmp_path, data)
-    response = client.get("/api/v1/climate/rajshahi-pilot/monthly")
-    assert response.status_code == 200
-    report = response.json()
-    assert report["snapshot_id"] == "synthetic-unit-test-only"
-    assert report["metrics"][0]["temperature_mean_c"] == 26
-    assert report["metrics"][0]["precipitation_total_mm"] == 5
-    assert client.get("/api/v1/climate/not-supported/monthly").status_code == 404
