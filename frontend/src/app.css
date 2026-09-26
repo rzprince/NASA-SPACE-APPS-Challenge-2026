@@ -176,11 +176,11 @@ a{color:inherit}
 .inline-error{background:#f5e7e3;border-left:3px solid var(--danger);padding:10px 12px;color:#6f322c;font-size:13px}
 
 .signal-section{background:#e9ece4}
-.signal-grid{max-width:1280px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);border:1px solid #bbc4bb}
+.signal-grid{max-width:1280px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #bbc4bb}
 .signal-grid article{padding:25px;background:#f7f7f1;border-right:1px solid #bbc4bb}
 .signal-grid article:last-child{border-right:0}
 .signal-type{font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:800}
-.signal-type.nrt{color:var(--blue)}.signal-type.eo{color:var(--clay)}.signal-type.history{color:var(--green)}
+.signal-type.nrt{color:var(--blue)}.signal-type.eo{color:var(--clay)}.signal-type.history{color:var(--green)}.signal-type.baseline{color:var(--gold)}
 .signal-grid h3{font-family:Georgia,serif;font-weight:500;font-size:27px;margin:10px 0}
 .signal-grid p{color:var(--muted);line-height:1.55;min-height:50px}
 .signal-grid dl{margin:22px 0 0}
@@ -338,3 +338,17 @@ a{color:inherit}
   .month-report{break-before:page;margin-top:0;min-height:250mm}
   .rotation-gate,.report-sources,.report-foot{break-inside:avoid}
 }
+
+.place-results button{min-height:72px}
+.place-detail-line{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.place-detail-line span{font-size:10px;background:#eceee8;border:1px solid var(--line);padding:5px 7px;border-radius:999px;color:var(--muted)}
+.regional-evidence{max-width:1280px;margin:16px auto 0;border:1px solid #bfc6bc;background:#f6f5ef;padding:20px}
+.regional-evidence-head{display:grid;grid-template-columns:.8fr 1fr;gap:24px;align-items:end;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.regional-evidence-head h3{font-family:Georgia,"Noto Serif Bengali",serif;font-size:26px;font-weight:500;margin:6px 0 0}
+.regional-evidence-head p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}
+.calendar-chip-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.calendar-chip-grid a{display:grid;text-decoration:none;border:1px solid var(--line);background:var(--paper-2);padding:11px}
+.calendar-chip-grid a:hover{border-color:var(--green);background:#e8ede5}
+.calendar-chip-grid strong{font-size:12px}.calendar-chip-grid small{font-size:10px;color:var(--muted);margin-top:3px}
+@media(max-width:1100px){.signal-grid{grid-template-columns:repeat(2,1fr)}.signal-grid article:nth-child(2){border-right:0}}
+@media(max-width:640px){.regional-evidence-head{grid-template-columns:1fr}.calendar-chip-grid{grid-template-columns:1fr 1fr}}
