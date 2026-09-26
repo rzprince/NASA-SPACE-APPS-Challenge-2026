@@ -1,4 +1,4 @@
-"""Live NASA POWER point context with a fail-closed response contract."""
+"""Recent and historical NASA POWER context with fail-closed contracts."""
 from __future__ import annotations
 
 import json
@@ -7,6 +7,8 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 POWER_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
+POWER_CLIMATOLOGY_URL = "https://power.larc.nasa.gov/api/temporal/climatology/point"
+MONTH_KEYS = {1: "JAN", 2: "FEB", 3: "MAR", 4: "APR", 5: "MAY", 6: "JUN", 7: "JUL", 8: "AUG", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC"}
 MISSING_SENTINEL = -999.0
 
 
