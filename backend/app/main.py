@@ -136,7 +136,30 @@ def recent_environment(
         }
 
 
-@app.get("/api/v1/climate/rajshahi-pilot")
+
+
+@app.get("/api/v1/environment/baseline")
+def environment_baseline(
+    lat: float = Query(ge=-90, le=90),
+    lon: float = Query(ge=-180, le=180),
+    month: int = Query(ge=1, le=12),
+) -> dict:
+    context = build_context(lat, lon)
+    if not context["within_bangladesh"]:
+        raise HTTPException(status_code=400, detail={"code": "OUTSIDE_BANGLADESH_PILOT", "message": "Choose a location inside Bangladesh."})
+    try:
+        return fetch_power_climatology(lat, lon, month=month)
+    except Exception:
+        return {
+            "status": "unavailable",
+            "provider": "NASA POWER",
+            "kind": "historical_climatology",
+            "coordinates": {"latitude": lat, "longitude": lon},
+            "summary": None,
+            "source_request_url": "https://power.larc.nasa.gov/docs/services/api/temporal/climatology/",
+            "limitations": ["The POWER climatology request failed. No baseline value was invented."],
+        }
+\n\n@app.get("/api/v1/climate/rajshahi-pilot")
 def climate_rajshahi() -> dict:
     return trusted_snapshot()
 

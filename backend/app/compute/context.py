@@ -128,10 +128,10 @@ def build_context(lat: float, lon: float) -> dict[str, Any]:
         },
         "coverage": {
             "environmental_context": "available" if inside else "outside_bangladesh_pilot",
-            "local_agricultural_evidence": "source_indexed" if inside else "not_assessed",
+            "local_agricultural_evidence": "calendar_sources_indexed" if inside else "not_assessed",
             "rotation_decision": "evidence_review_required",
         },
-        "agricultural_sources": [
+        "calendar_evidence": calendar_evidence_for_region(area.evidence_region) if inside else [],\n        "agricultural_sources": [
             {
                 "name": "BAMIS / Department of Agricultural Extension crop-weather calendars",
                 "scope": f"{area.evidence_region} regional calendar index",
