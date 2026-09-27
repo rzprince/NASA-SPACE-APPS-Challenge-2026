@@ -197,7 +197,7 @@ The website uses NASA Earth Observatory and USGS Landsat imagery of **Baniachong
 
 ## Team
 
-Rezwan Hossain Prince - TEAM LEADER 
+Rezwan Hossain Prince
 MD. Khairul Islam  
 Md. Siam Rayhan  
 Iftekhar Azad Ether  
