@@ -1,81 +1,74 @@
 # BoponX implementation status
-**Reviewed:** 26 September 2026 · **Owner:** Team EARTH.exe
 
-## Active product
+**Reviewed:** 27 September 2026  
+**Owner:** Team EARTH.exe
 
-The active React experience is now the cinematic location-first rebuild. The old Rajshahi-only visual shell is no longer part of the frontend tree.
+## Active demo candidate
+
+The current frontend is the cinematic location aware rebuild. The latest stability pass addresses the blank screen reports seen after location selection and after generating the 90 day plan.
 
 ### Implemented
-- real NASA Landsat Bangladesh imagery in the opening and evidence story
-- WebGL/Three.js animated Earth / satellite scene
-- motion-led opening, map transitions, signal cards, scrolling reveals, 3D field/evidence visuals and animated closing section
-- prefers-reduced-motion fallback
-- browser geolocation with automatic use when permission was already granted
-- explicit geolocation button when permission still needs user action
-- Bangladesh place search (village/upazila/district/place)
-- regional evidence-hub fallback
-- map-pin field selection
-- MapLibre map
-- NASA GIBS true-color imagery toggle
-- NASA GIBS / GPM IMERG recent-rainfall layer toggle
-- selected-location NASA POWER recent context
-- selected-month 2001–2020 NASA POWER climatology
-- separate SMAP evidence/QA card with the 2026 geolocation advisory
-- location-specific BAMIS crop-calendar evidence
-- farmer questions based on observable/known information
-- optional pH only after a soil-test report is declared
-- three different 90-day phases with priority-sensitive tasks
-- printable bilingual field brief
-- rotation explorer target architecture shown without fabricated crop recommendations
-
-### Deliberately gated
-- quantitative SMAP values inside farmer decisions
-- quantitative IMERG precipitation calculations inside the decision engine
-- authoritative parcel soil chemistry
-- nationwide reviewed crop-rule coverage
-- crop-specific planting/transplanting dates
-- fertilizer/pesticide prescriptions
-- crop yield/water-saving/soil-health outcome claims
-- actual 2–3 three-season rotation alternatives
-
-The rotation endpoint continues to fail closed until reviewed Bangladesh crop requirements, soil constraints and sequence rules are implemented.
-
-## Validation status
-
-Automated CI covers:
-- backend test suite
-- frontend TypeScript typecheck
-- Vite production build
-
-Manual QA remains necessary for:
-- actual map tile/GIBS rendering
-- NASA POWER network availability
-- geolocation permission allowed/denied
-- place search
-- desktop visual quality
-- Samsung/Android visual quality
-- Bangla typography
-- reduced-motion mode
-- Print / Save PDF
-- poor-network / external-source failure states
-
-
-## 27 September interface correction
-
-The latest visual QA from the running localhost build identified four user facing problems: oversized hero text, Bangla only presentation, a map that could fail with NASA overlays, and later sections that could remain invisible because reveal styling depended on JavaScript intersection events.
-
-The active frontend now fixes those issues:
 
 - English only farmer interface
-- no language switcher
-- no hyphenated wording in farmer facing sentences
-- smaller hero typography and better desktop ratios
-- brighter real NASA Landsat imagery
-- second real NASA Landsat crop image in the evidence story
-- OpenStreetMap loads as the independent base map before optional NASA layers
-- NASA GIBS imagery failure can no longer remove the working field map
-- resize handling keeps the map visible after location changes
-- field questions remain fully interactive before location selection
-- only plan generation requires a field point
-- reveal content is visible by default, preventing blank sections after scrolling
-- current location, place search and map pin all update the selected point
+- real NASA Landsat Bangladesh imagery
+- Three.js animated Earth and satellite scene
+- off screen 3D rendering pause for lower GPU load
+- browser geolocation
+- Bangladesh place search
+- regional evidence hub fallback
+- direct map point selection
+- MapLibre map with OpenStreetMap as the independent base
+- optional NASA GIBS true color imagery
+- optional NASA GIBS IMERG rainfall layer
+- selected location NASA POWER recent context
+- selected month 2001 to 2020 NASA POWER climatology
+- SMAP regional soil moisture evidence card with 2026 quality advisory
+- location specific BAMIS crop calendar evidence
+- professional SVG icons for farmer choices
+- farmer questions based on observable information
+- optional pH only after a soil test report is declared
+- three different 90 day stages
+- farmer priority changes Month 2 tasks
+- defensive printable field brief
+- React error recovery screen instead of a blank root
+- deterministic plan generation without repeated NASA network calls
+- backend tests for plan stage separation and priority sensitivity
+
+### Deliberately gated
+
+- quantitative SMAP values inside farmer decisions
+- quantitative IMERG calculations inside the decision engine
+- parcel soil chemistry
+- nationwide reviewed crop rule coverage
+- crop planting dates
+- fertilizer and pesticide prescriptions
+- yield gain claims
+- water saving claims
+- soil health scores
+- final three season crop rotation alternatives
+
+The rotation endpoint remains fail closed until reviewed Bangladesh crop requirements, soil constraints and sequence rules are implemented.
+
+## Validation
+
+Automated validation covers:
+
+- backend tests
+- three stage plan route behavior
+- priority sensitive plan behavior
+- frontend TypeScript check
+- Vite production build
+
+Manual validation is still required for:
+
+- actual browser geolocation
+- place search against the live geocoder
+- live OpenStreetMap tiles
+- NASA GIBS imagery
+- NASA POWER network requests
+- Samsung and desktop rendering
+- Print or Save PDF
+- reduced motion mode
+- poor network behavior
+
+The project should be described as a **demo candidate** until this manual acceptance pass succeeds on the machine that will be used for recording.

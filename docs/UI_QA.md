@@ -1,79 +1,81 @@
-# BoponX visual / workflow QA
+# BoponX demo QA
 
-## Opening experience
-- [ ] Real NASA Bangladesh Landsat image loads.
-- [ ] Three.js Earth scene renders without console errors.
-- [ ] Opening remains readable if WebGL is unavailable or motion is reduced.
-- [ ] No release/version label appears anywhere in farmer-facing UI.
-- [ ] Real-image credit remains visible.
-- [ ] Hero CTA reaches location flow.
+## Opening
 
-## Location
-- [ ] Already-granted browser geolocation can populate the map automatically.
-- [ ] Otherwise, geolocation is requested only after the farmer taps a location control.
-- [ ] Denying GPS leaves search and map selection usable.
-- [ ] Search can find village/upazila/district/place results.
-- [ ] Regional fallback still works if geocoder is unavailable.
-- [ ] Tapping map moves the field pin.
-- [ ] Map zoom/tilt follows the new field.
-- [ ] NASA true-color layer toggles.
-- [ ] IMERG rainfall layer toggles.
-- [ ] Changing field changes POWER/context/calendar evidence.
-- [ ] Exact coordinates are not persisted by default.
+- [ ] NASA Bangladesh image loads
+- [ ] Three.js Earth renders
+- [ ] hero text fits the presentation screen
+- [ ] no release label appears
+- [ ] all farmer facing text is English
+- [ ] no floating card blocks important hero copy
+
+## Field location
+
+- [ ] Allow location permission
+- [ ] marker moves to the returned coordinates
+- [ ] page remains visible after the location update
+- [ ] deny location permission and confirm search still works
+- [ ] search a village or district and choose a result
+- [ ] click directly on the map and confirm the marker moves
+- [ ] field label and coordinates update
+- [ ] OpenStreetMap remains visible if NASA imagery fails
+- [ ] NASA true color can be switched on and off
+- [ ] IMERG rain can be switched on and off
+- [ ] map failure messages are visible instead of a blank area
 
 ## NASA evidence
-- [ ] GPM IMERG card says near-real-time, not forecast.
-- [ ] IMERG date and 0.1°/~10 km context remain visible.
-- [ ] POWER recent values show their observation period.
-- [ ] POWER failure shows unavailable instead of sample data.
-- [ ] Climatology shows historical-baseline wording.
-- [ ] SMAP is explicitly regional soil moisture, never pH.
-- [ ] 14 May–28 July 2026 SMAP advisory is visible.
 
-## Farmer flow
-- [ ] Form stays locked until a Bangladesh field point exists.
-- [ ] Previous crop supports Not sure.
-- [ ] Water source supports Not sure.
-- [ ] Drainage/waterlogging observation supports Not sure.
-- [ ] pH field is hidden unless soil-test report = Yes.
-- [ ] Backend rejects pH without explicit soil-test state.
-- [ ] Water/soil/stability priority changes Month 2 routine.
+- [ ] selected field changes the regional context
+- [ ] recent POWER either shows real values or a clear unavailable state
+- [ ] climatology either shows real values or a clear unavailable state
+- [ ] IMERG remains labelled as recent rainfall evidence and not forecast
+- [ ] SMAP remains labelled as regional soil moisture and never pH
+- [ ] 2026 SMAP quality note remains visible
 
-## 90-day brief
-- [ ] Month 1, 2 and 3 have visibly different objectives and task sets.
-- [ ] Recent evidence and historical baseline are visually separated.
-- [ ] BAMIS crop links are labelled source evidence, not recommendations.
-- [ ] No crop sequence / planting date / yield claim is fabricated.
-- [ ] Print / Save PDF remains readable in Bangla and English.
+## Local evidence
 
-## Mobile / accessibility
-- [ ] 360 px layout has no clipped controls.
-- [ ] Samsung browser map gestures work.
-- [ ] Bangla line-height is comfortable.
-- [ ] keyboard focus is visible.
-- [ ] prefers-reduced-motion removes continuous motion but keeps the full workflow.
-- [ ] browser zoom at 200% remains usable.
+- [ ] selected region name changes after a new field is chosen
+- [ ] BAMIS calendar source count updates
+- [ ] calendar links open the source
+- [ ] interface does not call a calendar a crop recommendation
+
+## Farmer questions
+
+- [ ] every crop option shows a recognisable icon
+- [ ] water choices show icons with no text overlap
+- [ ] heavy rain choices show icons with no text overlap
+- [ ] soil test choices show icons
+- [ ] farmer priority choices show icons
+- [ ] Not sure works in every relevant section
+- [ ] pH is hidden unless soil test report is Yes
+- [ ] backend rejects pH without a declared soil test
+
+## 90 day brief
+
+- [ ] Build my 90 day field brief completes without a blank screen
+- [ ] Month 1 is Know the field
+- [ ] Month 2 is Watch the change
+- [ ] Month 3 is Decide the next move
+- [ ] the three task sets are different
+- [ ] changing priority changes the Month 2 priority task
+- [ ] loaded NASA context appears when available
+- [ ] unavailable NASA data does not crash the report
+- [ ] Print or Save PDF opens a readable print view
+
+## Recovery and performance
+
+- [ ] scrolling through the whole page never produces an empty dark viewport
+- [ ] off screen Earth scenes stop continuous rendering
+- [ ] unexpected React errors show the recovery screen rather than a blank page
+- [ ] reduced motion mode keeps the workflow usable
+- [ ] 360 px mobile layout has no clipped controls
+- [ ] Samsung browser map gestures work
 
 ## Failure rehearsal
+
 - [ ] backend stopped
 - [ ] NASA POWER unavailable
 - [ ] geocoder unavailable
-- [ ] NASA GIBS imagery unavailable
+- [ ] NASA GIBS unavailable
 - [ ] GPS denied
 - [ ] slow network
-
-
-## Regression checks added after screenshot review
-
-- [ ] Hero text fits a 1366 by 768 laptop viewport without clipping.
-- [ ] Hero text fits a 1920 by 1080 desktop viewport without extending below the first screen.
-- [ ] All farmer facing copy is English.
-- [ ] No farmer facing sentence uses a hyphen character.
-- [ ] Scrolling from hero to the location section never produces an empty dark viewport.
-- [ ] Scrolling further down never leaves reveal sections invisible.
-- [ ] Base map remains visible even if NASA GIBS imagery fails.
-- [ ] Location permission allowed updates the map marker and selected coordinates.
-- [ ] Location permission denied leaves place search and map pin fully usable.
-- [ ] Selecting a search result updates the marker, recent POWER request and regional crop evidence.
-- [ ] Farmer questions remain selectable before location is chosen.
-- [ ] Plan generation gives a clear location message when no field point exists.

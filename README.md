@@ -1,164 +1,204 @@
-# BoponX · বপনএক্স
-### From Space to Soil · মহাকাশ থেকে মাটিতে
+# BoponX
 
-**Team EARTH.exe · Bangladesh · NASA Space Apps Challenge 2026 · Field Shift: Adapting Farms with NASA Data**
+### From Space to Soil
 
-BoponX is a bilingual, location-first farmer decision-support web application. It starts with a real field location, loads only the environmental and agricultural evidence relevant to that place, asks the farmer only questions they can reasonably answer, and turns the evidence into a practical 90-day decision-support routine.
+**Team EARTH.exe | Bangladesh | NASA Space Apps Challenge 2026 | Field Shift: Adapting Farms with NASA Data**
 
-The challenge destination is a transparent three-season rotation explorer that combines NASA Earth observations, local soil/agricultural evidence, crop characteristics and farmer priorities without inventing agronomic rules.
+BoponX is a location aware farmer decision support web application. It starts with a real field location, loads only the environmental and agricultural evidence that matters for that place, asks simple questions a farmer can realistically answer, and turns that information into a clear 90 day field brief.
 
-> BoponX is an independent Team EARTH.exe project. NASA and NASA partners have not endorsed this application.
+The challenge destination is a transparent three season crop rotation explorer that combines NASA Earth observations, local agricultural evidence, crop characteristics and farmer priorities. Crop specific rotation recommendations remain locked until Bangladesh agronomic rules have been reviewed and encoded as deterministic rules.
 
-## Current experience
+> BoponX is an independent Team EARTH.exe project. NASA and NASA partners do not endorse this application.
 
-The active web application has been rebuilt around one continuous farmer journey:
+## Current demo flow
 
-**field location → NASA evidence → local crop evidence → farmer-known facts → 90-day field brief → future three-season rotation comparison**
+**Field location → NASA evidence → local crop evidence → farmer observations → 90 day field brief → three season rotation architecture**
 
-### Cinematic opening
-- real NASA/USGS Landsat imagery of Baniachong, Bangladesh
-- live WebGL/Three.js Earth visualization
-- data-orbit animation for IMERG, SMAP and POWER
-- responsive motion with prefers-reduced-motion fallback
-- no farmer-facing release/version labels
+### 1. Field location
 
-### Field location
-A farmer can:
-- use browser/device geolocation after permission
-- search a Bangladesh village, upazila, district or place
-- select a regional fallback hub
-- tap directly on the interactive map
+A farmer can choose the field in three ways:
 
-The selected coordinates control the NASA requests and local evidence shown in the rest of the app. Exact coordinates are not persisted by default.
+1. Allow browser location access
+2. Search a Bangladesh village, upazila, district or city
+3. Choose a point directly on the map
 
-### NASA map and Earth signals
-The map can switch between:
-- OpenStreetMap navigation
-- NASA GIBS true-color imagery
-- NASA GIBS / GPM IMERG recent precipitation overlay
+The selected coordinates control the NASA requests and the regional crop calendar evidence. Exact coordinates are not stored by default.
 
-The evidence theatre keeps data roles separate:
+### 2. NASA evidence for the selected place
 
-| Source | Current BoponX role | Important boundary |
+BoponX keeps each data source in a clear role.
+
+| Source | Current role | Scientific boundary |
 | --- | --- | --- |
-| GPM IMERG Early V07B | near-real-time precipitation map evidence | not a future forecast or field rain gauge |
-| NASA POWER Daily | selected-location recent gridded temperature/rainfall context | not a measurement taken inside the farmer's field |
-| NASA POWER Climatology | 2001–2020 planning-month historical baseline | not current weather and not a forecast |
-| SMAP SPL3SMP_E V6 | candidate regional surface-soil-moisture context | not pH, nutrients or parcel-scale chemistry |
-| NASA GIBS | true-color / precipitation visualization | visualization, not a separate agronomic recommendation |
+| GPM IMERG Early V07B | dated recent rainfall visualization | not a future forecast and not a field rain gauge |
+| NASA POWER Daily | recent selected location temperature and rainfall context | regional gridded context, not a field measurement |
+| NASA POWER Climatology | 2001 to 2020 planning month reference | historical climate context, not current weather |
+| SMAP SPL3SMP E V6 | regional surface soil moisture context | never treated as pH, nutrients or parcel chemistry |
+| NASA GIBS | true color and precipitation map imagery | visualization only |
 
-NASA currently documents IMERG Early V07B at about **4-hour minimum latency** and **0.1° / ~10 km** spatial resolution. BoponX therefore uses “near-real-time” / “latest available” language instead of “live forecast”.
+The map always loads a standard OpenStreetMap base first. NASA imagery is optional, so a NASA map layer failure does not stop field selection.
 
-### Local Bangladesh evidence
-BoponX indexes official BAMIS crop-weather-calendar presence by regional evidence hub for major crops including Aman, Aus, Boro, wheat, mustard, lentil, jute, maize and green gram.
+### 3. Local agricultural evidence
 
-A calendar appearing in the UI means an official regional source exists. It does **not** mean that BoponX has automatically decided the crop is suitable.
+BoponX routes the selected field to the nearest supported Bangladesh agricultural evidence region and shows official BAMIS crop calendar sources associated with that region.
 
-### Farmer-first questions
-The default workflow asks only:
-- what was grown last
-- how the field normally receives water
-- what happens after heavy rain
-- whether a soil-test report exists
-- the farmer's current priority: water, soil or production stability
+A crop calendar appearing in the interface means a source exists. It does not mean BoponX has recommended that crop.
 
-“I don't know / নিশ্চিত নই” is a normal answer.
+### 4. Farmer questions
 
-Numeric pH appears only when the farmer explicitly says a soil-test report exists. The backend rejects pH without that soil-test state.
+The interface asks only practical questions:
 
-### Distinct 90-day field brief
-The three months are intentionally different:
+- What was grown last
+- How the field usually gets water
+- What happens after heavy rain
+- Whether a soil test report exists
+- What matters most now
 
-1. **Know the field** — establish previous-crop, water, drainage and soil-test evidence.
-2. **Watch the change** — compare recent Earth-observation/climate context with field observations; tasks vary with farmer priority.
-3. **Decide the next move** — review what is known, identify missing evidence and prepare the next seasonal decision.
+Every section supports a clear **Not sure** choice.
 
-The printable bilingual report includes the location, recent NASA context when available, historical baseline, local calendar sources, month-specific tasks and scientific limitations.
+Soil pH is optional and appears only when the farmer says a soil test report exists. BoponX never infers pH from NASA data.
 
-### Three-season rotation explorer
-The visible rotation section explains the target architecture, but crop-specific rotation output remains fail-closed through AGRONOMIC_RULES_NOT_APPROVED.
+### 5. 90 day field brief
 
-BoponX will not fabricate:
-- planting/transplanting dates
+The plan is intentionally divided into three different stages:
+
+1. **Know the field**  
+   Build a reliable baseline from previous crop, water, drainage and soil test information.
+
+2. **Watch the change**  
+   Compare recent NASA context with field observations. This stage changes with the farmer priority.
+
+3. **Decide the next move**  
+   Review the evidence, identify missing information and prepare the next seasonal decision.
+
+The frontend uses NASA information that was already loaded for the selected field. Generating the 90 day brief does not repeat slow external NASA requests, which keeps the demo responsive.
+
+### 6. Three season rotation explorer
+
+The closing section shows the intended challenge architecture:
+
+**Field → NASA evidence → local agronomic rules → several feasible rotations → farmer decision**
+
+The actual rotation endpoint remains fail closed until reviewed Bangladesh crop requirements, soil constraints and crop sequence rules are available.
+
+BoponX does not fabricate:
+
+- planting dates
 - crop sequences
 - pH
 - nutrient values
 - yield gains
-- water-saving percentages
-- soil-health scores
+- water saving percentages
+- soil health scores
 - weather forecasts
 - NASA endorsement
 
-The next scientific gate is to translate source-reviewed Bangladesh crop calendars, crop requirements, local soil constraints and crop-sequence rules into deterministic testable rule packs.
+## Demo stability work
+
+The current frontend includes:
+
+- English only farmer interface
+- real NASA and USGS Landsat imagery from Bangladesh
+- Three.js Earth animation with off screen rendering paused to reduce GPU load
+- MapLibre map with OpenStreetMap as the independent base
+- optional NASA GIBS true color and IMERG overlays
+- guarded map animation so a bad map update cannot crash the whole interface
+- visible loading and map failure messages
+- professional line icons for crops, water, drainage, soil test and farmer priorities
+- a React error boundary so an unexpected interface exception shows a recovery screen instead of a blank page
+- defensive 90 day report rendering
+- automated backend tests for three distinct plan stages and priority sensitive Month 2 tasks
+- frontend TypeScript checking and Vite production build in CI
 
 ## API
 
 | Endpoint | Purpose |
 | --- | --- |
-| GET /api/v1/health | application/data readiness |
-| GET /api/v1/areas | Bangladesh agricultural evidence-hub references |
+| GET /api/v1/health | application and data readiness |
+| GET /api/v1/areas | Bangladesh agricultural evidence hubs |
 | GET /api/v1/places/search?q= | Bangladesh place search |
-| GET /api/v1/places/reverse?lat=&lon= | optional label for a GPS/map point |
-| GET /api/v1/context?lat=&lon= | location-specific NASA/local evidence context |
-| GET /api/v1/agronomy/calendars?region= | BAMIS calendar-presence evidence |
-| GET /api/v1/environment/recent?lat=&lon= | selected-location recent NASA POWER context |
-| GET /api/v1/environment/baseline?lat=&lon=&month= | selected-month 2001–2020 POWER climatology |
-| POST /api/v1/farms/validate | validate farmer-known context without inventing unknowns |
-| POST /api/v1/plans/preview | generate the distinct 90-day field brief |
-| GET /api/v1/crops | fails closed until crop profiles pass review |
-| POST /api/v1/rotations/compare | fails closed until agronomic rules are approved |
-
-The older pinned Rajshahi POWER snapshot remains only as a reproducible regression/provenance artifact and is not the active website's primary experience.
+| GET /api/v1/places/reverse?lat=&lon= | optional label for a selected point |
+| GET /api/v1/context?lat=&lon= | location specific NASA and local evidence context |
+| GET /api/v1/agronomy/calendars?region= | BAMIS calendar evidence |
+| GET /api/v1/environment/recent?lat=&lon= | selected location NASA POWER recent context |
+| GET /api/v1/environment/baseline?lat=&lon=&month= | selected month 2001 to 2020 POWER climatology |
+| POST /api/v1/farms/validate | validate farmer context without inventing unknowns |
+| POST /api/v1/plans/preview | generate the deterministic three stage 90 day brief |
+| GET /api/v1/crops | remains empty until crop profiles pass review |
+| POST /api/v1/rotations/compare | remains locked until agronomic rules are approved |
 
 ## Run locally on Windows
 
-From repository root:
+From the repository root:
 
     py -m venv .venv
     .\.venv\Scripts\python.exe -m pip install -r .\backend\requirements-dev.txt
     .\.venv\Scripts\python.exe -m pytest -q backend\tests
     .\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 
-In a second terminal:
+Open a second terminal:
 
     cd frontend
     npm.cmd install
     npm.cmd run build
     npm.cmd run dev
 
-Open http://localhost:5173.
+Open:
 
-If port 8000 is already occupied:
+    http://localhost:5173
 
-    netstat -ano | findstr :8000
-    taskkill /PID <PID> /F
+For mobile testing on the same private network:
 
-Then start the backend again.
+    npm.cmd run dev -- --host 0.0.0.0
 
-## Visual/data credits
+The backend can be exposed on the private network with:
 
-The website uses a real NASA Earth Observatory / USGS Landsat image of **Baniachong, Bangladesh** from “Fine-Tuning Irrigation in Asia” as a visual case study and opening image.
+    .\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 
-- NASA Earth Observatory story: https://science.nasa.gov/earth/earth-observatory/fine-tuning-irrigation-in-asia-148203/
-- NASA/USGS Landsat image credit: Earth Observatory / Lauren Dauphin using Landsat data from the U.S. Geological Survey
-- NASA GIBS / Worldview: https://worldview.earthdata.nasa.gov/
-- OpenStreetMap tiles/geocoding retain their own attribution and usage terms.
+Do not disable the firewall. Allow only the private network prompt if Windows asks.
+
+## Demo acceptance check
+
+Before recording the competition demo, verify this complete flow on the actual presentation laptop and phone:
+
+- homepage image and 3D Earth render correctly
+- browser location allowed and denied paths both work
+- place search works
+- map point selection works
+- NASA overlays can be toggled
+- selecting a field updates regional evidence
+- recent POWER and climatology either show real values or a clear unavailable state
+- farmer options show icons and remain selectable
+- the 90 day brief appears without a blank screen
+- Month 1, Month 2 and Month 3 have different tasks
+- Print or Save PDF is readable
+- reduced motion mode remains usable
+
+Passing automated CI is necessary, but live network and browser behavior still require this manual demo check.
+
+## Visual and data credits
+
+The website uses NASA Earth Observatory and USGS Landsat imagery of **Baniachong, Bangladesh** from the NASA story **Fine Tuning Irrigation in Asia**.
+
+- NASA Earth Observatory: https://science.nasa.gov/earth/earth-observatory/fine-tuning-irrigation-in-asia-148203/
+- NASA GIBS and Worldview: https://worldview.earthdata.nasa.gov/
+- OpenStreetMap tiles and Nominatim retain their own attribution and usage terms
 
 ## Primary scientific sources
 
 - Field Shift challenge: https://www.spaceappschallenge.org/2026/challenges/field-shift-adapting-farms-with-nasa-data/
 - GPM IMERG: https://gpm.nasa.gov/data/imerg
 - GPM data directory: https://gpm.nasa.gov/data/directory
-- SMAP SPL3SMP_E V6: https://nsidc.org/data/spl3smp_e/versions/6
+- SMAP SPL3SMP E Version 6: https://nsidc.org/data/spl3smp_e/versions/6
 - NASA POWER Daily API: https://power.larc.nasa.gov/docs/services/api/temporal/daily/
 - NASA POWER Climatology API: https://power.larc.nasa.gov/docs/services/api/temporal/climatology/
-- BAMIS crop-weather calendars: https://www.bamis.gov.bd/en/calendar
+- BAMIS crop weather calendars: https://www.bamis.gov.bd/en/calendar
 - BARC crop zoning: https://apps.barc.gov.bd/cropzoning/
-
-## Competition compliance note
-
-The supplied 2026 Participant FAQ and Bangladesh local prescreening materials should be reconciled with the Dhaka Local Lead before presenting pre-event implementation as competition work. Repository history is kept explicit rather than disguising when implementation occurred.
 
 ## Team
 
-Rezwan Hossain Prince · MD. Khairul Islam · Md. Siam Rayhan · Iftekhar Azad Ether · Tulip Mondal
+Rezwan Hossain Prince  
+MD. Khairul Islam  
+Md. Siam Rayhan  
+Iftekhar Azad Ether  
+Tulip Mondal
