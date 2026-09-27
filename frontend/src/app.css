@@ -261,3 +261,338 @@ img{max-width:100%}
   .brief-month{break-inside:avoid;page-break-inside:avoid}
   .rotation-lock-panel,.brief-source-columns{break-inside:avoid}
 }
+
+
+/* September 2026 UI stability and English only refinements */
+[data-reveal]{
+  opacity:1 !important;
+  transform:none !important;
+}
+
+.bx-app{
+  background:#06110c;
+}
+
+.bx-nav{
+  height:72px;
+  padding:0 clamp(18px,4vw,58px);
+}
+
+.bx-brand{
+  min-width:210px;
+}
+
+.bx-brand-type strong{
+  font-size:18px;
+}
+
+.bx-brand-type small{
+  font-size:9px;
+  letter-spacing:.04em;
+}
+
+.bx-links{
+  gap:24px;
+}
+
+.bx-links a{
+  font-size:11px;
+}
+
+.cinematic-hero{
+  min-height:clamp(760px,100svh,980px);
+  padding:120px clamp(24px,6vw,92px) 72px;
+  align-items:center;
+}
+
+.hero-photo img{
+  filter:saturate(.9) contrast(1.08) brightness(.7);
+  object-position:58% 50%;
+}
+
+.hero-photo-overlay{
+  background:
+    radial-gradient(circle at 72% 42%,rgba(35,94,59,.08),rgba(4,14,9,.18) 28%,rgba(4,14,9,.72) 72%),
+    linear-gradient(90deg,rgba(4,13,8,.94) 0%,rgba(4,13,8,.79) 43%,rgba(4,13,8,.22) 76%,rgba(4,13,8,.48) 100%),
+    linear-gradient(0deg,#06110c 0%,transparent 19%);
+}
+
+.hero-content{
+  width:min(720px,52vw);
+}
+
+.hero-content h1{
+  font-size:clamp(54px,5.6vw,88px);
+  line-height:.96;
+  letter-spacing:-.05em;
+  max-width:10.5ch;
+  margin:20px 0 24px;
+}
+
+.hero-lead{
+  font-size:clamp(15px,1.2vw,19px);
+  line-height:1.58;
+  max-width:620px;
+}
+
+.hero-earth{
+  right:0;
+  top:8vh;
+  width:min(50vw,760px);
+  height:min(78vh,760px);
+}
+
+.hero-data-stack{
+  right:4vw;
+  bottom:8vh;
+  transform:scale(.92);
+  transform-origin:right bottom;
+}
+
+.hero-credit{
+  color:rgba(255,255,255,.62);
+  font-size:8px;
+}
+
+.section-heading{
+  grid-template-columns:64px minmax(300px,1fr) minmax(300px,.75fr);
+}
+
+.section-heading h2,
+.nasa-story-copy h2,
+.rotation-copy h2,
+.brief-hero h2{
+  max-width:none;
+  font-size:clamp(38px,4vw,60px);
+  line-height:1.04;
+}
+
+.section-copy{
+  font-size:13px;
+  line-height:1.62;
+}
+
+.location-command{
+  grid-template-columns:minmax(330px,.7fr) minmax(0,1.3fr);
+  min-height:640px;
+}
+
+.location-map-panel{
+  min-height:640px;
+}
+
+.field-map,
+.map-stage{
+  min-height:640px;
+  background:#dce5dd;
+}
+
+.map-overlay-note{
+  position:absolute;
+  z-index:7;
+  left:16px;
+  right:16px;
+  top:64px;
+  padding:10px 12px;
+  border:1px solid rgba(255,255,255,.24);
+  background:rgba(5,20,12,.86);
+  color:#e8f3ea;
+  backdrop-filter:blur(12px);
+  font-size:9px;
+  line-height:1.45;
+}
+
+.field-lock{
+  pointer-events:none;
+}
+
+.signal-stage{
+  align-items:stretch;
+}
+
+.signal-card{
+  min-height:500px;
+}
+
+.signal-card > p{
+  min-height:auto;
+}
+
+.nasa-story-media img{
+  filter:saturate(1) contrast(1.04) brightness(.9);
+  object-position:center;
+}
+
+.nasa-story-media::after{
+  background:
+    linear-gradient(90deg,transparent 58%,rgba(10,26,18,.88)),
+    linear-gradient(0deg,rgba(6,17,12,.32),transparent 48%);
+}
+
+.farmer-story-form fieldset{
+  opacity:1 !important;
+  filter:none !important;
+}
+
+.crop-choice,
+.answer-card,
+.soil-choice,
+.priority-choice{
+  opacity:1;
+}
+
+.form-location-note{
+  margin-top:16px;
+  display:grid;
+  grid-template-columns:32px 1fr auto;
+  gap:12px;
+  align-items:center;
+  padding:14px;
+  border:1px solid rgba(114,232,243,.2);
+  background:rgba(114,232,243,.05);
+}
+
+.form-location-note > span{
+  width:30px;
+  height:30px;
+  border:1px solid rgba(114,232,243,.3);
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  color:var(--cyan);
+}
+
+.form-location-note p{
+  margin:0;
+  color:#a7b8ad;
+  font-size:10px;
+  line-height:1.5;
+}
+
+.form-location-note button{
+  border:1px solid rgba(255,255,255,.18);
+  background:rgba(255,255,255,.04);
+  color:white;
+  padding:9px 11px;
+  cursor:pointer;
+  font-size:9px;
+}
+
+.brief-builder > button:disabled{
+  opacity:.7;
+}
+
+.brief-task strong{
+  font-size:10px;
+  line-height:1.5;
+}
+
+.brief-task small{
+  display:none;
+}
+
+.brief-place strong{
+  font-size:16px;
+}
+
+.bx-footer{
+  grid-template-columns:1fr 1.3fr auto;
+}
+
+@media(max-width:1180px){
+  .hero-content{
+    width:min(690px,64vw);
+  }
+
+  .hero-earth{
+    right:-13vw;
+    width:64vw;
+  }
+
+  .hero-data-stack{
+    display:none;
+  }
+}
+
+@media(max-width:900px){
+  .cinematic-hero{
+    min-height:850px;
+    align-items:flex-start;
+    padding-top:110px;
+  }
+
+  .hero-content{
+    width:76vw;
+  }
+
+  .hero-earth{
+    right:-28vw;
+    top:220px;
+    width:82vw;
+    height:620px;
+    opacity:.75;
+  }
+
+  .location-command{
+    grid-template-columns:1fr;
+  }
+
+  .location-map-panel,
+  .field-map,
+  .map-stage{
+    min-height:560px;
+  }
+}
+
+@media(max-width:640px){
+  .cinematic-hero{
+    min-height:820px;
+    padding:96px 16px 44px;
+  }
+
+  .hero-content{
+    width:100%;
+  }
+
+  .hero-content h1{
+    font-size:48px;
+    line-height:.98;
+    max-width:9.8ch;
+  }
+
+  .hero-lead{
+    font-size:14px;
+    max-width:92%;
+  }
+
+  .hero-earth{
+    right:-330px;
+    top:330px;
+    width:620px;
+    height:620px;
+    opacity:.58;
+  }
+
+  .hero-source-line{
+    max-width:90%;
+  }
+
+  .location-map-panel,
+  .field-map,
+  .map-stage{
+    min-height:500px;
+  }
+
+  .map-overlay-note{
+    top:100px;
+  }
+
+  .form-location-note{
+    grid-template-columns:30px 1fr;
+  }
+
+  .form-location-note button{
+    grid-column:2;
+    justify-self:start;
+  }
+}
