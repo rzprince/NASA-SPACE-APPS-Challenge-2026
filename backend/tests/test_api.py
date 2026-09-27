@@ -112,3 +112,65 @@ def test_no_crop_or_rotation_claim_without_rules():
     response = client.post("/api/v1/rotations/compare", json=farmer())
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "AGRONOMIC_RULES_NOT_APPROVED"
+
+
+
+def test_90_day_plan_is_fast_deterministic_and_has_three_distinct_stages():
+    payload = {
+        "farm": farmer(
+            previous_crop="rice",
+            water_source="rainfed",
+            water_after_heavy_rain="sometimes",
+            soil_test="no",
+            priority="water",
+        ),
+        "start_year": 2026,
+        "start_month": 9,
+        "include_recent_power": False,
+        "include_climate_baseline": False,
+    }
+    response = client.post("/api/v1/plans/preview", json=payload)
+    assert response.status_code == 200
+
+    brief = response.json()
+    assert brief["status"] == "DECISION_PREPARATION_READY"
+    assert len(brief["months"]) == 3
+    assert [month["phase"]["en"] for month in brief["months"]] == [
+        "Know the field",
+        "Watch the change",
+        "Decide the next move",
+    ]
+
+    task_sets = [
+        {task["code"] for task in month["tasks"]}
+        for month in brief["months"]
+    ]
+    assert task_sets[0].isdisjoint(task_sets[1])
+    assert task_sets[1].isdisjoint(task_sets[2])
+    assert brief["recent_environment"] is None
+    assert brief["historical_baseline"] is None
+
+
+def test_90_day_plan_changes_month_two_with_farmer_priority():
+    def plan_for(priority):
+        response = client.post(
+            "/api/v1/plans/preview",
+            json={
+                "farm": farmer(priority=priority),
+                "start_year": 2026,
+                "start_month": 9,
+                "include_recent_power": False,
+                "include_climate_baseline": False,
+            },
+        )
+        assert response.status_code == 200
+        return {task["code"] for task in response.json()["months"][1]["tasks"]}
+
+    water = plan_for("water")
+    soil = plan_for("soil")
+    stability = plan_for("production_stability")
+
+    assert "water_priority_check" in water
+    assert "soil_priority_check" in soil
+    assert "stability_priority_check" in stability
+    assert water != soil != stability
