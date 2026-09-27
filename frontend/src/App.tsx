@@ -356,15 +356,21 @@ export default function App() {
         farm: profile,
         start_year: startYear,
         start_month: startMonth,
-        include_recent_power: true,
-        include_climate_baseline: true,
+        include_recent_power: false,
+        include_climate_baseline: false,
       });
 
       if (!payload || !Array.isArray(payload.months) || payload.months.length !== 3) {
         throw new ApiError(500, "INVALID_PLAN_RESPONSE", "The field brief response was incomplete. Please try again.");
       }
 
-      setPlan(payload);
+      const completeBrief: PlanBrief = {
+        ...payload,
+        recent_environment: recent,
+        historical_baseline: baseline,
+      };
+
+      setPlan(completeBrief);
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           document.getElementById("field-brief")?.scrollIntoView({ behavior: "smooth", block: "start" });
