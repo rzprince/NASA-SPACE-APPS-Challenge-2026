@@ -35,3 +35,16 @@ The project uses the NASA products that have direct decision relevance for the c
 - GIBS
 
 Adding unrelated NASA datasets would increase complexity without improving the farmer decision.
+
+
+## 27 September screenshot driven fixes
+
+| Reported issue | Fix |
+| --- | --- |
+| Bangla only interface | Active interface is now English only |
+| Text too large and badly fitted | Hero scale, width and spacing were reduced and rebalanced |
+| Map becomes blank | OpenStreetMap is now the independent base layer and NASA overlays are added after map load |
+| Page becomes blank after scrolling | Reveal content is visible by default and no longer depends on observer timing |
+| Farmer options are low opacity and blocked | Questions are always interactive; only final plan generation requires a selected field |
+| Location choice does not update area workflow | GPS, place search and map pin all set the same selected coordinate state |
+| Front image feels too dark | NASA Landsat image treatment is brighter and a second real NASA crop image is used in the story section |

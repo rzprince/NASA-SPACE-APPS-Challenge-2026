@@ -1,8 +1,8 @@
-"""Deterministic, stage-aware 90-day preparation plan.
+"""Deterministic staged 90 day preparation plan.
 
 The routine is intentionally useful without pretending to be a crop prescription.
-Every month has a different objective. Crop-specific instructions remain blocked
-until source-reviewed agronomic rules are integrated.
+Every month has a different objective. Crop specific instructions remain blocked
+until source reviewed agronomic rules are integrated.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ TASKS = {
         "মাটির pH অনুমান করবেন না। ভবিষ্যৎ ফসল বাছাইয়ে মাটির রাসায়নিক তথ্য দরকার হলে স্থানীয় কৃষি অফিসে মাটি পরীক্ষা কোথায় করা যায় জেনে নিন।",
     ),
     "soil_report_record": (
-        "Keep the soil-test report date and source with the farm notes; only use the numbers that actually appear on that report.",
+        "Keep the soil test report date and source with the farm notes; only use the numbers that actually appear on that report.",
         "মাটি পরীক্ষার রিপোর্টের তারিখ ও উৎস জমির নোটের সঙ্গে রাখুন; রিপোর্টে যে সংখ্যাগুলো আছে শুধু সেগুলোই ব্যবহার করুন।",
     ),
     "recent_rain_context": (
@@ -62,7 +62,7 @@ TASKS = {
         "তৃতীয় মাসের শেষে মাঠের নোট দেখে কোন তথ্য জানা, অনিশ্চিত বা এখনও অনুপস্থিত তা চিহ্নিত করুন।",
     ),
     "calendar_check": (
-        "Use the crop-weather calendar for your region as evidence to discuss the next seasonal option; BoponX will not invent a planting date.",
+        "Use the crop weather calendar for your region as evidence to discuss the next seasonal option; BoponX will not invent a planting date.",
         "পরবর্তী মৌসুমের বিকল্প নিয়ে আলোচনায় আপনার অঞ্চলের ফসল-আবহাওয়া ক্যালেন্ডারকে প্রমাণ হিসেবে ব্যবহার করুন; BoponX নিজে কোনো বপনের তারিখ বানাবে না।",
     ),
     "rotation_gate": (
@@ -113,7 +113,7 @@ def make_90_day_plan(
 
     phases = [
         ("Know the field", "জমিকে বুঝুন", "Build a trustworthy baseline before making a seasonal choice.", "মৌসুমি সিদ্ধান্তের আগে মাঠের নির্ভরযোগ্য ভিত্তি তৈরি করুন।", month1),
-        ("Watch the change", "পরিবর্তন দেখুন", "Compare recent Earth-observation context with what is actually happening in the field.", "সাম্প্রতিক Earth observation তথ্যের সঙ্গে মাঠের বাস্তব অবস্থা মিলিয়ে দেখুন।", month2),
+        ("Watch the change", "পরিবর্তন দেখুন", "Compare recent Earth observation context with what is actually happening in the field.", "সাম্প্রতিক Earth observation তথ্যের সঙ্গে মাঠের বাস্তব অবস্থা মিলিয়ে দেখুন।", month2),
         ("Decide the next move", "পরবর্তী পদক্ষেপ ঠিক করুন", "Turn three months of evidence into questions and constraints for the next seasonal decision.", "তিন মাসের প্রমাণকে পরবর্তী মৌসুমি সিদ্ধান্তের প্রশ্ন ও সীমাবদ্ধতায় রূপ দিন।", month3),
     ]
 
@@ -146,7 +146,7 @@ def make_90_day_plan(
         "historical_baseline": baseline_environment,
         "rotation_explorer": {
             "status": "EVIDENCE_REVIEW_REQUIRED",
-            "message_en": "Rotation alternatives stay locked until crop calendars, crop requirements, soil constraints and crop-sequence rules for this region are source-reviewed.",
+            "message_en": "Rotation alternatives stay locked until crop calendars, crop requirements, soil constraints and crop sequence rules for this region are source reviewed.",
             "message_bn": "এই অঞ্চলের ফসল ক্যালেন্ডার, ফসলের চাহিদা, মাটির সীমাবদ্ধতা ও ফসল-ক্রমের নিয়ম উৎস-পর্যালোচনা না হওয়া পর্যন্ত আবর্তন বিকল্প দেখানো হবে না।",
         },
         "evidence": {
@@ -155,7 +155,7 @@ def make_90_day_plan(
             "calendar_evidence": context.get("calendar_evidence", []),
         },
         "limitations": {
-            "en": "This is a location-aware preparation and decision-support routine, not a crop prescription or forecast. Satellite and reanalysis data describe regional context; field observations and locally reviewed agricultural rules are still required for crop-specific decisions.",
+            "en": "This is a location aware preparation and decision support routine, not a crop prescription or forecast. Satellite and reanalysis data describe regional context; field observations and locally reviewed agricultural rules are still required for crop specific decisions.",
             "bn": "এটি অবস্থানভিত্তিক প্রস্তুতি ও সিদ্ধান্ত-সহায়তা রুটিন; এটি ফসলের প্রেসক্রিপশন বা আবহাওয়ার পূর্বাভাস নয়। স্যাটেলাইট ও পুনর্বিশ্লেষণ তথ্য আঞ্চলিক প্রেক্ষাপট দেয়; ফসলভিত্তিক সিদ্ধান্তে মাঠের পর্যবেক্ষণ ও স্থানীয়ভাবে যাচাইকৃত কৃষি নিয়ম এখনও প্রয়োজন।",
         },
     }
