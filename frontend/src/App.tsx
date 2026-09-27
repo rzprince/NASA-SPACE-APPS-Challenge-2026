@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import EarthScene from "./EarthScene";
 import LocationMap from "./LocationMap";
 import DecisionReport from "./DecisionReport";
+import FieldIcon, { type IconName } from "./FieldIcon";
 import {
   ApiError,
   apiGet,
@@ -25,20 +26,20 @@ const STORY_IMAGE =
   "https://assets.science.nasa.gov/dynamicimage/assets/science/esd/eo/images/imagerecords/148000/148203/baniachong10_oli_202176.jpg";
 
 const cropOptions = [
-  ["rice", "Rice", "R"],
-  ["wheat", "Wheat", "W"],
-  ["maize", "Maize", "M"],
-  ["pulse", "Pulse", "P"],
-  ["mustard", "Mustard", "S"],
-  ["vegetables", "Vegetables", "V"],
-  ["jute", "Jute", "J"],
-  ["other", "Other", "O"],
+  ["rice", "Rice", "rice"],
+  ["wheat", "Wheat", "wheat"],
+  ["maize", "Maize", "maize"],
+  ["pulse", "Pulse", "pulse"],
+  ["mustard", "Mustard", "mustard"],
+  ["vegetables", "Vegetables", "vegetables"],
+  ["jute", "Jute", "jute"],
+  ["other", "Other", "other"],
 ] as const;
 
 const priorities = [
-  ["water", "Use water carefully", "Water"],
-  ["soil", "Protect the soil", "Soil"],
-  ["production_stability", "Keep production stable", "Stable"],
+  ["water", "Use water carefully", "water"],
+  ["soil", "Protect the soil", "soil"],
+  ["production_stability", "Keep production stable", "stability"],
 ] as const;
 
 function dateMinus(days: number) {
@@ -62,6 +63,17 @@ function statusCopy(status: Status) {
   if (status === "ready") return "Connected";
   if (status === "unavailable") return "Unavailable";
   return "Waiting";
+}
+
+function validPoint(point: Point) {
+  return (
+    Number.isFinite(point.latitude) &&
+    Number.isFinite(point.longitude) &&
+    point.latitude >= -90 &&
+    point.latitude <= 90 &&
+    point.longitude >= -180 &&
+    point.longitude <= 180
+  );
 }
 
 export default function App() {
@@ -264,16 +276,27 @@ export default function App() {
     document.getElementById("field-locator")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  function setFieldPoint(nextPoint: Point, place: PlaceResult | null = null) {
+    if (!validPoint(nextPoint)) {
+      setLocationError("That location could not be read. Please choose another point on the map.");
+      return;
+    }
+    setLocationError("");
+    setSelectedPlace(place);
+    setPoint({
+      latitude: Number(nextPoint.latitude.toFixed(5)),
+      longitude: Number(nextPoint.longitude.toFixed(5)),
+    });
+  }
+
   function chooseArea(area: Area) {
-    setSelectedPlace(null);
-    setPoint({ latitude: area.latitude, longitude: area.longitude });
+    setFieldPoint({ latitude: area.latitude, longitude: area.longitude });
     setSearch("");
     setPlaceResults([]);
   }
 
   function choosePlace(place: PlaceResult) {
-    setSelectedPlace(place);
-    setPoint({ latitude: place.latitude, longitude: place.longitude });
+    setFieldPoint({ latitude: place.latitude, longitude: place.longitude }, place);
     setSearch("");
     setPlaceResults([]);
   }
@@ -290,10 +313,9 @@ export default function App() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setGpsBusy(false);
-        setSelectedPlace(null);
-        setPoint({
-          latitude: Number(position.coords.latitude.toFixed(5)),
-          longitude: Number(position.coords.longitude.toFixed(5)),
+        setFieldPoint({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
         });
         window.setTimeout(scrollToLocation, 100);
       },
@@ -337,10 +359,17 @@ export default function App() {
         include_recent_power: true,
         include_climate_baseline: true,
       });
+
+      if (!payload || !Array.isArray(payload.months) || payload.months.length !== 3) {
+        throw new ApiError(500, "INVALID_PLAN_RESPONSE", "The field brief response was incomplete. Please try again.");
+      }
+
       setPlan(payload);
-      window.setTimeout(() => {
-        document.getElementById("field-brief")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 120);
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          document.getElementById("field-brief")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      });
     } catch (error) {
       setPlanError(error instanceof ApiError ? error.message : "The field brief could not be generated.");
     } finally {
@@ -544,10 +573,7 @@ export default function App() {
             <div className="location-map-panel">
               <LocationMap
                 point={point}
-                onPick={(value) => {
-                  setSelectedPlace(null);
-                  setPoint(value);
-                }}
+                onPick={(value) => setFieldPoint(value)}
                 mapDate={mapDate}
               />
 
@@ -782,12 +808,12 @@ export default function App() {
                     className={previousCrop === value ? "crop-choice active" : "crop-choice"}
                     onClick={() => setPreviousCrop(previousCrop === value ? "" : value)}
                   >
-                    <span>{icon}</span>
+                    <span className="choice-icon"><FieldIcon name={icon as IconName} /></span>
                     <strong>{label}</strong>
                   </button>
                 ))}
                 <button type="button" className={!previousCrop ? "crop-choice unknown active" : "crop-choice unknown"} onClick={() => setPreviousCrop("")}>
-                  <span>?</span><strong>Not sure</strong>
+                  <span className="choice-icon"><FieldIcon name="unknown" /></span><strong>Not sure</strong>
                 </button>
               </div>
             </fieldset>
@@ -797,14 +823,14 @@ export default function App() {
                 <legend><span>02</span>How does the field usually get water?</legend>
                 <div className="answer-stack">
                   {[
-                    ["rainfed", "Mostly rain", "Rain"],
-                    ["irrigated", "Mostly irrigation", "Irrigation"],
-                    ["both", "Rain and irrigation", "Both"],
-                    ["unknown", "Not sure", "?"],
+                    ["rainfed", "Mostly rain", "rain"],
+                    ["irrigated", "Mostly irrigation", "irrigation"],
+                    ["both", "Rain and irrigation", "both"],
+                    ["unknown", "Not sure", "unknown"],
                   ].map(([value, label, icon]) => (
                     <label className={waterSource === value ? "answer-card active" : "answer-card"} key={value}>
                       <input type="radio" name="water" checked={waterSource === value} onChange={() => setWaterSource(value as FarmerProfile["water_source"])} />
-                      <span className="answer-icon">{icon}</span>
+                      <span className="answer-icon"><FieldIcon name={icon as IconName} /></span>
                       <strong>{label}</strong>
                     </label>
                   ))}
@@ -815,14 +841,14 @@ export default function App() {
                 <legend><span>03</span>What usually happens after heavy rain?</legend>
                 <div className="answer-stack">
                   {[
-                    ["drains", "Water drains quickly", "Fast"],
-                    ["stays", "Water stays for a long time", "Slow"],
-                    ["sometimes", "It changes from time to time", "Mixed"],
-                    ["unknown", "Not sure", "?"],
+                    ["drains", "Water drains quickly", "drainage"],
+                    ["stays", "Water stays for a long time", "standingWater"],
+                    ["sometimes", "It changes from time to time", "mixed"],
+                    ["unknown", "Not sure", "unknown"],
                   ].map(([value, label, icon]) => (
                     <label className={waterAfterRain === value ? "answer-card active" : "answer-card"} key={value}>
                       <input type="radio" name="rain" checked={waterAfterRain === value} onChange={() => setWaterAfterRain(value as FarmerProfile["water_after_heavy_rain"])} />
-                      <span className="answer-icon">{icon}</span>
+                      <span className="answer-icon"><FieldIcon name={icon as IconName} /></span>
                       <strong>{label}</strong>
                     </label>
                   ))}
@@ -835,12 +861,13 @@ export default function App() {
                 <legend><span>04</span>Do you have a soil test report?</legend>
                 <div className="soil-test-choice">
                   {[
-                    ["yes", "Yes"],
-                    ["no", "No"],
-                    ["unknown", "Not sure"],
-                  ].map(([value, label]) => (
+                    ["yes", "Yes", "check"],
+                    ["no", "No", "close"],
+                    ["unknown", "Not sure", "unknown"],
+                  ].map(([value, label, icon]) => (
                     <label className={soilTest === value ? "soil-choice active" : "soil-choice"} key={value}>
                       <input type="radio" name="soil" checked={soilTest === value} onChange={() => setSoilTest(value as FarmerProfile["soil_test"])} />
+                      <span className="soil-choice-icon"><FieldIcon name={icon as IconName} /></span>
                       <span>{label}</span>
                     </label>
                   ))}
@@ -863,7 +890,7 @@ export default function App() {
                   {priorities.map(([value, label, code]) => (
                     <label className={priority === value ? "priority-choice active" : "priority-choice"} key={value}>
                       <input type="radio" name="priority" checked={priority === value} onChange={() => setPriority(value as FarmerProfile["priority"])} />
-                      <span>{code}</span>
+                      <span className="priority-icon"><FieldIcon name={code as IconName} /></span>
                       <strong>{label}</strong>
                     </label>
                   ))}
