@@ -61,3 +61,19 @@
 - [ ] NASA GIBS imagery unavailable
 - [ ] GPS denied
 - [ ] slow network
+
+
+## Regression checks added after screenshot review
+
+- [ ] Hero text fits a 1366 by 768 laptop viewport without clipping.
+- [ ] Hero text fits a 1920 by 1080 desktop viewport without extending below the first screen.
+- [ ] All farmer facing copy is English.
+- [ ] No farmer facing sentence uses a hyphen character.
+- [ ] Scrolling from hero to the location section never produces an empty dark viewport.
+- [ ] Scrolling further down never leaves reveal sections invisible.
+- [ ] Base map remains visible even if NASA GIBS imagery fails.
+- [ ] Location permission allowed updates the map marker and selected coordinates.
+- [ ] Location permission denied leaves place search and map pin fully usable.
+- [ ] Selecting a search result updates the marker, recent POWER request and regional crop evidence.
+- [ ] Farmer questions remain selectable before location is chosen.
+- [ ] Plan generation gives a clear location message when no field point exists.

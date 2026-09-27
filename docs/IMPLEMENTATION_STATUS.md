@@ -58,3 +58,24 @@ Manual QA remains necessary for:
 - reduced-motion mode
 - Print / Save PDF
 - poor-network / external-source failure states
+
+
+## 27 September interface correction
+
+The latest visual QA from the running localhost build identified four user facing problems: oversized hero text, Bangla only presentation, a map that could fail with NASA overlays, and later sections that could remain invisible because reveal styling depended on JavaScript intersection events.
+
+The active frontend now fixes those issues:
+
+- English only farmer interface
+- no language switcher
+- no hyphenated wording in farmer facing sentences
+- smaller hero typography and better desktop ratios
+- brighter real NASA Landsat imagery
+- second real NASA Landsat crop image in the evidence story
+- OpenStreetMap loads as the independent base map before optional NASA layers
+- NASA GIBS imagery failure can no longer remove the working field map
+- resize handling keeps the map visible after location changes
+- field questions remain fully interactive before location selection
+- only plan generation requires a field point
+- reveal content is visible by default, preventing blank sections after scrolling
+- current location, place search and map pin all update the selected point
