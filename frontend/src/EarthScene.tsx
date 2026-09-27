@@ -21,8 +21,12 @@ export default function EarthScene({ className = "", accent = "green" }: Props) 
     const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
     camera.position.set(0, 0, 5.4);
 
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.8));
+    const renderer = new THREE.WebGLRenderer({
+      alpha: true,
+      antialias: window.devicePixelRatio <= 1.5,
+      powerPreference: "default",
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     renderer.setSize(width, height);
     renderer.setClearColor(0x000000, 0);
     host.appendChild(renderer.domElement);
@@ -59,7 +63,7 @@ export default function EarthScene({ className = "", accent = "green" }: Props) 
     root.add(wire);
 
     const pointGeometry = new THREE.BufferGeometry();
-    const pointCount = 900;
+    const pointCount = 620;
     const positions = new Float32Array(pointCount * 3);
     for (let i = 0; i < pointCount; i += 1) {
       const u = Math.random();
@@ -146,7 +150,7 @@ export default function EarthScene({ className = "", accent = "green" }: Props) 
     scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
     const starGeometry = new THREE.BufferGeometry();
-    const starCount = 260;
+    const starCount = 180;
     const starPositions = new Float32Array(starCount * 3);
     for (let i = 0; i < starCount; i += 1) {
       starPositions[i * 3] = (Math.random() - 0.5) * 10;
@@ -171,8 +175,14 @@ export default function EarthScene({ className = "", accent = "green" }: Props) 
 
     const clock = new THREE.Clock();
     let raf = 0;
+    let sceneVisible = true;
 
     const render = () => {
+      if (!sceneVisible) {
+        raf = requestAnimationFrame(render);
+        return;
+      }
+
       const elapsed = clock.getElapsedTime();
       if (!reducedMotion) {
         root.rotation.y = elapsed * 0.11 + pointerX;
@@ -188,6 +198,14 @@ export default function EarthScene({ className = "", accent = "green" }: Props) 
       renderer.render(scene, camera);
       raf = requestAnimationFrame(render);
     };
+
+    const visibilityObserver = new IntersectionObserver(
+      ([entry]) => {
+        sceneVisible = entry?.isIntersecting ?? true;
+      },
+      { rootMargin: "120px" },
+    );
+    visibilityObserver.observe(host);
     render();
 
     const resize = () => {
@@ -203,6 +221,7 @@ export default function EarthScene({ className = "", accent = "green" }: Props) 
     return () => {
       cancelAnimationFrame(raf);
       observer.disconnect();
+      visibilityObserver.disconnect();
       host.removeEventListener("pointermove", onPointerMove);
       renderer.dispose();
       pointGeometry.dispose();
