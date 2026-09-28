@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl, { type Map } from "maplibre-gl";
 
 type Point = { latitude: number; longitude: number };
+type LayerId = "base" | "trueColor" | "imerg" | "smap" | "ndvi" | "lst";
 
 type Props = {
   point: Point | null;
@@ -9,8 +10,83 @@ type Props = {
   mapDate: string;
 };
 
+type LayerSpec = {
+  id: LayerId;
+  label: string;
+  mission: string;
+  layer?: string;
+  format?: "image/png" | "image/jpeg";
+  opacity?: number;
+  dateOffset?: number;
+};
+
+const LAYERS: LayerSpec[] = [
+  { id: "base", label: "Map", mission: "OSM" },
+  {
+    id: "trueColor",
+    label: "True color",
+    mission: "MODIS",
+    layer: "MODIS_Terra_CorrectedReflectance_TrueColor",
+    format: "image/jpeg",
+    opacity: 0.94,
+  },
+  {
+    id: "imerg",
+    label: "Rain",
+    mission: "GPM IMERG",
+    layer: "IMERG_Precipitation_Rate_v7_STD",
+    format: "image/png",
+    opacity: 0.56,
+  },
+  {
+    id: "smap",
+    label: "Soil moisture",
+    mission: "SMAP",
+    layer: "SMAP_L3_Passive_Enhanced_Day_Soil_Moisture",
+    format: "image/png",
+    opacity: 0.58,
+  },
+  {
+    id: "ndvi",
+    label: "Vegetation",
+    mission: "MODIS NDVI",
+    layer: "MODIS_Terra_NDVI_8Day",
+    format: "image/png",
+    opacity: 0.62,
+  },
+  {
+    id: "lst",
+    label: "Surface heat",
+    mission: "MODIS LST",
+    layer: "MODIS_Terra_Land_Surface_Temp_Day",
+    format: "image/png",
+    opacity: 0.58,
+  },
+];
+
 function isFinitePoint(point: Point) {
-  return Number.isFinite(point.latitude) && Number.isFinite(point.longitude);
+  return (
+    Number.isFinite(point.latitude) &&
+    Number.isFinite(point.longitude) &&
+    point.latitude >= -90 &&
+    point.latitude <= 90 &&
+    point.longitude >= -180 &&
+    point.longitude <= 180
+  );
+}
+
+function wmsUrl(layer: string, format: string, date: string) {
+  const bbox = "{bbox-epsg-3857}";
+  return (
+    "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi" +
+    "?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0" +
+    `&LAYERS=${layer}` +
+    "&STYLES=" +
+    `&FORMAT=${format}` +
+    `&TRANSPARENT=${format === "image/png" ? "true" : "false"}` +
+    "&HEIGHT=256&WIDTH=256&CRS=EPSG:3857" +
+    `&TIME=${date}&BBOX=${bbox}`
+  );
 }
 
 export default function LocationMap({ point, onPick, mapDate }: Props) {
@@ -19,8 +95,7 @@ export default function LocationMap({ point, onPick, mapDate }: Props) {
   const markerRef = useRef<maplibregl.Marker | null>(null);
   const onPickRef = useRef(onPick);
   const [mapReady, setMapReady] = useState(false);
-  const [rainVisible, setRainVisible] = useState(false);
-  const [imageryVisible, setImageryVisible] = useState(false);
+  const [activeLayer, setActiveLayer] = useState<LayerId>("base");
   const [overlayMessage, setOverlayMessage] = useState("");
 
   useEffect(() => {
@@ -37,12 +112,12 @@ export default function LocationMap({ point, onPick, mapDate }: Props) {
     try {
       map = new maplibregl.Map({
         container,
-        center: [90.35, 23.75],
-        zoom: 5.45,
-        minZoom: 4.5,
+        center: [15, 15],
+        zoom: 1.6,
+        minZoom: 1.2,
         maxZoom: 15,
-        maxBounds: [[87.4, 19.8], [93.4, 27.3]],
         attributionControl: false,
+        renderWorldCopies: false,
         style: {
           version: 8,
           sources: {
@@ -53,12 +128,23 @@ export default function LocationMap({ point, onPick, mapDate }: Props) {
               attribution: "© OpenStreetMap contributors",
             },
           },
-          layers: [{ id: "osm", type: "raster", source: "osm" }],
+          layers: [
+            {
+              id: "osm",
+              type: "raster",
+              source: "osm",
+              paint: {
+                "raster-saturation": -0.55,
+                "raster-contrast": 0.12,
+                "raster-brightness-max": 0.78,
+              },
+            },
+          ],
         },
       });
 
       mapRef.current = map;
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+      map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
       map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
 
       map.on("click", (event) => {
@@ -73,70 +159,40 @@ export default function LocationMap({ point, onPick, mapDate }: Props) {
         setMapReady(true);
         map?.resize();
 
-        try {
-          const bbox = "{bbox-epsg-3857}";
-          const trueColorUrl =
-            "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi" +
-            "?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0" +
-            "&LAYERS=MODIS_Terra_CorrectedReflectance_TrueColor" +
-            "&STYLES=&FORMAT=image/jpeg&TRANSPARENT=false" +
-            "&HEIGHT=256&WIDTH=256&CRS=EPSG:3857" +
-            `&TIME=${mapDate}&BBOX=${bbox}`;
-
-          const rainUrl =
-            "https://gibs.earthdata.nasa.gov/wms/epsg3857/all/wms.cgi" +
-            "?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0" +
-            "&LAYERS=IMERG_Precipitation_Rate_v7_STD" +
-            "&STYLES=&FORMAT=image/png&TRANSPARENT=true" +
-            "&HEIGHT=256&WIDTH=256&CRS=EPSG:3857" +
-            `&TIME=${mapDate}&BBOX=${bbox}`;
-
-          if (!map?.getSource("nasaTrueColor")) {
-            map?.addSource("nasaTrueColor", {
-              type: "raster",
-              tiles: [trueColorUrl],
-              tileSize: 256,
-              attribution: "NASA GIBS",
-            });
+        for (const spec of LAYERS.filter((item) => item.layer)) {
+          try {
+            const sourceId = `gibs-${spec.id}`;
+            const layerId = `gibs-layer-${spec.id}`;
+            if (!map?.getSource(sourceId)) {
+              map?.addSource(sourceId, {
+                type: "raster",
+                tiles: [wmsUrl(spec.layer!, spec.format ?? "image/png", mapDate)],
+                tileSize: 256,
+                attribution: `NASA GIBS | ${spec.mission}`,
+              });
+            }
+            if (!map?.getLayer(layerId)) {
+              map?.addLayer({
+                id: layerId,
+                type: "raster",
+                source: sourceId,
+                layout: { visibility: "none" },
+                paint: {
+                  "raster-opacity": spec.opacity ?? 0.6,
+                  "raster-fade-duration": 80,
+                },
+              });
+            }
+          } catch {
+            setOverlayMessage("One NASA visualization layer could not initialize. Other layers and the field selector remain available.");
           }
-
-          if (!map?.getLayer("nasaTrueColor")) {
-            map?.addLayer({
-              id: "nasaTrueColor",
-              type: "raster",
-              source: "nasaTrueColor",
-              layout: { visibility: "none" },
-              paint: { "raster-opacity": 0.88, "raster-fade-duration": 80 },
-            });
-          }
-
-          if (!map?.getSource("nasaRain")) {
-            map?.addSource("nasaRain", {
-              type: "raster",
-              tiles: [rainUrl],
-              tileSize: 256,
-              attribution: "NASA GIBS and GPM IMERG",
-            });
-          }
-
-          if (!map?.getLayer("nasaRain")) {
-            map?.addLayer({
-              id: "nasaRain",
-              type: "raster",
-              source: "nasaRain",
-              layout: { visibility: "none" },
-              paint: { "raster-opacity": 0.5, "raster-fade-duration": 80 },
-            });
-          }
-        } catch {
-          setOverlayMessage("NASA map imagery is unavailable right now. The field map and location workflow still work.");
         }
       });
 
       map.on("error", (event) => {
-        const message = String(event?.error?.message ?? "");
-        if (message.includes("gibs") || message.includes("NASA") || message.includes("IMERG")) {
-          setOverlayMessage("A NASA map layer could not load. You can still choose the field and use the rest of BoponX.");
+        const message = String(event?.error?.message ?? "").toLowerCase();
+        if (message.includes("gibs") || message.includes("raster")) {
+          setOverlayMessage("A NASA imagery request failed. Switch layers or continue with the base map. Numeric evidence is loaded separately.");
         }
       });
 
@@ -145,7 +201,7 @@ export default function LocationMap({ point, onPick, mapDate }: Props) {
       });
       resizeObserver.observe(container);
     } catch {
-      setOverlayMessage("The interactive map could not start. Search for a place to continue.");
+      setOverlayMessage("The interactive map could not start. You can still choose a field from the 3D Earth or global place search.");
     }
 
     return () => {
@@ -155,7 +211,7 @@ export default function LocationMap({ point, onPick, mapDate }: Props) {
       try {
         map?.remove();
       } catch {
-        // Map cleanup must never break the application.
+        // Cleanup must never break the app.
       }
       mapRef.current = null;
     };
@@ -171,8 +227,9 @@ export default function LocationMap({ point, onPick, mapDate }: Props) {
 
         if (!markerRef.current) {
           const element = document.createElement("div");
-          element.className = "field-pin";
-          element.innerHTML = '<span class="field-pin-core"></span><span class="field-pin-ring"></span>';
+          element.className = "intel-field-pin";
+          element.innerHTML =
+            '<span class="intel-field-pin-core"></span><span class="intel-field-pin-ring"></span><span class="intel-field-pin-pulse"></span>';
           markerRef.current = new maplibregl.Marker({ element, anchor: "center" }).addTo(map);
         }
 
@@ -181,13 +238,14 @@ export default function LocationMap({ point, onPick, mapDate }: Props) {
         const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         map.easeTo({
           center: [point.longitude, point.latitude],
-          zoom: Math.max(map.getZoom(), 9),
+          zoom: Math.max(map.getZoom(), 7.2),
           bearing: 0,
-          duration: reduceMotion ? 0 : 650,
+          pitch: reduceMotion ? 0 : 18,
+          duration: reduceMotion ? 0 : 750,
           essential: true,
         });
       } catch {
-        setOverlayMessage("The map could not animate to that point. The selected coordinates are still saved for this session.");
+        setOverlayMessage("The map could not animate to the point, but BoponX kept the selected coordinates.");
       }
     };
 
@@ -200,63 +258,55 @@ export default function LocationMap({ point, onPick, mapDate }: Props) {
     if (!map || !mapReady) return;
 
     try {
-      if (map.getLayer("nasaRain")) {
-        map.setLayoutProperty("nasaRain", "visibility", rainVisible ? "visible" : "none");
+      for (const spec of LAYERS.filter((item) => item.layer)) {
+        const layerId = `gibs-layer-${spec.id}`;
+        if (map.getLayer(layerId)) {
+          map.setLayoutProperty(layerId, "visibility", activeLayer === spec.id ? "visible" : "none");
+        }
       }
-      if (map.getLayer("nasaTrueColor")) {
-        map.setLayoutProperty("nasaTrueColor", "visibility", imageryVisible ? "visible" : "none");
-      }
+
       if (map.getLayer("osm")) {
-        map.setLayoutProperty("osm", "visibility", imageryVisible ? "none" : "visible");
+        map.setPaintProperty("osm", "raster-opacity", activeLayer === "trueColor" ? 0.08 : 0.72);
       }
     } catch {
-      setOverlayMessage("The NASA overlay could not be switched. The standard map remains available.");
-      setImageryVisible(false);
-      setRainVisible(false);
+      setOverlayMessage("That layer could not be switched. The field position and other evidence are still available.");
+      setActiveLayer("base");
     }
-  }, [rainVisible, imageryVisible, mapReady]);
+  }, [activeLayer, mapReady]);
 
   return (
-    <div className="map-stage">
-      <div ref={rootRef} className="field-map" aria-label="Interactive Bangladesh farm map" />
-      <div className="map-vignette" aria-hidden="true" />
+    <div className="intel-map-shell">
+      <div ref={rootRef} className="intel-map" aria-label="Global field and NASA evidence map" />
+      <div className="intel-map-grid" aria-hidden="true" />
 
-      <div className="map-toolbar">
-        <button
-          type="button"
-          className={imageryVisible ? "map-chip active" : "map-chip"}
-          onClick={() => setImageryVisible((value) => !value)}
-          aria-pressed={imageryVisible}
-          disabled={!mapReady}
-        >
-          <span className="chip-orb imagery" />
-          NASA true color
-        </button>
-
-        <button
-          type="button"
-          className={rainVisible ? "map-chip active" : "map-chip"}
-          onClick={() => setRainVisible((value) => !value)}
-          aria-pressed={rainVisible}
-          disabled={!mapReady}
-        >
-          <span className="chip-orb rain" />
-          IMERG rain
-        </button>
+      <div className="intel-map-layerbar" role="toolbar" aria-label="Earth observation layers">
+        {LAYERS.map((layer) => (
+          <button
+            type="button"
+            key={layer.id}
+            className={activeLayer === layer.id ? "intel-layer active" : "intel-layer"}
+            onClick={() => setActiveLayer(layer.id)}
+            disabled={!mapReady && layer.id !== "base"}
+            aria-pressed={activeLayer === layer.id}
+          >
+            <span>{layer.label}</span>
+            <small>{layer.mission}</small>
+          </button>
+        ))}
       </div>
 
-      <div className="map-date">
-        <span>NASA layer date</span>
+      <div className="intel-map-date">
+        <span>Layer date</span>
         <strong>{mapDate}</strong>
       </div>
 
-      <div className="map-help">
-        <span className="map-help-dot" />
-        Choose any point in Bangladesh to set the field location
+      <div className="intel-map-help">
+        <i />
+        Click any point on Earth to move the field
       </div>
 
-      {!mapReady && !overlayMessage && <div className="map-loading-note">Loading the field map…</div>}
-      {overlayMessage && <div className="map-overlay-note">{overlayMessage}</div>}
+      {!mapReady && !overlayMessage && <div className="intel-map-loading">Initializing global map</div>}
+      {overlayMessage && <div className="intel-map-warning">{overlayMessage}</div>}
     </div>
   );
 }
