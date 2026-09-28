@@ -34,7 +34,7 @@ const LAYERS: LayerSpec[] = [
     id: "imerg",
     label: "Rain",
     mission: "GPM IMERG",
-    layer: "IMERG_Precipitation_Rate_v7_STD",
+    layer: "IMERG_Precipitation_Rate",
     format: "image/png",
     opacity: 0.56,
   },

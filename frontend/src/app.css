@@ -834,3 +834,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible,su
   .expert-evidence{display:none!important}
   .brief-disclaimer{padding:8px}
 }
+
+.highres-grid article>em{
+  color:#6f8278;
+  font-size:7.5px;
+  font-style:normal;
+  line-height:1.4;
+}

@@ -13,11 +13,11 @@ from typing import Any
 NASA_DATA_STACK: tuple[dict[str, Any], ...] = (
     {
         "id": "gpm-imerg-early-v07b",
-        "name": "GPM IMERG Early Run",
+        "name": "GPM IMERG Precipitation",
         "mission": "GPM",
         "role": "recent_precipitation",
         "decision_use": "Recent rainfall context and rainfall anomaly review.",
-        "product": "IMERG Early Run V07B",
+        "product": "IMERG V07 family; Early Run V07B is the low latency stream",
         "temporal": "30 minute source product",
         "spatial": "0.1 degree / about 10 km",
         "latency": "about 4 hours minimum",
