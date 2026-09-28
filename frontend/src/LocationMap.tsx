@@ -429,22 +429,43 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
       const loader = new THREE.TextureLoader();
       loader.setCrossOrigin("anonymous");
 
+      const applyBaseTexture = (texture: THREE.Texture, label: string) => {
+        if (destroyed || !sceneRef.current) {
+          texture.dispose();
+          return;
+        }
+        baseTextureRef.current?.dispose();
+        baseTextureRef.current = prepareTexture(texture, renderer.capabilities.getMaxAnisotropy());
+        sceneRef.current.earth.material.map = baseTextureRef.current;
+        sceneRef.current.earth.material.color.set(0xffffff);
+        sceneRef.current.earth.material.needsUpdate = true;
+        setTextureStatus(label);
+      };
+
+      const fallbackBlueMarble = nasaGlobalWms(
+        "BlueMarble_NextGeneration",
+        "",
+        "image/jpeg",
+        false,
+        1024,
+        512,
+      );
+
       loader.load(
         NASA_BLUE_MARBLE,
-        (texture) => {
-          if (destroyed || !sceneRef.current) {
-            texture.dispose();
-            return;
-          }
-          baseTextureRef.current?.dispose();
-          baseTextureRef.current = prepareTexture(texture, renderer.capabilities.getMaxAnisotropy());
-          sceneRef.current.earth.material.map = baseTextureRef.current;
-          sceneRef.current.earth.material.color.set(0xffffff);
-          sceneRef.current.earth.material.needsUpdate = true;
-          setTextureStatus("NASA Blue Marble ready");
-        },
+        (texture) => applyBaseTexture(texture, "NASA Blue Marble ready"),
         undefined,
-        () => setTextureStatus("NASA Blue Marble unavailable"),
+        () => {
+          loader.load(
+            fallbackBlueMarble,
+            (texture) => applyBaseTexture(texture, "NASA Blue Marble ready"),
+            undefined,
+            () => {
+              setTextureStatus("NASA Blue Marble unavailable");
+              setMessage("The NASA Earth texture could not load. Field search and coordinates still work.");
+            },
+          );
+        },
       );
 
       const labelsUrl = nasaGlobalWms("Reference_Labels", "", "image/png", true, 2048, 1024);
