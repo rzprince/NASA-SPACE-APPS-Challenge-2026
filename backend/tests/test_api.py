@@ -103,10 +103,21 @@ def test_ph_is_only_accepted_with_explicit_soil_test():
     assert response.status_code == 200
 
 
-def test_outside_bangladesh_is_rejected():
-    response = client.post("/api/v1/farms/validate", json=farmer(latitude=35.0, longitude=90.0))
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "OUTSIDE_BANGLADESH_PILOT"
+def test_global_farmer_context_is_accepted_and_local_gap_is_explicit():
+    response = client.post(
+        "/api/v1/farms/validate",
+        json=farmer(
+            latitude=35.0,
+            longitude=90.0,
+            country_code="cn",
+            country_name="China",
+            place_name="Global test field",
+        ),
+    )
+    assert response.status_code == 200
+    content = response.json()
+    assert content["context"]["coverage"]["environmental_context"] == "global_nasa_stack_available"
+    assert content["context"]["coverage"]["local_agricultural_evidence"] == "official_adapter_not_onboarded"
 
 
 def test_no_crop_or_rotation_claim_without_rules():
@@ -293,3 +304,57 @@ def test_each_month_has_location_specific_climate_task():
     assert "February" in climate_tasks[1]
     assert "March" in climate_tasks[2]
     assert len(set(climate_tasks)) == 3
+
+
+
+def test_nasa_catalog_exposes_cohesive_observation_stack():
+    response = client.get("/api/v1/nasa/catalog")
+    assert response.status_code == 200
+    sources = response.json()["sources"]
+    ids = {source["id"] for source in sources}
+    assert {
+        "gpm-imerg-early-v07b",
+        "smap-spl3smp-e-v6",
+        "nasa-power-data-v10",
+        "modis-terra-ndvi-8day",
+        "modis-terra-lst-day",
+        "hls-vegetation-indices-v2",
+        "ecostress-esi-v2",
+    } <= ids
+
+
+def test_verified_local_source_registry_and_unknown_country_gap():
+    us = client.get("/api/v1/local-sources?country_code=us&country_name=United%20States")
+    assert us.status_code == 200
+    assert us.json()["coverage"] == "official_sources_indexed"
+    assert any(item["name"] == "Web Soil Survey" for item in us.json()["sources"])
+
+    unknown = client.get("/api/v1/local-sources?country_code=zz&country_name=Testland")
+    assert unknown.status_code == 200
+    assert unknown.json()["coverage"] == "official_adapter_not_onboarded"
+    assert unknown.json()["sources"] == []
+
+
+def test_global_plan_remains_evidence_bounded_without_local_crop_rules():
+    response = client.post(
+        "/api/v1/plans/preview",
+        json={
+            "farm": farmer(
+                latitude=40.0,
+                longitude=-100.0,
+                country_code="us",
+                country_name="United States",
+                place_name="Test field",
+                intended_crop="wheat",
+            ),
+            "start_year": 2026,
+            "start_month": 10,
+            "include_recent_power": False,
+            "include_climate_baseline": False,
+        },
+    )
+    assert response.status_code == 200
+    brief = response.json()
+    assert brief["location"]["region_id"] == "us"
+    assert brief["decision_advice"]["regional_calendar_match"] is False
+    assert brief["rotation_explorer"]["status"] == "EVIDENCE_REVIEW_REQUIRED"
