@@ -1,8 +1,7 @@
-"""Bangladesh place search/reverse geocoding for the map.
+"""Global place search and reverse geocoding for BoponX.
 
-Nominatim is used only to translate human place names / map coordinates. It is
-not an agricultural or NASA data source. Calls fail closed and the map remains
-usable if the service is unavailable.
+Nominatim is used only for location selection and country identification. It is
+not treated as agricultural evidence.
 """
 from __future__ import annotations
 
@@ -20,7 +19,7 @@ def _request(path: str, params: dict[str, str]) -> object:
         url,
         headers={
             "User-Agent": USER_AGENT,
-            "Accept-Language": "en,bn;q=0.8",
+            "Accept-Language": "en",
             "Accept": "application/json",
         },
     )
@@ -42,8 +41,8 @@ def _normalise(item: dict) -> dict:
             "village": address.get("village") or address.get("hamlet"),
             "town": address.get("town") or address.get("city") or address.get("municipality"),
             "upazila": address.get("subdistrict") or address.get("county"),
-            "district": address.get("state_district"),
-            "division": address.get("state"),
+            "district": address.get("state_district") or address.get("county"),
+            "division": address.get("state") or address.get("region"),
             "country": address.get("country"),
             "country_code": country_code,
         },
@@ -51,7 +50,7 @@ def _normalise(item: dict) -> dict:
     }
 
 
-def search_bangladesh_places(query: str, limit: int = 8) -> list[dict]:
+def search_global_places(query: str, limit: int = 8) -> list[dict]:
     clean = " ".join(query.split()).strip()
     if len(clean) < 2:
         return []
@@ -61,24 +60,21 @@ def search_bangladesh_places(query: str, limit: int = 8) -> list[dict]:
             "q": clean,
             "format": "jsonv2",
             "addressdetails": "1",
-            "countrycodes": "bd",
             "limit": str(max(1, min(limit, 8))),
         },
     )
     if not isinstance(payload, list):
         return []
-    results = []
+    results: list[dict] = []
     for item in payload:
         try:
-            normal = _normalise(item)
+            results.append(_normalise(item))
         except (KeyError, TypeError, ValueError):
             continue
-        if normal["address"]["country_code"] == "bd":
-            results.append(normal)
     return results
 
 
-def reverse_bangladesh_place(lat: float, lon: float) -> dict | None:
+def reverse_global_place(lat: float, lon: float) -> dict | None:
     payload = _request(
         "/reverse",
         {
@@ -86,10 +82,14 @@ def reverse_bangladesh_place(lat: float, lon: float) -> dict | None:
             "lon": f"{lon:.6f}",
             "format": "jsonv2",
             "addressdetails": "1",
-            "zoom": "12",
+            "zoom": "10",
         },
     )
     if not isinstance(payload, dict) or "lat" not in payload or "lon" not in payload:
         return None
-    normal = _normalise(payload)
-    return normal if normal["address"]["country_code"] == "bd" else None
+    return _normalise(payload)
+
+
+# Backward compatible aliases for older imports.
+search_bangladesh_places = search_global_places
+reverse_bangladesh_place = reverse_global_place

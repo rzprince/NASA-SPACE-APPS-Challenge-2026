@@ -1,8 +1,7 @@
-"""Location-aware context for BoponX.
+"""Global location context for BoponX with Bangladesh agronomy depth.
 
-This module deliberately distinguishes environmental coverage from agronomic
-support. A map pin can resolve to a nearby Bangladesh agricultural evidence
-region even when no reviewed crop-rotation rule pack exists for that location.
+NASA environmental evidence is global. Official agricultural evidence is
+country-adapter based and remains explicit when coverage is unavailable.
 """
 from __future__ import annotations
 
@@ -11,6 +10,7 @@ from math import asin, cos, radians, sin, sqrt
 from typing import Any
 
 from backend.app.compute.agronomy import calendar_evidence_for_region
+from backend.app.compute.global_sources import local_sources_for_country, nasa_data_stack
 
 BANGLADESH_BOUNDS = {
     "south": 20.5,
@@ -31,75 +31,20 @@ class Area:
 
 
 AREAS = (
-    Area("dhaka", "Dhaka region", "ঢাকা অঞ্চল", 23.8103, 90.4125, "Dhaka"),
-    Area("mymensingh", "Mymensingh region", "ময়মনসিংহ অঞ্চল", 24.7471, 90.4203, "Mymensingh"),
-    Area("cumilla", "Cumilla region", "কুমিল্লা অঞ্চল", 23.4607, 91.1809, "Cumilla"),
-    Area("chattogram", "Chattogram region", "চট্টগ্রাম অঞ্চল", 22.3569, 91.7832, "Chattogram"),
-    Area("sylhet", "Sylhet region", "সিলেট অঞ্চল", 24.8949, 91.8687, "Sylhet"),
-    Area("rangpur", "Rangpur region", "রংপুর অঞ্চল", 25.7439, 89.2752, "Rangpur"),
-    Area("dinajpur", "Dinajpur region", "দিনাজপুর অঞ্চল", 25.6279, 88.6332, "Dinajpur"),
-    Area("bogura", "Bogura region", "বগুড়া অঞ্চল", 24.8465, 89.3773, "Bogura"),
-    Area("rajshahi", "Rajshahi region", "রাজশাহী অঞ্চল", 24.3745, 88.6042, "Rajshahi"),
-    Area("jashore", "Jashore region", "যশোর অঞ্চল", 23.1664, 89.2081, "Jashore"),
-    Area("faridpur", "Faridpur region", "ফরিদপুর অঞ্চল", 23.6071, 89.8429, "Faridpur"),
-    Area("khulna", "Khulna region", "খুলনা অঞ্চল", 22.8456, 89.5403, "Khulna"),
-    Area("barishal", "Barishal region", "বরিশাল অঞ্চল", 22.7010, 90.3535, "Barishal"),
-    Area("rangamati", "Rangamati region", "রাঙ্গামাটি অঞ্চল", 22.7324, 92.2985, "Rangamati"),
-)
-
-
-NASA_SOURCES: tuple[dict[str, Any], ...] = (
-    {
-        "id": "gpm-imerg-early-v07b",
-        "name": "GPM IMERG Early Run",
-        "role": "recent_rainfall",
-        "kind": "near_real_time_earth_observation",
-        "status": "map_layer_ready",
-        "latency_note": "Minimum latency about 4 hours; not a forecast.",
-        "resolution_note": "0.1 degree / about 10 km; 30-minute products available.",
-        "source_url": "https://gpm.nasa.gov/data/directory",
-    },
-    {
-        "id": "smap-spl3smp-e-v6",
-        "name": "SMAP SPL3SMP_E Version 6",
-        "role": "regional_surface_soil_moisture",
-        "kind": "earth_observation",
-        "status": "source_reviewed_adapter_pending",
-        "latency_note": "Daily product. It does not measure soil pH.",
-        "resolution_note": "9 km EASE-Grid.",
-        "source_url": "https://nsidc.org/data/spl3smp_e/versions/6",
-        "advisory": "SMAP Standard/NRT products had a geolocation issue from 14 May to 28 July 2026; verify reprocessing status for affected dates.",
-    },
-    {
-        "id": "nasa-power-daily",
-        "name": "NASA POWER Daily",
-        "role": "recent_and_historical_climate_context",
-        "kind": "model_assimilated_reanalysis_context",
-        "status": "recent_point_query",
-        "latency_note": "Availability depends on upstream products; values are not field measurements.",
-        "resolution_note": "Source-grid context, not parcel-scale sensing.",
-        "source_url": "https://power.larc.nasa.gov/docs/services/api/temporal/daily/",
-    },
-    {
-        "id": "nasa-power-climatology",
-        "name": "NASA POWER Climatology",
-        "role": "multi_year_baseline",
-        "kind": "historical_climate_context",
-        "status": "selected_location_query",
-        "latency_note": "Historical baseline; not current conditions or a forecast.",
-        "resolution_note": "Source-grid context, not parcel-scale sensing.",
-        "source_url": "https://power.larc.nasa.gov/docs/services/api/temporal/climatology/",
-    },
-    {
-        "id": "nasa-gibs-imerg",
-        "name": "NASA GIBS / IMERG map layer",
-        "role": "map_visualization",
-        "kind": "earth_observation_visualization",
-        "status": "map_layer_ready",
-        "latency_note": "The interface labels the imagery date and data product.",
-        "resolution_note": "Visualization follows the source product's gridded resolution.",
-        "source_url": "https://worldview.earthdata.nasa.gov/",
-    },
+    Area("dhaka", "Dhaka region", "Dhaka region", 23.8103, 90.4125, "Dhaka"),
+    Area("mymensingh", "Mymensingh region", "Mymensingh region", 24.7471, 90.4203, "Mymensingh"),
+    Area("cumilla", "Cumilla region", "Cumilla region", 23.4607, 91.1809, "Cumilla"),
+    Area("chattogram", "Chattogram region", "Chattogram region", 22.3569, 91.7832, "Chattogram"),
+    Area("sylhet", "Sylhet region", "Sylhet region", 24.8949, 91.8687, "Sylhet"),
+    Area("rangpur", "Rangpur region", "Rangpur region", 25.7439, 89.2752, "Rangpur"),
+    Area("dinajpur", "Dinajpur region", "Dinajpur region", 25.6279, 88.6332, "Dinajpur"),
+    Area("bogura", "Bogura region", "Bogura region", 24.8465, 89.3773, "Bogura"),
+    Area("rajshahi", "Rajshahi region", "Rajshahi region", 24.3745, 88.6042, "Rajshahi"),
+    Area("jashore", "Jashore region", "Jashore region", 23.1664, 89.2081, "Jashore"),
+    Area("faridpur", "Faridpur region", "Faridpur region", 23.6071, 89.8429, "Faridpur"),
+    Area("khulna", "Khulna region", "Khulna region", 22.8456, 89.5403, "Khulna"),
+    Area("barishal", "Barishal region", "Barishal region", 22.7010, 90.3535, "Barishal"),
+    Area("rangamati", "Rangamati region", "Rangamati region", 22.7324, 92.2985, "Rangamati"),
 )
 
 
@@ -127,38 +72,69 @@ def list_areas() -> list[dict[str, Any]]:
     return [asdict(area) for area in AREAS]
 
 
-def build_context(lat: float, lon: float) -> dict[str, Any]:
-    area, distance = nearest_area(lat, lon)
-    inside = in_bangladesh(lat, lon)
+def _region_reference(
+    lat: float,
+    lon: float,
+    country_code: str | None,
+    country_name: str | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if in_bangladesh(lat, lon) or (country_code or "").lower() == "bd":
+        area, distance = nearest_area(lat, lon)
+        return (
+            {
+                **asdict(area),
+                "distance_km": round(distance, 1),
+                "note": "Bangladesh regional evidence hub. This is not a surveyed field boundary.",
+            },
+            calendar_evidence_for_region(area.evidence_region),
+        )
+
+    name = country_name or "Global field"
+    code = (country_code or "global").lower()
+    return (
+        {
+            "id": code,
+            "name_en": name,
+            "name_bn": name,
+            "latitude": round(lat, 5),
+            "longitude": round(lon, 5),
+            "evidence_region": name,
+            "distance_km": 0.0,
+            "note": "Global field context. A country specific agronomy adapter is required before local crop rules can be used.",
+        },
+        [],
+    )
+
+
+def build_context(
+    lat: float,
+    lon: float,
+    country_code: str | None = None,
+    country_name: str | None = None,
+) -> dict[str, Any]:
+    inside_bd = in_bangladesh(lat, lon)
+    inferred_code = (country_code or ("bd" if inside_bd else "")).lower() or None
+    inferred_name = country_name or ("Bangladesh" if inside_bd else None)
+    region, calendars = _region_reference(lat, lon, inferred_code, inferred_name)
+    local = local_sources_for_country(inferred_code, inferred_name)
+
     return {
         "coordinates": {"latitude": round(lat, 5), "longitude": round(lon, 5)},
-        "within_bangladesh": inside,
-        "nearest_supported_region": {
-            **asdict(area),
-            "distance_km": round(distance, 1),
-            "note": "Regional evidence reference, not an administrative-boundary lookup.",
+        "within_bangladesh": inside_bd,
+        "country": {
+            "code": inferred_code,
+            "name": local["country"],
         },
+        "nearest_supported_region": region,
         "coverage": {
-            "environmental_context": "available" if inside else "outside_bangladesh_pilot",
-            "local_agricultural_evidence": "calendar_sources_indexed" if inside else "not_assessed",
+            "environmental_context": "global_nasa_stack_available",
+            "local_agricultural_evidence": local["coverage"],
             "rotation_decision": "evidence_review_required",
         },
-        "calendar_evidence": calendar_evidence_for_region(area.evidence_region) if inside else [],
-        "agricultural_sources": [
-            {
-                "name": "BAMIS / Department of Agricultural Extension crop-weather calendars",
-                "scope": f"{area.evidence_region} regional calendar index",
-                "status": "calendar_sources_indexed_not_encoded_as_rules",
-                "source_url": "https://www.bamis.gov.bd/en/calendar",
-            },
-            {
-                "name": "Bangladesh Agricultural Research Council crop zoning",
-                "scope": "Agro-edaphic and agro-climatic zoning reference",
-                "status": "source_identified_permissions_and_rule_review_required",
-                "source_url": "https://apps.barc.gov.bd/cropzoning/",
-            },
-        ],
-        "nasa_sources": [dict(source) for source in NASA_SOURCES],
+        "calendar_evidence": calendars,
+        "agricultural_sources": local["sources"],
+        "local_source_note": local["note"],
+        "nasa_sources": nasa_data_stack(),
         "privacy": {
             "coordinates_persisted": False,
             "note": "Coordinates are used for the current request only unless a future user explicitly chooses to save a profile.",
