@@ -22,6 +22,8 @@ export default function DecisionReport({ brief }: { brief: PlanBrief }) {
   const rotationMessage =
     brief?.rotation_explorer?.message_en ||
     "Rotation alternatives remain behind evidence review until local crop and sequence rules are approved.";
+  const advice = brief?.decision_advice ?? null;
+  const conditions = brief?.conditions ?? null;
 
   function printBrief() {
     const previous = document.title;
@@ -86,6 +88,53 @@ export default function DecisionReport({ brief }: { brief: PlanBrief }) {
           </div>
         </div>
 
+        {advice && (
+          <section className={`decision-advice-panel ${advice.status.toLowerCase()}`}>
+            <div className="advice-header">
+              <div>
+                <span className="brief-source-title">BoponX decision advice</span>
+                <h3>{advice.verdict}</h3>
+              </div>
+              <span className="advice-status">{advice.status.replaceAll("_", " ")}</span>
+            </div>
+
+            <div className="advice-grid">
+              <div>
+                <span className="advice-label">Why</span>
+                <ul>
+                  {safeArray(advice.reasons).map((reason, index) => <li key={index}>{reason}</li>)}
+                </ul>
+              </div>
+              <div>
+                <span className="advice-label">Better next step</span>
+                <p>{advice.better_next_step}</p>
+                {conditions && (
+                  <div className="condition-pills">
+                    <span>Rain signal: {conditions.rain_signal.replaceAll("_", " ")}</span>
+                    <span>Temperature signal: {conditions.temperature_signal.replaceAll("_", " ")}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {safeArray(advice.regional_options_to_investigate).length > 0 && (
+              <div className="regional-options">
+                <span className="advice-label">Other regionally documented crops to investigate</span>
+                <div>
+                  {advice.regional_options_to_investigate.map((option, index) => (
+                    <a href={option.source_url || "#"} target="_blank" rel="noreferrer" key={option.id || index}>
+                      <strong>{option.name || "Regional crop option"}</strong>
+                      <small>{option.note}</small>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="advice-boundary">{advice.boundary}</p>
+          </section>
+        )}
+
         {months.length === 3 ? (
           <div className="brief-timeline">
             {months.map((month, index) => (
@@ -106,11 +155,26 @@ export default function DecisionReport({ brief }: { brief: PlanBrief }) {
 
                   <p className="month-objective">{month?.objective?.en || "Review field evidence before the next decision."}</p>
 
+                  {month?.context?.baseline && (
+                    <div className="month-climate-context">
+                      <span>Monthly NASA POWER baseline</span>
+                      <strong>
+                        {metric(month.context.baseline.temperature_mean_c, "°C")}
+                        {" | "}
+                        {metric(month.context.baseline.precipitation_mean_daily_mm, " mm per day")}
+                      </strong>
+                      <small>Historical climate reference, not a forecast</small>
+                    </div>
+                  )}
+
                   <div className="month-task-grid">
                     {safeArray(month?.tasks).map((task, taskIndex) => (
                       <div className="brief-task" key={task?.code || taskIndex}>
                         <span>{String(taskIndex + 1).padStart(2, "0")}</span>
-                        <div><strong>{task?.en || "Review the available field evidence."}</strong></div>
+                        <div>
+                          <strong>{task?.en || "Review the available field evidence."}</strong>
+                          {task?.reason && <small className="task-reason">{task.reason}</small>}
+                        </div>
                       </div>
                     ))}
                   </div>

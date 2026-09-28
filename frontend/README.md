@@ -46,3 +46,10 @@ The Vite development server proxies /api to http://127.0.0.1:8000.
 If you downloaded a new ZIP, run npm.cmd install again before starting Vite.
 
 If you were already running an older frontend, stop it with Ctrl+C and restart it. Then use Ctrl+Shift+R in the browser.
+
+
+## Personalized planning
+
+The farmer form now supports recent crop history and an intended next crop. The report includes an evidence bounded advice panel and a month by month NASA POWER climatology reference.
+
+The frontend loads the three month climatology window once for the selected point and passes that verified context into the deterministic planning endpoint. This avoids repeating slow NASA requests when the farmer generates the field brief.

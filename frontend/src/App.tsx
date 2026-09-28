@@ -13,6 +13,7 @@ import {
   type PlaceResult,
   type PlanBrief,
   type PowerBaseline,
+  type PowerBaselineWindow,
   type RecentEnvironment,
   type Status,
 } from "./api";
@@ -88,13 +89,15 @@ export default function App() {
   const [recent, setRecent] = useState<RecentEnvironment | null>(null);
   const [recentStatus, setRecentStatus] = useState<Status>("idle");
   const [baseline, setBaseline] = useState<PowerBaseline | null>(null);
+  const [baselineWindow, setBaselineWindow] = useState<PowerBaselineWindow | null>(null);
   const [baselineStatus, setBaselineStatus] = useState<Status>("idle");
   const [locationError, setLocationError] = useState("");
   const [gpsBusy, setGpsBusy] = useState(false);
   const [plan, setPlan] = useState<PlanBrief | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
   const [planError, setPlanError] = useState("");
-  const [previousCrop, setPreviousCrop] = useState("");
+  const [previousCrops, setPreviousCrops] = useState<string[]>([]);
+  const [intendedCrop, setIntendedCrop] = useState("");
   const [waterSource, setWaterSource] = useState<FarmerProfile["water_source"]>("unknown");
   const [waterAfterRain, setWaterAfterRain] = useState<FarmerProfile["water_after_heavy_rain"]>("unknown");
   const [soilTest, setSoilTest] = useState<FarmerProfile["soil_test"]>("unknown");
@@ -180,6 +183,7 @@ export default function App() {
       setContext(null);
       setRecent(null);
       setBaseline(null);
+      setBaselineWindow(null);
       setContextStatus("idle");
       setRecentStatus("idle");
       setBaselineStatus("idle");
@@ -239,17 +243,30 @@ export default function App() {
     const controller = new AbortController();
     setBaselineStatus("loading");
 
-    apiGet<PowerBaseline>(
-      `/api/v1/environment/baseline?lat=${point.latitude}&lon=${point.longitude}&month=${startMonth}`,
+    apiGet<PowerBaselineWindow>(
+      `/api/v1/environment/baseline-window?lat=${point.latitude}&lon=${point.longitude}&start_month=${startMonth}`,
       controller.signal,
     )
       .then((payload) => {
-        setBaseline(payload);
+        setBaselineWindow(payload);
+        const first = payload.summaries?.[0] ?? null;
+        setBaseline({
+          status: payload.status,
+          provider: payload.provider,
+          kind: "historical_climatology",
+          baseline_period: payload.baseline_period,
+          coordinates: payload.coordinates,
+          summary: first,
+          source_products: payload.source_products,
+          source_request_url: payload.source_request_url,
+          limitations: payload.limitations,
+        });
         setBaselineStatus(payload.status === "available" ? "ready" : "unavailable");
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setBaseline(null);
+          setBaselineWindow(null);
           setBaselineStatus("unavailable");
         }
       });
@@ -274,6 +291,14 @@ export default function App() {
 
   function scrollToLocation() {
     document.getElementById("field-locator")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function togglePreviousCrop(value: string) {
+    setPreviousCrops((current) => {
+      if (current.includes(value)) return current.filter((crop) => crop !== value);
+      if (current.length >= 4) return current;
+      return [...current, value];
+    });
   }
 
   function setFieldPoint(nextPoint: Point, place: PlaceResult | null = null) {
@@ -339,7 +364,9 @@ export default function App() {
     const profile: FarmerProfile = {
       latitude: point.latitude,
       longitude: point.longitude,
-      previous_crop: previousCrop || null,
+      previous_crop: previousCrops[0] ?? null,
+      previous_crops: previousCrops,
+      intended_crop: intendedCrop || null,
       water_source: waterSource,
       water_after_heavy_rain: waterAfterRain,
       soil_test: soilTest,
@@ -358,19 +385,16 @@ export default function App() {
         start_month: startMonth,
         include_recent_power: false,
         include_climate_baseline: false,
+        recent_environment: recent,
+        baseline_environment: baseline,
+        baseline_window: baselineWindow,
       });
 
       if (!payload || !Array.isArray(payload.months) || payload.months.length !== 3) {
         throw new ApiError(500, "INVALID_PLAN_RESPONSE", "The field brief response was incomplete. Please try again.");
       }
 
-      const completeBrief: PlanBrief = {
-        ...payload,
-        recent_environment: recent,
-        historical_baseline: baseline,
-      };
-
-      setPlan(completeBrief);
+      setPlan(payload);
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           document.getElementById("field-brief")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -805,28 +829,51 @@ export default function App() {
 
           <form className="farmer-story-form" onSubmit={generatePlan} data-reveal>
             <fieldset>
-              <legend><span>01</span>What was grown last?</legend>
+              <legend><span>01</span>What crops have been grown here before?</legend>
+              <p className="question-help">Select up to four crops if you know them. Select the most recent crop first. This history helps BoponX keep soil testing and future rotation review in context.</p>
               <div className="crop-choice-grid">
                 {cropOptions.map(([value, label, icon]) => (
                   <button
                     type="button"
                     key={value}
-                    className={previousCrop === value ? "crop-choice active" : "crop-choice"}
-                    onClick={() => setPreviousCrop(previousCrop === value ? "" : value)}
+                    className={previousCrops.includes(value) ? "crop-choice active" : "crop-choice"}
+                    onClick={() => togglePreviousCrop(value)}
+                  >
+                    <span className="choice-icon"><FieldIcon name={icon as IconName} /></span>
+                    <strong>{label}</strong>
+                    {previousCrops.includes(value) && <small className="selection-order">{previousCrops.indexOf(value) + 1}</small>}
+                  </button>
+                ))}
+                <button type="button" className={previousCrops.length === 0 ? "crop-choice unknown active" : "crop-choice unknown"} onClick={() => setPreviousCrops([])}>
+                  <span className="choice-icon"><FieldIcon name="unknown" /></span><strong>Not sure</strong>
+                </button>
+              </div>
+            </fieldset>
+
+            <fieldset className="intention-fieldset">
+              <legend><span>02</span>What does the farmer want to grow now?</legend>
+              <p className="question-help">Choose the crop the farmer is considering next. BoponX will check decision readiness against regional calendar evidence, water conditions, field observations and NASA climate context.</p>
+              <div className="crop-choice-grid intention-grid">
+                {cropOptions.map(([value, label, icon]) => (
+                  <button
+                    type="button"
+                    key={value}
+                    className={intendedCrop === value ? "crop-choice active intention" : "crop-choice intention"}
+                    onClick={() => setIntendedCrop(intendedCrop === value ? "" : value)}
                   >
                     <span className="choice-icon"><FieldIcon name={icon as IconName} /></span>
                     <strong>{label}</strong>
                   </button>
                 ))}
-                <button type="button" className={!previousCrop ? "crop-choice unknown active" : "crop-choice unknown"} onClick={() => setPreviousCrop("")}>
-                  <span className="choice-icon"><FieldIcon name="unknown" /></span><strong>Not sure</strong>
+                <button type="button" className={!intendedCrop ? "crop-choice unknown active" : "crop-choice unknown"} onClick={() => setIntendedCrop("")}>
+                  <span className="choice-icon"><FieldIcon name="unknown" /></span><strong>Not decided</strong>
                 </button>
               </div>
             </fieldset>
 
             <div className="farmer-form-split">
               <fieldset>
-                <legend><span>02</span>How does the field usually get water?</legend>
+                <legend><span>03</span>How does the field usually get water?</legend>
                 <div className="answer-stack">
                   {[
                     ["rainfed", "Mostly rain", "rain"],
@@ -844,7 +891,7 @@ export default function App() {
               </fieldset>
 
               <fieldset>
-                <legend><span>03</span>What usually happens after heavy rain?</legend>
+                <legend><span>04</span>What usually happens after heavy rain?</legend>
                 <div className="answer-stack">
                   {[
                     ["drains", "Water drains quickly", "drainage"],
@@ -864,7 +911,7 @@ export default function App() {
 
             <div className="farmer-form-split">
               <fieldset>
-                <legend><span>04</span>Do you have a soil test report?</legend>
+                <legend><span>05</span>Do you have a soil test report?</legend>
                 <div className="soil-test-choice">
                   {[
                     ["yes", "Yes", "check"],
@@ -891,7 +938,7 @@ export default function App() {
               </fieldset>
 
               <fieldset>
-                <legend><span>05</span>What matters most right now?</legend>
+                <legend><span>06</span>What matters most right now?</legend>
                 <div className="priority-stack">
                   {priorities.map(([value, label, code]) => (
                     <label className={priority === value ? "priority-choice active" : "priority-choice"} key={value}>

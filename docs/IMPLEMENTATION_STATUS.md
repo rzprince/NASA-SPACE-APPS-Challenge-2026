@@ -72,3 +72,23 @@ Manual validation is still required for:
 - poor network behavior
 
 The project should be described as a **demo candidate** until this manual acceptance pass succeeds on the machine that will be used for recording.
+
+
+## 28 September personalized planning update
+
+The farmer workflow now records recent crop history as a list and asks what crop the farmer is considering next.
+
+The 90 day planner now uses:
+- selected field coordinates and regional evidence hub
+- recent NASA POWER context when available
+- a three month NASA POWER climatology window for the selected coordinates
+- farmer water source and drainage observation
+- soil test availability
+- farmer priority
+- crop history
+- farmer intended next crop
+- regional BAMIS calendar evidence
+
+The field brief now includes an evidence bounded decision advice panel. It can identify that an intended crop has regional calendar evidence, that more verification is needed, or that water or drainage should be checked before commitment. It does not rank crop suitability until reviewed agronomic rules are available.
+
+Each planning month receives its own NASA POWER historical climate reference and its own task set. These references are context, not forecasts.
