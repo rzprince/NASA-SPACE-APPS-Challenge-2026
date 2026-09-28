@@ -187,7 +187,7 @@ export default function App() {
       if (countryCode) {
         try {
           const registry = await apiGet<LocalSourceRegistry>(
-            `/api/v1/local-sources?country_code=${encodeURIComponent(countryCode)}`,
+            `/api/v1/local-sources?country_code=${encodeURIComponent(countryCode)}&country_name=${encodeURIComponent(resolvedPlace?.address.country ?? "")}`,
             controller.signal,
           );
           if (!controller.signal.aborted) setLocalSources(registry);
@@ -403,16 +403,24 @@ export default function App() {
                 <b>{localSources?.coverage === "verified_country_adapter" ? "VERIFIED" : "GLOBAL FALLBACK"}</b>
               </div>
               {(localSources?.official_sources ?? []).map((source) => (
-                <a key={source.id ?? source.name} href={source.source_url} target="_blank" rel="noreferrer">
+                <a className="official-source" key={source.id ?? source.name} href={source.source_url} target="_blank" rel="noreferrer">
+                  <span className="source-status verified">VERIFIED OFFICIAL</span>
                   <strong>{source.name}</strong>
                   <small>{source.scope}</small>
                 </a>
               ))}
               {localSources?.official_sources.length === 0 && (
                 <div className="source-gap">
-                  <strong>No verified national adapter is connected yet.</strong>
-                  <p>NASA analysis still works globally. Local crop advice stays constrained until a reviewed source is connected.</p>
+                  <strong>No reviewed direct government adapter is connected yet.</strong>
+                  <p>NASA analysis still works globally. Use the portal finder below to reach the selected country's official agriculture site, then verify the government domain before treating it as evidence.</p>
                 </div>
+              )}
+              {localSources?.government_discovery && (
+                <a className="government-discovery" href={localSources.government_discovery.source_url} target="_blank" rel="noreferrer">
+                  <span className="source-status discover">COUNTRY PORTAL FINDER</span>
+                  <strong>{localSources.government_discovery.name}</strong>
+                  <small>{localSources.government_discovery.note}</small>
+                </a>
               )}
               {(localSources?.global_sources ?? []).map((source) => (
                 <a className="global-source" key={source.id ?? source.name} href={source.source_url} target="_blank" rel="noreferrer">
@@ -507,8 +515,8 @@ export default function App() {
             </div>
 
             <div className="source-stack">
-              <div><i className="green" /><span>GPM IMERG V07B</span><small>near real time rain layer</small></div>
-              <div><i className="blue" /><span>SMAP SPL3SMP E V6</span><small>surface soil moisture</small></div>
+              <div><i className="green" /><span>GPM IMERG Early V07B</span><small>current 2026 near real time rain layer</small></div>
+              <div><i className="blue" /><span>SMAP SPL3SMP E V6</span><small>surface soil moisture context</small></div>
               <div><i className="amber" /><span>NASA POWER</span><small>agroclimate + baseline</small></div>
               <div><i className="white" /><span>NASA GIBS</span><small>spatial evidence delivery</small></div>
             </div>

@@ -72,3 +72,25 @@
 - final ranked crop rotation recommendation
 
 These items are gated because unsupported completeness would be more damaging than an explicit evidence gap.
+
+
+## 28 September realistic Earth refinement
+
+The Earth Twin renderer has been replaced with a custom Three.js space view.
+
+Implemented:
+- realistic spherical Earth instead of a raster map projected as a globe
+- NASA Blue Marble base imagery
+- dated MODIS Terra true color Earth texture
+- GPM IMERG V07 rain overlay on the sphere
+- SMAP soil moisture overlay on the sphere
+- atmospheric rim shader
+- star field and orbital visual context
+- drag to rotate, scroll to zoom and tap to select coordinates
+- selected field marker on the globe
+- automatic camera movement when GPS or place search chooses a field
+- country specific government agriculture portal finder for every reverse geocoded country
+- verified official government links remain separate from unverified discovery routes
+- FAO Crop Calendar and FAOLEX country profiles remain global reference layers
+
+The portal finder is deliberately not labelled as a verified government data source. Direct government links only receive verified status after manual review.

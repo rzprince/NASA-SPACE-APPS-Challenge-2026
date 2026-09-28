@@ -34,7 +34,9 @@ export type AgriculturalSource = {
 
 export type LocalSourceRegistry = {
   country_code: string | null;
+  country_name?: string | null;
   official_sources: AgriculturalSource[];
+  government_discovery: AgriculturalSource;
   global_sources: AgriculturalSource[];
   coverage: "verified_country_adapter" | "global_reference_only";
   warning: string;
