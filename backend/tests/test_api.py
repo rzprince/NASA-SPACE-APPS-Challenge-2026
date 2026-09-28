@@ -34,6 +34,8 @@ def farmer(**overrides):
         "latitude": 24.37,
         "longitude": 88.60,
         "previous_crop": None,
+        "previous_crops": [],
+        "intended_crop": None,
         "water_source": "unknown",
         "water_after_heavy_rain": "unknown",
         "soil_test": "unknown",
@@ -174,3 +176,120 @@ def test_90_day_plan_changes_month_two_with_farmer_priority():
     assert "soil_priority_check" in soil
     assert "stability_priority_check" in stability
     assert water != soil != stability
+
+
+
+def test_farmer_profile_accepts_crop_history_and_intention():
+    response = client.post(
+        "/api/v1/farms/validate",
+        json=farmer(
+            previous_crop="rice",
+            previous_crops=["rice", "mustard"],
+            intended_crop="wheat",
+        ),
+    )
+    assert response.status_code == 200
+    profile = response.json()["profile"]
+    assert profile["previous_crops"] == ["rice", "mustard"]
+    assert profile["intended_crop"] == "wheat"
+
+
+def test_plan_advice_uses_region_and_intended_crop_calendar_evidence():
+    response = client.post(
+        "/api/v1/plans/preview",
+        json={
+            "farm": farmer(
+                previous_crop="rice",
+                previous_crops=["rice", "mustard"],
+                intended_crop="wheat",
+                water_source="irrigated",
+                water_after_heavy_rain="drains",
+                soil_test="no",
+                priority="production_stability",
+            ),
+            "start_year": 2026,
+            "start_month": 11,
+            "include_recent_power": False,
+            "include_climate_baseline": False,
+        },
+    )
+    assert response.status_code == 200
+    advice = response.json()["decision_advice"]
+    assert advice["status"] == "REASONABLE_TO_EXPLORE"
+    assert advice["regional_calendar_match"] is True
+    assert "Wheat" in advice["verdict"]
+
+
+def test_plan_uses_weather_signal_for_water_risk():
+    recent = {
+        "status": "available",
+        "summary": {
+            "days_requested": 14,
+            "temperature_valid_days": 14,
+            "precipitation_valid_days": 14,
+            "temperature_mean_c": 28.0,
+            "precipitation_total_mm": 140.0,
+        },
+    }
+    baseline_window = {
+        "status": "available",
+        "summaries": [
+            {"calendar_month": 9, "temperature_mean_c": 27.0, "precipitation_mean_daily_mm": 5.0},
+            {"calendar_month": 10, "temperature_mean_c": 26.0, "precipitation_mean_daily_mm": 4.0},
+            {"calendar_month": 11, "temperature_mean_c": 23.0, "precipitation_mean_daily_mm": 1.0},
+        ],
+    }
+    response = client.post(
+        "/api/v1/plans/preview",
+        json={
+            "farm": farmer(
+                intended_crop="rice",
+                water_source="rainfed",
+                water_after_heavy_rain="stays",
+                soil_test="no",
+                priority="water",
+            ),
+            "start_year": 2026,
+            "start_month": 9,
+            "include_recent_power": False,
+            "include_climate_baseline": False,
+            "recent_environment": recent,
+            "baseline_window": baseline_window,
+        },
+    )
+    assert response.status_code == 200
+    brief = response.json()
+    assert brief["conditions"]["rain_signal"] == "wetter_than_baseline"
+    assert brief["decision_advice"]["status"] == "REVIEW_WATER_RISK_FIRST"
+    assert brief["months"][0]["context"]["baseline"]["calendar_month"] == 9
+    assert brief["months"][1]["context"]["baseline"]["calendar_month"] == 10
+    assert brief["months"][2]["context"]["baseline"]["calendar_month"] == 11
+
+
+def test_each_month_has_location_specific_climate_task():
+    baseline_window = {
+        "status": "available",
+        "summaries": [
+            {"calendar_month": 1, "temperature_mean_c": 18.0, "precipitation_mean_daily_mm": 0.5},
+            {"calendar_month": 2, "temperature_mean_c": 21.0, "precipitation_mean_daily_mm": 1.0},
+            {"calendar_month": 3, "temperature_mean_c": 25.0, "precipitation_mean_daily_mm": 2.0},
+        ],
+    }
+    response = client.post(
+        "/api/v1/plans/preview",
+        json={
+            "farm": farmer(intended_crop="mustard", priority="soil"),
+            "start_year": 2027,
+            "start_month": 1,
+            "include_recent_power": False,
+            "include_climate_baseline": False,
+            "baseline_window": baseline_window,
+        },
+    )
+    assert response.status_code == 200
+    months = response.json()["months"]
+    climate_tasks = [month["tasks"][0]["en"] for month in months]
+    assert "January" in climate_tasks[0]
+    assert "February" in climate_tasks[1]
+    assert "March" in climate_tasks[2]
+    assert len(set(climate_tasks)) == 3

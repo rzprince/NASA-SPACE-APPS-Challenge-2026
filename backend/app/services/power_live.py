@@ -131,3 +131,53 @@ def fetch_power_climatology(
             "PRECTOTCORR is shown as the POWER climatological daily precipitation value for the selected calendar month.",
         ],
     }
+
+
+
+def summarize_climatology_window(payload: dict, start_month: int, months: int = 3) -> list[dict]:
+    if start_month not in MONTH_KEYS:
+        raise ValueError("start_month must be 1..12")
+    if months < 1 or months > 12:
+        raise ValueError("months must be 1..12")
+    return [
+        summarize_climatology_payload(payload, (start_month - 1 + offset) % 12 + 1)
+        for offset in range(months)
+    ]
+
+
+def fetch_power_climatology_window(
+    lat: float,
+    lon: float,
+    *,
+    start_month: int,
+    months: int = 3,
+    start_year: int = 2001,
+    end_year: int = 2020,
+) -> dict:
+    params = {
+        "parameters": "T2M,PRECTOTCORR",
+        "community": "AG",
+        "latitude": f"{lat:.5f}",
+        "longitude": f"{lon:.5f}",
+        "format": "JSON",
+        "start": str(start_year),
+        "end": str(end_year),
+    }
+    url = f"{POWER_CLIMATOLOGY_URL}?{urlencode(params)}"
+    request = Request(url, headers={"User-Agent": "BoponX/SpaceApps2026"})
+    with urlopen(request, timeout=12) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return {
+        "status": "available",
+        "provider": "NASA POWER",
+        "kind": "historical_climatology_window",
+        "baseline_period": {"start_year": start_year, "end_year": end_year},
+        "coordinates": {"latitude": lat, "longitude": lon},
+        "summaries": summarize_climatology_window(payload, start_month, months),
+        "source_products": payload.get("header", {}).get("sources", []),
+        "source_request_url": url,
+        "limitations": [
+            "These are multi-year monthly climatology references, not weather forecasts or field measurements.",
+            "Each month is used as historical context for planning and monitoring.",
+        ],
+    }

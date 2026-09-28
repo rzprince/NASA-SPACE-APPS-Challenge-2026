@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +15,7 @@ from backend.app.compute.context import build_context, list_areas
 from backend.app.compute.monthly import aggregate_monthly
 from backend.app.compute.plan import make_90_day_plan
 from backend.app.services.geocoder import reverse_bangladesh_place, search_bangladesh_places
-from backend.app.services.power_live import fetch_power_climatology, fetch_recent_power
+from backend.app.services.power_live import fetch_power_climatology, fetch_power_climatology_window, fetch_recent_power
 
 app = FastAPI(title="BoponX API")
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,6 +38,8 @@ class FarmerProfile(BaseModel):
     latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
     previous_crop: str | None = Field(default=None, max_length=80)
+    previous_crops: list[str] = Field(default_factory=list, max_length=4)
+    intended_crop: str | None = Field(default=None, max_length=80)
     water_source: Literal["rainfed", "irrigated", "both", "unknown"] = "unknown"
     water_after_heavy_rain: Literal["drains", "stays", "sometimes", "unknown"] = "unknown"
     soil_test: Literal["yes", "no", "unknown"] = "unknown"
@@ -52,6 +54,9 @@ class PlanRequest(BaseModel):
     start_month: int = Field(ge=1, le=12)
     include_recent_power: bool = True
     include_climate_baseline: bool = False
+    recent_environment: dict[str, Any] | None = None
+    baseline_environment: dict[str, Any] | None = None
+    baseline_window: dict[str, Any] | None = None
 
 
 def snapshot_path() -> Path:
@@ -207,6 +212,32 @@ def environment_baseline(
         }
 
 
+@app.get("/api/v1/environment/baseline-window")
+def environment_baseline_window(
+    lat: float = Query(ge=-90, le=90),
+    lon: float = Query(ge=-180, le=180),
+    start_month: int = Query(ge=1, le=12),
+) -> dict:
+    context = build_context(lat, lon)
+    if not context["within_bangladesh"]:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "OUTSIDE_BANGLADESH_PILOT", "message": "Choose a location inside Bangladesh."},
+        )
+    try:
+        return fetch_power_climatology_window(lat, lon, start_month=start_month, months=3)
+    except Exception:
+        return {
+            "status": "unavailable",
+            "provider": "NASA POWER",
+            "kind": "historical_climatology_window",
+            "coordinates": {"latitude": lat, "longitude": lon},
+            "summaries": [],
+            "source_request_url": "https://power.larc.nasa.gov/docs/services/api/temporal/climatology/",
+            "limitations": ["The POWER climatology request failed. No monthly baseline was invented."],
+        }
+
+
 @app.get("/api/v1/climate/rajshahi-pilot")
 def climate_rajshahi() -> dict:
     return trusted_snapshot()
@@ -234,8 +265,10 @@ def validate_farm(profile: FarmerProfile) -> dict:
             detail={"code": "OUTSIDE_BANGLADESH_PILOT", "message": "The current farmer workflow supports locations inside Bangladesh."},
         )
     unknowns = []
-    if not profile.previous_crop:
-        unknowns.append("previous_crop")
+    if not profile.previous_crop and not profile.previous_crops:
+        unknowns.append("previous_crops")
+    if not profile.intended_crop:
+        unknowns.append("intended_crop")
     if profile.water_source == "unknown":
         unknowns.append("water_source")
     if profile.water_after_heavy_rain == "unknown":
@@ -261,9 +294,10 @@ def planning_preview(request: PlanRequest) -> dict:
     context = build_context(request.farm.latitude, request.farm.longitude)
     if not context["within_bangladesh"]:
         raise HTTPException(status_code=400, detail={"code": "OUTSIDE_BANGLADESH_PILOT"})
-    recent = None
-    baseline = None
-    if request.include_recent_power:
+    recent = request.recent_environment
+    baseline = request.baseline_environment
+    baseline_window = request.baseline_window
+    if recent is None and request.include_recent_power:
         try:
             recent = fetch_recent_power(request.farm.latitude, request.farm.longitude)
         except Exception:
@@ -272,7 +306,7 @@ def planning_preview(request: PlanRequest) -> dict:
                 "provider": "NASA POWER",
                 "message": "Recent selected-location context is unavailable. No fallback number was fabricated.",
             }
-    if request.include_climate_baseline:
+    if baseline is None and request.include_climate_baseline:
         try:
             baseline = fetch_power_climatology(
                 request.farm.latitude,
@@ -294,6 +328,7 @@ def planning_preview(request: PlanRequest) -> dict:
             start_month=request.start_month,
             recent_environment=recent,
             baseline_environment=baseline,
+            baseline_window=baseline_window,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "INVALID_PLAN_WINDOW", "message": str(exc)}) from exc
