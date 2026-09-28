@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import EarthScene from "./EarthScene";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import LocationMap from "./LocationMap";
 import DecisionReport from "./DecisionReport";
 import FieldIcon, { type IconName } from "./FieldIcon";
@@ -7,24 +6,18 @@ import {
   ApiError,
   apiGet,
   apiPost,
-  type Area,
   type FarmerProfile,
+  type LocalSourceRegistry,
   type LocationContext,
   type PlaceResult,
   type PlanBrief,
-  type PowerBaseline,
   type PowerBaselineWindow,
   type RecentEnvironment,
-  type Status,
 } from "./api";
 
 type Point = { latitude: number; longitude: number };
-
-const HERO_IMAGE =
-  "https://assets.science.nasa.gov/dynamicimage/assets/science/esd/eo/images/imagerecords/148000/148203/baniachong_oli_202176.jpg";
-
-const STORY_IMAGE =
-  "https://assets.science.nasa.gov/dynamicimage/assets/science/esd/eo/images/imagerecords/148000/148203/baniachong10_oli_202176.jpg";
+type View = "earth" | "rotation" | "plan";
+type LayerKey = "trueColor" | "rain" | "soil";
 
 const cropOptions = [
   ["rice", "Rice", "rice"],
@@ -37,141 +30,114 @@ const cropOptions = [
   ["other", "Other", "other"],
 ] as const;
 
-const priorities = [
-  ["water", "Use water carefully", "water"],
-  ["soil", "Protect the soil", "soil"],
-  ["production_stability", "Keep production stable", "stability"],
-] as const;
+const cropLabels: Record<string, string> = Object.fromEntries(
+  cropOptions.map(([id, label]) => [id, label]),
+);
 
 function dateMinus(days: number) {
-  const value = new Date(Date.now() - days * 86400000);
-  return value.toISOString().slice(0, 10);
+  return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 }
 
-function formatMetric(value: number | null | undefined, suffix: string) {
-  if (value === null || value === undefined) return "Not available";
-  return `${new Intl.NumberFormat("en-BD", { maximumFractionDigits: 1 }).format(value)}${suffix}`;
+function metric(value: number | null | undefined, suffix = "") {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(value)}${suffix}`;
 }
 
-function locationName(place: PlaceResult | null, context: LocationContext | null) {
+function placeLabel(place: PlaceResult | null, point: Point | null) {
+  if (place?.address.village) return place.address.village;
+  if (place?.address.town) return place.address.town;
+  if (place?.address.district) return place.address.district;
   if (place?.name) return place.name;
-  if (context) return context.nearest_supported_region.name_en;
-  return "Selected field";
+  if (point) return `${point.latitude.toFixed(3)}°, ${point.longitude.toFixed(3)}°`;
+  return "No field selected";
 }
 
-function statusCopy(status: Status) {
-  if (status === "loading") return "Loading";
-  if (status === "ready") return "Connected";
-  if (status === "unavailable") return "Unavailable";
-  return "Waiting";
-}
+function buildStrategies(
+  context: LocationContext | null,
+  intendedCrop: string,
+  previousCrops: string[],
+) {
+  const names = (context?.calendar_evidence ?? []).map((item) => item.name_en);
+  const unique = Array.from(new Set(names));
+  const intentLabel = intendedCrop ? cropLabels[intendedCrop] ?? intendedCrop : null;
+  const previousLabel = previousCrops[0] ? cropLabels[previousCrops[0]] ?? previousCrops[0] : null;
+  const pool = [intentLabel, ...unique].filter((value): value is string => Boolean(value));
+  const fallback = ["Local crop A", "Local crop B", "Local crop C"];
+  const source = pool.length >= 3 ? pool : [...pool, ...fallback].slice(0, 3);
 
-function validPoint(point: Point) {
-  return (
-    Number.isFinite(point.latitude) &&
-    Number.isFinite(point.longitude) &&
-    point.latitude >= -90 &&
-    point.latitude <= 90 &&
-    point.longitude >= -180 &&
-    point.longitude <= 180
-  );
+  return [
+    {
+      id: "A",
+      title: "Water cautious path",
+      crops: [source[0], source[1], source[2]],
+      note: "Exploration path only. Check local calendar, water access and soil evidence before committing.",
+    },
+    {
+      id: "B",
+      title: "Soil recovery path",
+      crops: [source[1] ?? source[0], source[2] ?? source[0], source[0]],
+      note: "Sequence is not ranked until reviewed crop sequence rules are connected.",
+    },
+    {
+      id: "C",
+      title: "Farmer intent path",
+      crops: [previousLabel ?? source[2], intentLabel ?? source[0], source[1] ?? source[0]],
+      note: "Keeps the farmer intention visible while evidence gaps are reviewed.",
+    },
+  ];
 }
 
 export default function App() {
-  const [areas, setAreas] = useState<Area[]>([]);
-  const [search, setSearch] = useState("");
-  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
-  const [placeSearchStatus, setPlaceSearchStatus] = useState<Status>("idle");
-  const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
+  const [view, setView] = useState<View>("earth");
   const [point, setPoint] = useState<Point | null>(null);
-  const [context, setContext] = useState<LocationContext | null>(null);
-  const [contextStatus, setContextStatus] = useState<Status>("idle");
-  const [recent, setRecent] = useState<RecentEnvironment | null>(null);
-  const [recentStatus, setRecentStatus] = useState<Status>("idle");
-  const [baseline, setBaseline] = useState<PowerBaseline | null>(null);
-  const [baselineWindow, setBaselineWindow] = useState<PowerBaselineWindow | null>(null);
-  const [baselineStatus, setBaselineStatus] = useState<Status>("idle");
-  const [locationError, setLocationError] = useState("");
+  const [place, setPlace] = useState<PlaceResult | null>(null);
+  const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
+  const [searchBusy, setSearchBusy] = useState(false);
   const [gpsBusy, setGpsBusy] = useState(false);
-  const [plan, setPlan] = useState<PlanBrief | null>(null);
-  const [planBusy, setPlanBusy] = useState(false);
-  const [planError, setPlanError] = useState("");
+  const [context, setContext] = useState<LocationContext | null>(null);
+  const [localSources, setLocalSources] = useState<LocalSourceRegistry | null>(null);
+  const [recent, setRecent] = useState<RecentEnvironment | null>(null);
+  const [baselineWindow, setBaselineWindow] = useState<PowerBaselineWindow | null>(null);
+  const [dataBusy, setDataBusy] = useState(false);
+  const [activeLayer, setActiveLayer] = useState<LayerKey | null>("trueColor");
+  const [error, setError] = useState("");
+
   const [previousCrops, setPreviousCrops] = useState<string[]>([]);
   const [intendedCrop, setIntendedCrop] = useState("");
   const [waterSource, setWaterSource] = useState<FarmerProfile["water_source"]>("unknown");
-  const [waterAfterRain, setWaterAfterRain] = useState<FarmerProfile["water_after_heavy_rain"]>("unknown");
+  const [drainage, setDrainage] = useState<FarmerProfile["water_after_heavy_rain"]>("unknown");
   const [soilTest, setSoilTest] = useState<FarmerProfile["soil_test"]>("unknown");
   const [soilPh, setSoilPh] = useState("");
   const [priority, setPriority] = useState<FarmerProfile["priority"]>("production_stability");
   const [startMonth, setStartMonth] = useState(() => new Date().getMonth() + 1);
   const [startYear, setStartYear] = useState(() => Math.max(2026, new Date().getFullYear()));
-  const [navSolid, setNavSolid] = useState(false);
-  const didAutoLocate = useRef(false);
+  const [plan, setPlan] = useState<PlanBrief | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
 
   const mapDate = useMemo(() => dateMinus(2), []);
-  const currentLocationName = locationName(selectedPlace, context);
-
-  useEffect(() => {
-    apiGet<{ areas: Area[] }>("/api/v1/areas")
-      .then((payload) => setAreas(payload.areas))
-      .catch(() => setAreas([]));
-  }, []);
-
-  useEffect(() => {
-    const onScroll = () => setNavSolid(window.scrollY > 28);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useEffect(() => {
-    if (didAutoLocate.current || !navigator.permissions || !navigator.geolocation) return;
-    didAutoLocate.current = true;
-    navigator.permissions
-      .query({ name: "geolocation" })
-      .then((permission) => {
-        if (permission.state !== "granted") return;
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            setPoint({
-              latitude: Number(position.coords.latitude.toFixed(5)),
-              longitude: Number(position.coords.longitude.toFixed(5)),
-            });
-          },
-          () => undefined,
-          { enableHighAccuracy: false, timeout: 7000, maximumAge: 300000 },
-        );
-      })
-      .catch(() => undefined);
-  }, []);
+  const strategies = useMemo(
+    () => buildStrategies(context, intendedCrop, previousCrops),
+    [context, intendedCrop, previousCrops],
+  );
 
   useEffect(() => {
     const query = search.trim();
     if (query.length < 2) {
-      setPlaceResults([]);
-      setPlaceSearchStatus("idle");
+      setSearchResults([]);
       return;
     }
-
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      setPlaceSearchStatus("loading");
+      setSearchBusy(true);
       apiGet<{ results: PlaceResult[] }>(
         `/api/v1/places/search?q=${encodeURIComponent(query)}`,
         controller.signal,
       )
-        .then((payload) => {
-          setPlaceResults(payload.results);
-          setPlaceSearchStatus("ready");
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) {
-            setPlaceResults([]);
-            setPlaceSearchStatus("unavailable");
-          }
-        });
-    }, 300);
-
+        .then((payload) => setSearchResults(payload.results))
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearchBusy(false));
+    }, 280);
     return () => {
       controller.abort();
       window.clearTimeout(timer);
@@ -179,848 +145,571 @@ export default function App() {
   }, [search]);
 
   useEffect(() => {
-    if (!point) {
-      setContext(null);
-      setRecent(null);
-      setBaseline(null);
-      setBaselineWindow(null);
-      setContextStatus("idle");
-      setRecentStatus("idle");
-      setBaselineStatus("idle");
-      return;
-    }
-
+    if (!point) return;
     const controller = new AbortController();
-    setContextStatus("loading");
-    setRecentStatus("loading");
-    setLocationError("");
+    setDataBusy(true);
+    setError("");
     setPlan(null);
 
-    apiGet<LocationContext>(
-      `/api/v1/context?lat=${point.latitude}&lon=${point.longitude}`,
-      controller.signal,
-    )
-      .then((payload) => {
-        setContext(payload);
-        setContextStatus("ready");
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        setContextStatus("unavailable");
-        setLocationError(error instanceof ApiError ? error.message : "Location context could not be loaded.");
-      });
+    Promise.allSettled([
+      apiGet<LocationContext>(
+        `/api/v1/context?lat=${point.latitude}&lon=${point.longitude}`,
+        controller.signal,
+      ),
+      apiGet<RecentEnvironment>(
+        `/api/v1/environment/recent?lat=${point.latitude}&lon=${point.longitude}`,
+        controller.signal,
+      ),
+      apiGet<PowerBaselineWindow>(
+        `/api/v1/environment/baseline-window?lat=${point.latitude}&lon=${point.longitude}&start_month=${startMonth}`,
+        controller.signal,
+      ),
+      apiGet<{ place: PlaceResult | null }>(
+        `/api/v1/places/reverse?lat=${point.latitude}&lon=${point.longitude}`,
+        controller.signal,
+      ),
+    ]).then(async ([contextResult, recentResult, baselineResult, placeResult]) => {
+      if (controller.signal.aborted) return;
 
-    apiGet<RecentEnvironment>(
-      `/api/v1/environment/recent?lat=${point.latitude}&lon=${point.longitude}`,
-      controller.signal,
-    )
-      .then((payload) => {
-        setRecent(payload);
-        setRecentStatus(payload.status === "available" ? "ready" : "unavailable");
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setRecent(null);
-          setRecentStatus("unavailable");
+      if (contextResult.status === "fulfilled") setContext(contextResult.value);
+      else setContext(null);
+
+      if (recentResult.status === "fulfilled") setRecent(recentResult.value);
+      else setRecent(null);
+
+      if (baselineResult.status === "fulfilled") setBaselineWindow(baselineResult.value);
+      else setBaselineWindow(null);
+
+      const resolvedPlace = placeResult.status === "fulfilled" ? placeResult.value.place : null;
+      setPlace(resolvedPlace);
+
+      const countryCode = resolvedPlace?.address.country_code;
+      if (countryCode) {
+        try {
+          const registry = await apiGet<LocalSourceRegistry>(
+            `/api/v1/local-sources?country_code=${encodeURIComponent(countryCode)}`,
+            controller.signal,
+          );
+          if (!controller.signal.aborted) setLocalSources(registry);
+        } catch {
+          if (!controller.signal.aborted) setLocalSources(null);
         }
-      });
+      } else {
+        setLocalSources(null);
+      }
 
-    apiGet<{ place: PlaceResult | null }>(
-      `/api/v1/places/reverse?lat=${point.latitude}&lon=${point.longitude}`,
-      controller.signal,
-    )
-      .then((payload) => {
-        if (payload.place) setSelectedPlace(payload.place);
-      })
-      .catch(() => undefined);
-
-    return () => controller.abort();
-  }, [point]);
-
-  useEffect(() => {
-    if (!point) return;
-
-    const controller = new AbortController();
-    setBaselineStatus("loading");
-
-    apiGet<PowerBaselineWindow>(
-      `/api/v1/environment/baseline-window?lat=${point.latitude}&lon=${point.longitude}&start_month=${startMonth}`,
-      controller.signal,
-    )
-      .then((payload) => {
-        setBaselineWindow(payload);
-        const first = payload.summaries?.[0] ?? null;
-        setBaseline({
-          status: payload.status,
-          provider: payload.provider,
-          kind: "historical_climatology",
-          baseline_period: payload.baseline_period,
-          coordinates: payload.coordinates,
-          summary: first,
-          source_products: payload.source_products,
-          source_request_url: payload.source_request_url,
-          limitations: payload.limitations,
-        });
-        setBaselineStatus(payload.status === "available" ? "ready" : "unavailable");
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setBaseline(null);
-          setBaselineWindow(null);
-          setBaselineStatus("unavailable");
-        }
-      });
+      setDataBusy(false);
+    });
 
     return () => controller.abort();
   }, [point, startMonth]);
 
-  const filteredAreas = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return areas;
-    return areas.filter(
-      (area) =>
-        area.name_en.toLowerCase().includes(query) ||
-        area.evidence_region.toLowerCase().includes(query),
-    );
-  }, [areas, search]);
+  const recentSummary = recent?.status === "available" ? recent.summary : undefined;
+  const firstBaseline = baselineWindow?.status === "available" ? baselineWindow.summaries?.[0] : undefined;
+  const recentDailyRain =
+    recentSummary?.precipitation_total_mm != null && recentSummary.precipitation_valid_days
+      ? recentSummary.precipitation_total_mm / recentSummary.precipitation_valid_days
+      : null;
+  const rainAnomaly =
+    recentDailyRain != null && firstBaseline?.precipitation_mean_daily_mm
+      ? ((recentDailyRain - firstBaseline.precipitation_mean_daily_mm) /
+          firstBaseline.precipitation_mean_daily_mm) *
+        100
+      : null;
+  const tempDelta =
+    recentSummary?.temperature_mean_c != null && firstBaseline?.temperature_mean_c != null
+      ? recentSummary.temperature_mean_c - firstBaseline.temperature_mean_c
+      : null;
 
-  const recentRain = recent?.status === "available" ? recent.summary?.precipitation_total_mm : null;
-  const recentTemp = recent?.status === "available" ? recent.summary?.temperature_mean_c : null;
-  const baselineRain = baseline?.status === "available" ? baseline.summary?.precipitation_mean_daily_mm : null;
-  const baselineTemp = baseline?.status === "available" ? baseline.summary?.temperature_mean_c : null;
+  const readiness = Math.min(
+    100,
+    (point ? 20 : 0) +
+      (recent?.status === "available" ? 20 : 0) +
+      (baselineWindow?.status === "available" ? 15 : 0) +
+      (place?.address.country_code ? 10 : 0) +
+      (localSources?.official_sources.length ? 10 : 0) +
+      (previousCrops.length ? 10 : 0) +
+      (intendedCrop ? 10 : 0) +
+      (waterSource !== "unknown" && drainage !== "unknown" ? 5 : 0),
+  );
 
-  function scrollToLocation() {
-    document.getElementById("field-locator")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  function togglePreviousCrop(value: string) {
-    setPreviousCrops((current) => {
-      if (current.includes(value)) return current.filter((crop) => crop !== value);
-      if (current.length >= 4) return current;
-      return [...current, value];
-    });
-  }
-
-  function setFieldPoint(nextPoint: Point, place: PlaceResult | null = null) {
-    if (!validPoint(nextPoint)) {
-      setLocationError("That location could not be read. Please choose another point on the map.");
-      return;
-    }
-    setLocationError("");
-    setSelectedPlace(place);
+  function choosePoint(next: Point, selected: PlaceResult | null = null) {
+    if (!Number.isFinite(next.latitude) || !Number.isFinite(next.longitude)) return;
     setPoint({
-      latitude: Number(nextPoint.latitude.toFixed(5)),
-      longitude: Number(nextPoint.longitude.toFixed(5)),
+      latitude: Number(next.latitude.toFixed(5)),
+      longitude: Number(next.longitude.toFixed(5)),
     });
+    if (selected) setPlace(selected);
   }
 
-  function chooseArea(area: Area) {
-    setFieldPoint({ latitude: area.latitude, longitude: area.longitude });
-    setSearch("");
-    setPlaceResults([]);
-  }
-
-  function choosePlace(place: PlaceResult) {
-    setFieldPoint({ latitude: place.latitude, longitude: place.longitude }, place);
-    setSearch("");
-    setPlaceResults([]);
-  }
-
-  function useMyLocation() {
-    setLocationError("");
-
+  function locateMe() {
+    setError("");
     if (!navigator.geolocation) {
-      setLocationError("This browser does not provide location access. Search for a place or choose a point on the map.");
+      setError("Location access is unavailable in this browser. Search for a place or tap the globe.");
       return;
     }
-
     setGpsBusy(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setGpsBusy(false);
-        setFieldPoint({
+        choosePoint({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         });
-        window.setTimeout(scrollToLocation, 100);
       },
       () => {
         setGpsBusy(false);
-        setLocationError("Location permission was not granted. Search for a place or choose a point on the map instead.");
+        setError("Location permission was not granted. Search for a place or tap the globe.");
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
     );
   }
 
-  async function generatePlan(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function toggleHistory(crop: string) {
+    setPreviousCrops((current) => {
+      if (current.includes(crop)) return current.filter((item) => item !== crop);
+      if (current.length >= 4) return current;
+      return [...current, crop];
+    });
+  }
 
+  async function runDecisionEngine(event?: FormEvent) {
+    event?.preventDefault();
     if (!point) {
-      setPlanError("Choose your field location first. You can use location access, search for a place, or choose a point on the map.");
-      scrollToLocation();
+      setError("Select a field on Earth before running the decision engine.");
+      setView("earth");
       return;
     }
 
-    const profile: FarmerProfile = {
+    const farm: FarmerProfile = {
       latitude: point.latitude,
       longitude: point.longitude,
       previous_crop: previousCrops[0] ?? null,
       previous_crops: previousCrops,
       intended_crop: intendedCrop || null,
       water_source: waterSource,
-      water_after_heavy_rain: waterAfterRain,
+      water_after_heavy_rain: drainage,
       soil_test: soilTest,
-      soil_ph: soilTest === "yes" && soilPh.trim() ? Number(soilPh) : null,
+      soil_ph: soilTest === "yes" && soilPh ? Number(soilPh) : null,
       priority,
     };
 
     setPlanBusy(true);
-    setPlanError("");
-
+    setError("");
     try {
-      await apiPost("/api/v1/farms/validate", profile);
       const payload = await apiPost<PlanBrief>("/api/v1/plans/preview", {
-        farm: profile,
+        farm,
         start_year: startYear,
         start_month: startMonth,
         include_recent_power: false,
         include_climate_baseline: false,
         recent_environment: recent,
-        baseline_environment: baseline,
         baseline_window: baselineWindow,
       });
-
-      if (!payload || !Array.isArray(payload.months) || payload.months.length !== 3) {
-        throw new ApiError(500, "INVALID_PLAN_RESPONSE", "The field brief response was incomplete. Please try again.");
-      }
-
       setPlan(payload);
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          document.getElementById("field-brief")?.scrollIntoView({ behavior: "smooth", block: "start" });
-        });
-      });
-    } catch (error) {
-      setPlanError(error instanceof ApiError ? error.message : "The field brief could not be generated.");
+      setView("plan");
+    } catch (runError) {
+      setError(runError instanceof ApiError ? runError.message : "Decision engine failed.");
     } finally {
       setPlanBusy(false);
     }
   }
 
   return (
-    <div className="bx-app">
-      <header className={navSolid ? "bx-nav solid" : "bx-nav"}>
-        <a className="bx-brand" href="#top" aria-label="BoponX home">
-          <span className="bx-brand-mark"><i /><i /><i /></span>
-          <span className="bx-brand-type">
+    <div className="mission-app">
+      <header className="mission-topbar">
+        <div className="mission-brand">
+          <span className="brand-orbit"><i /><b /></span>
+          <div>
             <strong>BoponX</strong>
-            <small>From Space to Soil</small>
-          </span>
-        </a>
+            <small>EARTH.exe | Field Shift Intelligence</small>
+          </div>
+        </div>
 
-        <nav className="bx-links" aria-label="Primary">
-          <a href="#field-locator">Field</a>
-          <a href="#earth-signals">NASA evidence</a>
-          <a href="#farm-story">Farm story</a>
-          <a href="#field-brief">Plan</a>
+        <nav className="mission-nav">
+          <button className={view === "earth" ? "active" : ""} onClick={() => setView("earth")}>
+            <span>01</span> Earth Twin
+          </button>
+          <button className={view === "rotation" ? "active" : ""} onClick={() => setView("rotation")}>
+            <span>02</span> Rotation Lab
+          </button>
+          <button className={view === "plan" ? "active" : ""} onClick={() => setView("plan")}>
+            <span>03</span> Field Plan
+          </button>
         </nav>
 
-        <button type="button" className="locate-mini" onClick={useMyLocation}>
-          <span>⌖</span>
-          Locate my field
-        </button>
+        <div className="mission-status">
+          <span className={dataBusy ? "pulse loading" : "pulse"} />
+          {point ? placeLabel(place, point) : "Awaiting field"}
+        </div>
       </header>
 
-      <main id="top">
-        <section className="cinematic-hero">
-          <div className="hero-photo" aria-hidden="true">
-            <img src={HERO_IMAGE} alt="" />
-            <div className="hero-photo-overlay" />
-          </div>
-
-          <EarthScene className="hero-earth" />
-          <div className="hero-grid" aria-hidden="true" />
-          <div className="hero-scan" aria-hidden="true" />
-
-          <div className="hero-content">
-            <div className="hero-kicker">
-              <span className="live-dot" />
-              <span>NASA Space Apps 2026 | Field Shift</span>
+      {view === "earth" && (
+        <main className="earth-command">
+          <aside className="control-rail left-rail">
+            <div className="rail-title">
+              <span>FIELD CONTROL</span>
+              <strong>Choose one field on Earth</strong>
             </div>
 
-            <h1>
-              <span>Your field.</span>
-              <span className="hero-accent">Earth evidence.</span>
-              <span>A clearer next move.</span>
-            </h1>
+            <button className="locate-command" onClick={locateMe} disabled={gpsBusy}>
+              <FieldIcon name="stability" />
+              <span>
+                <strong>{gpsBusy ? "Locating…" : "Use current location"}</strong>
+                <small>Browser permission only</small>
+              </span>
+            </button>
 
-            <p className="hero-lead">
-              BoponX starts with the farmer's real location. It loads only the NASA and local evidence that matters for that place, then turns it into a practical seasonal decision workflow.
-            </p>
-
-            <div className="hero-actions">
-              <button type="button" className="hero-primary" onClick={useMyLocation}>
-                <span className="hero-primary-icon">⌖</span>
-                <span>
-                  <strong>{gpsBusy ? "Finding your field…" : "Use my location"}</strong>
-                  <small>Location permission is requested only when needed</small>
-                </span>
-                <b>→</b>
-              </button>
-
-              <button type="button" className="hero-secondary" onClick={scrollToLocation}>
-                Search or choose on map
-              </button>
-            </div>
-
-            <div className="hero-source-line">
-              <span>GPM IMERG</span><i />
-              <span>SMAP</span><i />
-              <span>NASA POWER</span><i />
-              <span>BAMIS</span><i />
-              <span>BARC</span>
-            </div>
-          </div>
-
-          <div className="hero-data-stack" aria-hidden="true">
-            <div className="floating-data-card data-card-a">
-              <span>PRECIPITATION</span>
-              <strong>IMERG</strong>
-              <small>V07B | near real time</small>
-            </div>
-            <div className="floating-data-card data-card-b">
-              <span>SOIL MOISTURE</span>
-              <strong>SMAP</strong>
-              <small>9 km | regional context</small>
-            </div>
-            <div className="floating-data-card data-card-c">
-              <span>CLIMATE</span>
-              <strong>POWER</strong>
-              <small>recent data | baseline</small>
-            </div>
-          </div>
-
-          <div className="hero-credit">NASA and USGS Landsat image | Baniachong, Bangladesh</div>
-        </section>
-
-        <section className="source-marquee" aria-label="Data sources">
-          <div className="source-track">
-            {["NASA GPM IMERG Early V07B", "NASA GIBS", "SMAP SPL3SMP E V6", "NASA POWER", "BAMIS", "BARC", "Farmer observations"].map((item) => (
-              <span key={item}><i />{item}</span>
-            ))}
-          </div>
-        </section>
-
-        <section className="field-locator bx-section" id="field-locator">
-          <div className="section-heading" data-reveal>
-            <div className="section-index">01</div>
-            <div>
-              <p className="section-kicker">Start from one real place</p>
-              <h2>Show us where the field is.</h2>
-            </div>
-            <p className="section-copy">
-              The selected point controls the map, NASA queries, climate baseline and local agricultural evidence. A farmer sees information for the chosen area, not a national data dump.
-            </p>
-          </div>
-
-          <div className="location-command" data-reveal>
-            <div className="location-search-panel">
-              <div className="location-mode-title">
-                <span className="mini-index">A</span>
-                <div>
-                  <strong>Detect, search, or choose on the map</strong>
-                  <small>The farmer chooses the field. NASA supplies the environmental context.</small>
-                </div>
-              </div>
-
-              <button type="button" className="detect-button" onClick={useMyLocation} disabled={gpsBusy}>
-                <span className="detect-radar"><i /><i /></span>
-                <span>
-                  <strong>{gpsBusy ? "Finding your location…" : "Detect my current location"}</strong>
-                  <small>Uses browser location access after permission</small>
-                </span>
-                <b>⌖</b>
-              </button>
-
-              <label className="place-search-box">
-                <span className="search-symbol">⌕</span>
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search village, upazila, district, or city"
-                  aria-label="Search a Bangladesh place"
-                />
-                {search && <button type="button" onClick={() => setSearch("")}>×</button>}
-              </label>
-
-              {search && (
-                <div className="place-suggestions">
-                  {placeSearchStatus === "loading" && (
-                    <div className="searching-row"><span className="spinner" />Searching Bangladesh…</div>
-                  )}
-
-                  {placeResults.slice(0, 6).map((place, index) => (
+            <div className="global-search">
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search any village, district, city or country"
+              />
+              <span>{searchBusy ? "…" : "⌕"}</span>
+              {searchResults.length > 0 && (
+                <div className="search-results">
+                  {searchResults.slice(0, 6).map((result, index) => (
                     <button
-                      type="button"
-                      key={`${place.latitude}-${place.longitude}-${index}`}
-                      onClick={() => choosePlace(place)}
+                      key={`${result.latitude}-${result.longitude}-${index}`}
+                      onClick={() => {
+                        choosePoint({ latitude: result.latitude, longitude: result.longitude }, result);
+                        setSearch("");
+                        setSearchResults([]);
+                      }}
                     >
-                      <span className="suggestion-pin">⌖</span>
-                      <span>
-                        <strong>{place.name ?? place.address.village ?? place.address.town ?? "Selected place"}</strong>
-                        <small>
-                          {[place.address.village, place.address.upazila, place.address.district, place.address.division]
-                            .filter(Boolean)
-                            .join(" | ")}
-                        </small>
-                      </span>
-                    </button>
-                  ))}
-
-                  {placeResults.length === 0 && placeSearchStatus !== "loading" && filteredAreas.slice(0, 6).map((area) => (
-                    <button type="button" key={area.id} onClick={() => chooseArea(area)}>
-                      <span className="suggestion-pin">◎</span>
-                      <span>
-                        <strong>{area.name_en}</strong>
-                        <small>Regional evidence hub</small>
-                      </span>
+                      <strong>{result.name}</strong>
+                      <small>
+                        {[result.address.district, result.address.division, result.address.country]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </small>
                     </button>
                   ))}
                 </div>
               )}
+            </div>
 
-              <div className="privacy-note">
-                <span>◌</span>
+            <section className="selected-field-card">
+              <span className="micro-label">SELECTED FIELD</span>
+              <h2>{placeLabel(place, point)}</h2>
+              <p>{place?.address.country ?? "Select a point anywhere on Earth"}</p>
+              {point && <code>{point.latitude.toFixed(5)} / {point.longitude.toFixed(5)}</code>}
+            </section>
+
+            <section className="local-mesh">
+              <div className="rail-section-head">
+                <span>LOCAL DATA MESH</span>
+                <b>{localSources?.coverage === "verified_country_adapter" ? "VERIFIED" : "GLOBAL FALLBACK"}</b>
+              </div>
+              {(localSources?.official_sources ?? []).map((source) => (
+                <a key={source.id ?? source.name} href={source.source_url} target="_blank" rel="noreferrer">
+                  <strong>{source.name}</strong>
+                  <small>{source.scope}</small>
+                </a>
+              ))}
+              {localSources?.official_sources.length === 0 && (
+                <div className="source-gap">
+                  <strong>No verified national adapter is connected yet.</strong>
+                  <p>NASA analysis still works globally. Local crop advice stays constrained until a reviewed source is connected.</p>
+                </div>
+              )}
+              {(localSources?.global_sources ?? []).map((source) => (
+                <a className="global-source" key={source.id ?? source.name} href={source.source_url} target="_blank" rel="noreferrer">
+                  <strong>{source.name}</strong>
+                  <small>International crop calendar reference</small>
+                </a>
+              ))}
+            </section>
+          </aside>
+
+          <section className="globe-center">
+            <LocationMap
+              point={point}
+              onPick={(next) => choosePoint(next)}
+              mapDate={mapDate}
+              activeLayer={activeLayer}
+              onLayerChange={setActiveLayer}
+            />
+
+            <div className="fusion-strip">
+              <div>
+                <span>RAIN ANOMALY</span>
+                <strong>{rainAnomaly == null ? "—" : `${rainAnomaly >= 0 ? "+" : ""}${rainAnomaly.toFixed(0)}%`}</strong>
+                <small>recent POWER vs climatology</small>
+              </div>
+              <div>
+                <span>HEAT SHIFT</span>
+                <strong>{tempDelta == null ? "—" : `${tempDelta >= 0 ? "+" : ""}${tempDelta.toFixed(1)}°C`}</strong>
+                <small>recent mean vs monthly baseline</small>
+              </div>
+              <div>
+                <span>SOIL MOISTURE</span>
+                <strong>SMAP</strong>
+                <small>spatial layer | 9 km context</small>
+              </div>
+              <div>
+                <span>DECISION READINESS</span>
+                <strong>{readiness}%</strong>
+                <small>evidence completeness, not suitability</small>
+              </div>
+            </div>
+          </section>
+
+          <aside className="control-rail right-rail">
+            <div className="rail-title">
+              <span>NASA FUSION ENGINE</span>
+              <strong>One field. One evidence stack.</strong>
+            </div>
+
+            <div className="earth-pulse">
+              <div className="pulse-ring" style={{ "--score": readiness } as React.CSSProperties}>
+                <span>{readiness}</span>
+                <small>READY</small>
+              </div>
+              <div className="pulse-copy">
+                <strong>{dataBusy ? "Resolving Earth signals…" : "Earth Pulse"}</strong>
+                <small>NASA data are fused once here, then reused by the decision engine.</small>
+              </div>
+            </div>
+
+            <div className="signal-grid">
+              <article>
+                <span>PRECIPITATION</span>
+                <strong>{metric(recentSummary?.precipitation_total_mm, " mm")}</strong>
+                <small>NASA POWER recent period</small>
+              </article>
+              <article>
+                <span>MEAN TEMP</span>
+                <strong>{metric(recentSummary?.temperature_mean_c, "°C")}</strong>
+                <small>NASA POWER</small>
+              </article>
+              <article>
+                <span>MAX TEMP</span>
+                <strong>{metric(recentSummary?.temperature_max_mean_c, "°C")}</strong>
+                <small>period mean of daily max</small>
+              </article>
+              <article>
+                <span>HUMIDITY</span>
+                <strong>{metric(recentSummary?.relative_humidity_mean_pct, "%")}</strong>
+                <small>2 m relative humidity</small>
+              </article>
+              <article>
+                <span>WIND</span>
+                <strong>{metric(recentSummary?.wind_speed_mean_m_s, " m/s")}</strong>
+                <small>2 m wind speed</small>
+              </article>
+              <article>
+                <span>BASELINE RAIN</span>
+                <strong>{metric(firstBaseline?.precipitation_mean_daily_mm, " mm/d")}</strong>
+                <small>POWER 2001 to 2020</small>
+              </article>
+            </div>
+
+            <div className="source-stack">
+              <div><i className="green" /><span>GPM IMERG V07B</span><small>near real time rain layer</small></div>
+              <div><i className="blue" /><span>SMAP SPL3SMP E V6</span><small>surface soil moisture</small></div>
+              <div><i className="amber" /><span>NASA POWER</span><small>agroclimate + baseline</small></div>
+              <div><i className="white" /><span>NASA GIBS</span><small>spatial evidence delivery</small></div>
+            </div>
+
+            <button className="next-command" onClick={() => setView("rotation")}>
+              Open Rotation Lab <b>→</b>
+            </button>
+
+            {error && <div className="command-error">{error}</div>}
+          </aside>
+        </main>
+      )}
+
+      {view === "rotation" && (
+        <main className="rotation-lab">
+          <aside className="profile-panel">
+            <div className="rail-title">
+              <span>FARMER INPUT</span>
+              <strong>Only ask what the farmer knows.</strong>
+            </div>
+
+            <label className="profile-group">
+              <span>RECENT CROPS</span>
+              <div className="crop-mini-grid">
+                {cropOptions.map(([id, label, icon]) => (
+                  <button
+                    type="button"
+                    className={previousCrops.includes(id) ? "active" : ""}
+                    key={id}
+                    onClick={() => toggleHistory(id)}
+                  >
+                    <FieldIcon name={icon as IconName} />
+                    {label}
+                    {previousCrops.includes(id) && <b>{previousCrops.indexOf(id) + 1}</b>}
+                  </button>
+                ))}
+              </div>
+            </label>
+
+            <label className="profile-group">
+              <span>WHAT DO YOU WANT TO GROW NOW?</span>
+              <select value={intendedCrop} onChange={(event) => setIntendedCrop(event.target.value)}>
+                <option value="">Not decided</option>
+                {cropOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </label>
+
+            <div className="two-control">
+              <label>
+                <span>WATER SOURCE</span>
+                <select value={waterSource} onChange={(event) => setWaterSource(event.target.value as FarmerProfile["water_source"])}>
+                  <option value="unknown">Not sure</option>
+                  <option value="rainfed">Mostly rain</option>
+                  <option value="irrigated">Mostly irrigation</option>
+                  <option value="both">Rain and irrigation</option>
+                </select>
+              </label>
+              <label>
+                <span>AFTER HEAVY RAIN</span>
+                <select value={drainage} onChange={(event) => setDrainage(event.target.value as FarmerProfile["water_after_heavy_rain"])}>
+                  <option value="unknown">Not sure</option>
+                  <option value="drains">Drains quickly</option>
+                  <option value="stays">Water stays</option>
+                  <option value="sometimes">Changes</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="two-control">
+              <label>
+                <span>SOIL TEST</span>
+                <select value={soilTest} onChange={(event) => setSoilTest(event.target.value as FarmerProfile["soil_test"])}>
+                  <option value="unknown">Not sure</option>
+                  <option value="no">No report</option>
+                  <option value="yes">Yes</option>
+                </select>
+              </label>
+              {soilTest === "yes" && (
+                <label>
+                  <span>pH FROM REPORT</span>
+                  <input type="number" min="0" max="14" step="0.1" value={soilPh} onChange={(event) => setSoilPh(event.target.value)} />
+                </label>
+              )}
+            </div>
+
+            <label className="profile-group">
+              <span>PRIMARY PRIORITY</span>
+              <div className="priority-toggle">
+                {[
+                  ["water", "Water"],
+                  ["soil", "Soil"],
+                  ["production_stability", "Stability"],
+                ].map(([id, label]) => (
+                  <button
+                    type="button"
+                    className={priority === id ? "active" : ""}
+                    onClick={() => setPriority(id as FarmerProfile["priority"])}
+                    key={id}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </label>
+
+            <div className="two-control">
+              <label>
+                <span>START MONTH</span>
+                <select value={startMonth} onChange={(event) => setStartMonth(Number(event.target.value))}>
+                  {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
+                    <option value={month} key={month}>{String(month).padStart(2, "0")}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>YEAR</span>
+                <select value={startYear} onChange={(event) => setStartYear(Number(event.target.value))}>
+                  {Array.from({ length: 10 }, (_, index) => 2026 + index).map((year) => (
+                    <option value={year} key={year}>{year}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <button className="run-engine" onClick={() => runDecisionEngine()} disabled={planBusy}>
+              <span>{planBusy ? "RUNNING…" : "RUN DECISION ENGINE"}</span><b>→</b>
+            </button>
+          </aside>
+
+          <section className="strategy-stage">
+            <div className="strategy-heading">
+              <div>
+                <span>ROTATION SANDBOX</span>
+                <h1>Explore futures before choosing one.</h1>
+              </div>
+              <p>
+                BoponX does not repeat the raw NASA cards here. It carries forward the Earth Pulse as decision context and shows only what changes the rotation discussion.
+              </p>
+            </div>
+
+            <div className="strategy-context-row">
+              <div><span>FIELD</span><strong>{placeLabel(place, point)}</strong></div>
+              <div><span>RAIN SIGNAL</span><strong>{rainAnomaly == null ? "pending" : rainAnomaly > 30 ? "wetter" : rainAnomaly < -30 ? "drier" : "near baseline"}</strong></div>
+              <div><span>LOCAL SOURCES</span><strong>{localSources?.official_sources.length ?? 0} verified</strong></div>
+              <div><span>FARMER INTENT</span><strong>{intendedCrop ? cropLabels[intendedCrop] : "not decided"}</strong></div>
+            </div>
+
+            <div className="strategy-cards">
+              {strategies.map((strategy) => (
+                <article key={strategy.id}>
+                  <header>
+                    <span>PATH {strategy.id}</span>
+                    <strong>{strategy.title}</strong>
+                  </header>
+                  <div className="season-flow">
+                    {strategy.crops.map((crop, index) => (
+                      <div key={`${crop}-${index}`}>
+                        <small>SEASON {index + 1}</small>
+                        <strong>{crop}</strong>
+                        {index < 2 && <i>→</i>}
+                      </div>
+                    ))}
+                  </div>
+                  <footer>
+                    <p>{strategy.note}</p>
+                    <span>{context?.calendar_evidence.length ?? 0} local crop calendar records available</span>
+                  </footer>
+                </article>
+              ))}
+            </div>
+
+            <div className="evidence-gate">
+              <div className="gate-icon">!</div>
+              <div>
+                <strong>Evidence gate</strong>
                 <p>
-                  <strong>Your field location stays temporary.</strong>
-                  {" "}BoponX does not save exact coordinates by default.
+                  These are exploration paths, not agronomic rankings. A winning decision engine should refuse to invent crop suitability when reviewed local crop requirements, soil constraints or sequence rules are missing.
                 </p>
               </div>
-
-              {locationError && <div className="error-banner">{locationError}</div>}
+              <button onClick={() => runDecisionEngine()} disabled={planBusy}>Generate evidence based field plan</button>
             </div>
+          </section>
+        </main>
+      )}
 
-            <div className="location-map-panel">
-              <LocationMap
-                point={point}
-                onPick={(value) => setFieldPoint(value)}
-                mapDate={mapDate}
-              />
-
-              <div className={point ? "field-lock active" : "field-lock"}>
-                <div className="field-lock-head">
-                  <span className="field-lock-status"><i />{point ? "FIELD SELECTED" : "WAITING FOR FIELD"}</span>
-                  <span>{contextStatus !== "idle" && statusCopy(contextStatus)}</span>
-                </div>
-
-                <strong>{point ? currentLocationName : "Choose a field point"}</strong>
-
-                {point && (
-                  <>
-                    <p>{point.latitude.toFixed(5)}° N | {point.longitude.toFixed(5)}° E</p>
-                    {selectedPlace && (
-                      <small>
-                        {[selectedPlace.address.village, selectedPlace.address.upazila, selectedPlace.address.district, selectedPlace.address.division]
-                          .filter(Boolean)
-                          .join(" | ")}
-                      </small>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="earth-signals bx-section dark-section" id="earth-signals">
-          <div className="signal-orbit" aria-hidden="true"><i /><i /><i /></div>
-
-          <div className="section-heading light" data-reveal>
-            <div className="section-index">02</div>
-            <div>
-              <p className="section-kicker">Earth intelligence filtered by place</p>
-              <h2>{point ? currentLocationName : "Choose a field to load the evidence."}</h2>
-            </div>
-            <p className="section-copy">
-              Each source has one job. Recent rainfall, regional soil moisture, recent climate and historical baseline stay separate so the farmer can see what each signal really means.
-            </p>
-          </div>
-
-          <div className="signal-stage" data-reveal>
-            <article className="signal-card signal-rain">
-              <div className="signal-card-top">
-                <span className="source-badge live"><i />Near real time</span>
-                <span className="signal-number">01</span>
-              </div>
-              <div className="signal-visual rain-visual">
-                <span className="rain-column r1" /><span className="rain-column r2" /><span className="rain-column r3" /><span className="rain-column r4" />
-                <div className="rain-radar"><i /><i /><i /></div>
-              </div>
-              <h3>GPM IMERG Early</h3>
-              <p>Recent precipitation evidence around the selected field.</p>
-              <dl>
-                <div><dt>Map date</dt><dd>{mapDate}</dd></div>
-                <div><dt>Resolution</dt><dd>0.1° | about 10 km</dd></div>
-                <div><dt>Minimum latency</dt><dd>about 4 hours</dd></div>
-              </dl>
-            </article>
-
-            <article className="signal-card signal-power">
-              <div className="signal-card-top">
-                <span className={`source-badge ${recentStatus}`}><i />{statusCopy(recentStatus)}</span>
-                <span className="signal-number">02</span>
-              </div>
-              <div className="signal-metric">
-                <strong>{formatMetric(recentTemp, "°C")}</strong>
-                <span>Recent period mean</span>
-              </div>
-              <div className="signal-metric secondary">
-                <strong>{formatMetric(recentRain, " mm")}</strong>
-                <span>Complete period rainfall</span>
-              </div>
-              <h3>NASA POWER</h3>
+      {view === "plan" && (
+        <main className="plan-workspace">
+          {!plan ? (
+            <div className="empty-plan">
+              <span>03 | FIELD PLAN</span>
+              <h1>Turn Earth evidence into actions a farmer can use.</h1>
               <p>
-                {recent?.period
-                  ? `${recent.period.start} to ${recent.period.end} | ${recent.period.time_standard}`
-                  : "Select a field to request recent regional climate context."}
+                The printed card is designed to stand alone. It does not depend on clickable links. Source names remain traceable for advisers and judges.
               </p>
-            </article>
-
-            <article className="signal-card signal-baseline">
-              <div className="signal-card-top">
-                <span className={`source-badge ${baselineStatus}`}><i />{statusCopy(baselineStatus)}</span>
-                <span className="signal-number">03</span>
-              </div>
-              <div className="baseline-rings" aria-hidden="true"><i /><i /><i /></div>
-              <div className="signal-metric">
-                <strong>{formatMetric(baselineTemp, "°C")}</strong>
-                <span>Planning month climate mean</span>
-              </div>
-              <div className="signal-metric secondary">
-                <strong>{formatMetric(baselineRain, " mm per day")}</strong>
-                <span>Climatological daily rain</span>
-              </div>
-              <h3>POWER 2001 to 2020</h3>
-              <p>Historical reference for the selected planning month. This is context, not a forecast.</p>
-            </article>
-
-            <article className="signal-card signal-soil">
-              <div className="signal-card-top">
-                <span className="source-badge review"><i />Quality review</span>
-                <span className="signal-number">04</span>
-              </div>
-              <div className="soil-cube" aria-hidden="true">
-                <span className="soil-face top" /><span className="soil-face left" /><span className="soil-face right" />
-                <i className="soil-wave w1" /><i className="soil-wave w2" /><i className="soil-wave w3" />
-              </div>
-              <h3>SMAP SPL3SMP E V6</h3>
-              <p>Regional surface soil moisture context. Numeric use stays behind quality checks until the authenticated adapter is complete.</p>
-              <dl>
-                <div><dt>Resolution</dt><dd>9 km | daily</dd></div>
-                <div><dt>Never treated as</dt><dd>soil pH</dd></div>
-              </dl>
-            </article>
-          </div>
-
-          <div className="data-quality-banner" data-reveal>
-            <span className="quality-icon">!</span>
-            <div>
-              <strong>2026 SMAP quality note</strong>
-              <p>NSIDC reported a geolocation issue affecting Standard and NRT products from 14 May to 28 July 2026. BoponX keeps those dates behind a quality check.</p>
+              <button onClick={() => setView("rotation")}>Complete farmer context →</button>
             </div>
-          </div>
-        </section>
-
-        <section className="nasa-story bx-section">
-          <div className="nasa-story-media" data-reveal>
-            <img
-              src={STORY_IMAGE}
-              alt="NASA Landsat view of Baniachong, Bangladesh, surrounded by agricultural fields"
-            />
-            <div className="image-coordinate">24.50° N | 91.35° E</div>
-            <div className="image-caption">
-              <span>NASA and USGS Landsat</span>
-              <strong>Baniachong, Bangladesh</strong>
-            </div>
-          </div>
-
-          <div className="nasa-story-copy" data-reveal>
-            <p className="section-kicker">A real Bangladesh example</p>
-            <h2>Earth data should support a decision, not decorate a dashboard.</h2>
-            <p>
-              NASA Earth Observatory documented the use of Landsat and other satellite information around Baniachong to support irrigation research. BoponX follows the same principle by connecting Earth observations to a farmer's next decision.
-            </p>
-            <a href="https://science.nasa.gov/earth/earth-observatory/fine-tuning-irrigation-in-asia-148203/" target="_blank" rel="noreferrer">
-              Read the NASA Earth Observatory story ↗
-            </a>
-          </div>
-        </section>
-
-        <section className="local-evidence bx-section" id="local-evidence">
-          <div className="section-heading" data-reveal>
-            <div className="section-index">03</div>
-            <div>
-              <p className="section-kicker">NASA is one part of the answer</p>
-              <h2>Bring local crop evidence into the same view.</h2>
-            </div>
-            <p className="section-copy">
-              BoponX shows crop calendars indexed for the selected regional evidence hub. A calendar shown here means an official source exists. It does not mean the crop has already been recommended.
-            </p>
-          </div>
-
-          <div className="local-evidence-grid" data-reveal>
-            <div className="region-evidence-card">
-              <div className="region-card-top">
-                <span>Selected evidence region</span>
-                <strong>{context ? context.nearest_supported_region.evidence_region : "Choose a field"}</strong>
-              </div>
-
-              <div className="region-grid-art" aria-hidden="true">
-                {Array.from({ length: 20 }).map((_, index) => <i key={index} />)}
-              </div>
-
-              <div className="coverage-lines">
-                <div><span className={context?.within_bangladesh ? "coverage-ok" : ""} />NASA environmental context</div>
-                <div><span className={context?.calendar_evidence?.length ? "coverage-ok" : "coverage-warn"} />Local calendar sources</div>
-                <div><span className="coverage-lock" />Rotation rules still require review</div>
-              </div>
-            </div>
-
-            <div className="calendar-evidence-panel">
-              <div className="calendar-panel-head">
-                <span>Official calendar sources</span>
-                <strong>{context?.calendar_evidence?.length ?? 0}</strong>
-              </div>
-
-              <div className="crop-source-list">
-                {context?.calendar_evidence?.length ? (
-                  context.calendar_evidence.slice(0, 9).map((crop, index) => (
-                    <a href={crop.source_url} target="_blank" rel="noreferrer" key={crop.id} className="crop-source-row">
-                      <span className="crop-seq">{String(index + 1).padStart(2, "0")}</span>
-                      <span>
-                        <strong>{crop.name_en}</strong>
-                        <small>Official BAMIS calendar source</small>
-                      </span>
-                      <b>↗</b>
-                    </a>
-                  ))
-                ) : (
-                  <div className="empty-evidence">
-                    <span>◎</span>
-                    <p>Choose a field to load crop calendar evidence for its regional hub.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="farm-story bx-section dark-section" id="farm-story">
-          <div className="section-heading light" data-reveal>
-            <div className="section-index">04</div>
-            <div>
-              <p className="section-kicker">Ask what a farmer can actually answer</p>
-              <h2>Simple questions. No laboratory quiz.</h2>
-            </div>
-            <p className="section-copy">
-              A farmer's experience is useful evidence. Not sure is a valid answer. BoponX does not fill missing scientific information with a guess.
-            </p>
-          </div>
-
-          <form className="farmer-story-form" onSubmit={generatePlan} data-reveal>
-            <fieldset>
-              <legend><span>01</span>What crops have been grown here before?</legend>
-              <p className="question-help">Select up to four crops if you know them. Select the most recent crop first. This history helps BoponX keep soil testing and future rotation review in context.</p>
-              <div className="crop-choice-grid">
-                {cropOptions.map(([value, label, icon]) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={previousCrops.includes(value) ? "crop-choice active" : "crop-choice"}
-                    onClick={() => togglePreviousCrop(value)}
-                  >
-                    <span className="choice-icon"><FieldIcon name={icon as IconName} /></span>
-                    <strong>{label}</strong>
-                    {previousCrops.includes(value) && <small className="selection-order">{previousCrops.indexOf(value) + 1}</small>}
-                  </button>
-                ))}
-                <button type="button" className={previousCrops.length === 0 ? "crop-choice unknown active" : "crop-choice unknown"} onClick={() => setPreviousCrops([])}>
-                  <span className="choice-icon"><FieldIcon name="unknown" /></span><strong>Not sure</strong>
-                </button>
-              </div>
-            </fieldset>
-
-            <fieldset className="intention-fieldset">
-              <legend><span>02</span>What does the farmer want to grow now?</legend>
-              <p className="question-help">Choose the crop the farmer is considering next. BoponX will check decision readiness against regional calendar evidence, water conditions, field observations and NASA climate context.</p>
-              <div className="crop-choice-grid intention-grid">
-                {cropOptions.map(([value, label, icon]) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={intendedCrop === value ? "crop-choice active intention" : "crop-choice intention"}
-                    onClick={() => setIntendedCrop(intendedCrop === value ? "" : value)}
-                  >
-                    <span className="choice-icon"><FieldIcon name={icon as IconName} /></span>
-                    <strong>{label}</strong>
-                  </button>
-                ))}
-                <button type="button" className={!intendedCrop ? "crop-choice unknown active" : "crop-choice unknown"} onClick={() => setIntendedCrop("")}>
-                  <span className="choice-icon"><FieldIcon name="unknown" /></span><strong>Not decided</strong>
-                </button>
-              </div>
-            </fieldset>
-
-            <div className="farmer-form-split">
-              <fieldset>
-                <legend><span>03</span>How does the field usually get water?</legend>
-                <div className="answer-stack">
-                  {[
-                    ["rainfed", "Mostly rain", "rain"],
-                    ["irrigated", "Mostly irrigation", "irrigation"],
-                    ["both", "Rain and irrigation", "both"],
-                    ["unknown", "Not sure", "unknown"],
-                  ].map(([value, label, icon]) => (
-                    <label className={waterSource === value ? "answer-card active" : "answer-card"} key={value}>
-                      <input type="radio" name="water" checked={waterSource === value} onChange={() => setWaterSource(value as FarmerProfile["water_source"])} />
-                      <span className="answer-icon"><FieldIcon name={icon as IconName} /></span>
-                      <strong>{label}</strong>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-
-              <fieldset>
-                <legend><span>04</span>What usually happens after heavy rain?</legend>
-                <div className="answer-stack">
-                  {[
-                    ["drains", "Water drains quickly", "drainage"],
-                    ["stays", "Water stays for a long time", "standingWater"],
-                    ["sometimes", "It changes from time to time", "mixed"],
-                    ["unknown", "Not sure", "unknown"],
-                  ].map(([value, label, icon]) => (
-                    <label className={waterAfterRain === value ? "answer-card active" : "answer-card"} key={value}>
-                      <input type="radio" name="rain" checked={waterAfterRain === value} onChange={() => setWaterAfterRain(value as FarmerProfile["water_after_heavy_rain"])} />
-                      <span className="answer-icon"><FieldIcon name={icon as IconName} /></span>
-                      <strong>{label}</strong>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-            </div>
-
-            <div className="farmer-form-split">
-              <fieldset>
-                <legend><span>05</span>Do you have a soil test report?</legend>
-                <div className="soil-test-choice">
-                  {[
-                    ["yes", "Yes", "check"],
-                    ["no", "No", "close"],
-                    ["unknown", "Not sure", "unknown"],
-                  ].map(([value, label, icon]) => (
-                    <label className={soilTest === value ? "soil-choice active" : "soil-choice"} key={value}>
-                      <input type="radio" name="soil" checked={soilTest === value} onChange={() => setSoilTest(value as FarmerProfile["soil_test"])} />
-                      <span className="soil-choice-icon"><FieldIcon name={icon as IconName} /></span>
-                      <span>{label}</span>
-                    </label>
-                  ))}
-                </div>
-
-                {soilTest === "yes" && (
-                  <label className="ph-field">
-                    <span>
-                      <strong>pH from the report</strong>
-                      <small>Optional. BoponX never guesses pH from NASA data.</small>
-                    </span>
-                    <input type="number" min="0" max="14" step="0.1" value={soilPh} onChange={(event) => setSoilPh(event.target.value)} placeholder="6.5" />
-                  </label>
-                )}
-              </fieldset>
-
-              <fieldset>
-                <legend><span>06</span>What matters most right now?</legend>
-                <div className="priority-stack">
-                  {priorities.map(([value, label, code]) => (
-                    <label className={priority === value ? "priority-choice active" : "priority-choice"} key={value}>
-                      <input type="radio" name="priority" checked={priority === value} onChange={() => setPriority(value as FarmerProfile["priority"])} />
-                      <span className="priority-icon"><FieldIcon name={code as IconName} /></span>
-                      <strong>{label}</strong>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-            </div>
-
-            <div className="brief-builder">
-              <div>
-                <span className="brief-label">Planning starts</span>
-                <div className="date-pickers">
-                  <select value={startMonth} onChange={(event) => setStartMonth(Number(event.target.value))} aria-label="Planning month">
-                    {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => <option key={month} value={month}>{String(month).padStart(2, "0")}</option>)}
-                  </select>
-                  <select value={startYear} onChange={(event) => setStartYear(Number(event.target.value))} aria-label="Planning year">
-                    {Array.from({ length: 10 }, (_, index) => 2026 + index).map((year) => <option key={year} value={year}>{year}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <button type="submit" disabled={planBusy}>
-                <span>
-                  <small>{point ? `Field selected: ${currentLocationName}` : "Choose the field before generating the brief"}</small>
-                  <strong>{planBusy ? "Building your field brief…" : "Build my 90 day field brief"}</strong>
-                </span>
-                <b>→</b>
-              </button>
-            </div>
-
-            {!point && (
-              <div className="form-location-note">
-                <span>⌖</span>
-                <p>You can fill in the farm questions now. Choose the field location before you generate the plan.</p>
-                <button type="button" onClick={scrollToLocation}>Choose field</button>
-              </div>
-            )}
-
-            {planError && <div className="error-banner">{planError}</div>}
-          </form>
-        </section>
-
-        {plan && <DecisionReport brief={plan} />}
-
-        <section className="rotation-future bx-section">
-          <div className="rotation-stage" data-reveal>
-            <EarthScene className="rotation-earth" accent="cyan" />
-            <div className="rotation-copy">
-              <p className="section-kicker">The challenge destination</p>
-              <h2>Three seasons. Several strategies. Evidence beside every option.</h2>
-              <p>
-                The rotation explorer will compare feasible crop sequences after Bangladesh crop calendars, crop requirements, soil constraints and sequence rules are reviewed. Until then, BoponX shows the evidence pipeline without inventing a crop recommendation.
-              </p>
-              <div className="rotation-flow">
-                <span>Field</span><i>→</i>
-                <span>NASA</span><i>→</i>
-                <span>Local rules</span><i>→</i>
-                <span>Two or three rotations</span><i>→</i>
-                <span>Farmer decides</span>
-              </div>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <footer className="bx-footer">
-        <div className="footer-brand">
-          <span className="bx-brand-mark"><i /><i /><i /></span>
-          <div><strong>BoponX</strong><small>From Space to Soil</small></div>
-        </div>
-
-        <p>Independent Team EARTH.exe project. NASA does not endorse this application.</p>
-
-        <div className="footer-links">
-          <a href="https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026" target="_blank" rel="noreferrer">GitHub ↗</a>
-          <a href="https://www.spaceappschallenge.org/2026/challenges/field-shift-adapting-farms-with-nasa-data/" target="_blank" rel="noreferrer">Field Shift ↗</a>
-        </div>
-      </footer>
+          ) : (
+            <DecisionReport brief={plan} placeName={placeLabel(place, point)} />
+          )}
+        </main>
+      )}
     </div>
   );
 }
