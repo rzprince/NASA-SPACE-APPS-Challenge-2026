@@ -79,3 +79,18 @@
 - [ ] NASA GIBS unavailable
 - [ ] GPS denied
 - [ ] slow network
+
+
+## Personalized planning regression checks
+
+- [ ] Crop history allows several crops and preserves selection order.
+- [ ] Farmer can choose one intended next crop or Not decided.
+- [ ] Decision advice changes when the intended crop changes.
+- [ ] Decision advice changes when persistent standing water is combined with a wetter recent rainfall signal.
+- [ ] Decision advice changes when a rainfed field is combined with a drier recent rainfall signal.
+- [ ] Three month climatology shows three consecutive calendar months, including year wrap such as November, December, January.
+- [ ] Month 1, Month 2 and Month 3 each show their own historical climate reference.
+- [ ] Changing field location changes the regional label and the NASA POWER climatology request.
+- [ ] Changing planning start month changes all three monthly climate references.
+- [ ] Advice never describes regional calendar presence as proof of crop suitability.
+- [ ] Other crop options are labelled as options to investigate, not ranked recommendations.

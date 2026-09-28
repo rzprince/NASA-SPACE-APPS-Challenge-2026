@@ -26,3 +26,18 @@
 | Local soil evidence | Partial | farmer soil test pathway and external source direction |
 | Crop characteristics | Partial | calendar evidence indexed; complete crop requirement profiles still need review |
 | Three season rotation strategies | Scientifically gated | target architecture shown; final alternatives remain locked |
+
+
+## 28 September farmer advice and plan personalization
+
+| Requirement | Current state | Notes |
+| --- | --- | --- |
+| Record crops grown previously | Implemented | Up to four crops can be selected in order, with the most recent selected first |
+| Ask what the farmer wants to grow now | Implemented | One intended crop or Not decided can be selected |
+| Advise whether the current decision is ready | Implemented with scientific boundary | Advice checks regional calendar evidence, water, drainage, soil test availability, recent climate context and crop history |
+| Suggest a better next step | Implemented | The system can recommend verifying drainage, water access, soil evidence or regional calendar evidence before commitment |
+| Suggest other crop possibilities | Implemented as unranked evidence options | Other regionally documented BAMIS crops can be shown for investigation, but are not called better until agronomic rules are reviewed |
+| Make 90 day plan different by location | Implemented | Selected coordinates drive NASA POWER context and monthly climatology |
+| Make each month different | Implemented and tested | Each month has a separate objective, task codes and monthly climate reference |
+| Use weather context without pretending to forecast | Implemented | Recent NASA POWER is compared with historical monthly climatology; future months use climatology only |
+| Improve tiny frontend text | Implemented | Farmer controls, evidence details, plan tasks and source text received a readability pass |
