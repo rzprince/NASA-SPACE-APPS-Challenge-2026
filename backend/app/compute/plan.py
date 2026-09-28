@@ -335,7 +335,7 @@ def make_90_day_plan(
                     "NASA POWER recent context and climatology",
                 ))
 
-            phase = "Know the field and test the intention"
+            phase = "Know the field"
             objective = f"Build a reliable {region_name} field record and check whether the farmer's intended next move has enough evidence to continue."
 
         elif index == 2:
@@ -387,7 +387,7 @@ def make_90_day_plan(
                     "BAMIS evidence index",
                 ))
 
-            phase = "Watch the change and reduce uncertainty"
+            phase = "Watch the change"
             objective = f"Use {MONTH_NAMES[month]} evidence, the farmer priority, and field observations to reduce the biggest uncertainty before committing."
 
         else:

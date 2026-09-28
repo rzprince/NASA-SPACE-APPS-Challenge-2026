@@ -58,6 +58,30 @@ Every section supports a clear **Not sure** choice.
 
 Soil pH is optional and appears only when the farmer says a soil test report exists. BoponX never infers pH from NASA data.
 
+### New personalized farmer decision inputs
+
+The farmer workflow now records a short crop history instead of only one previous crop. The farmer can also state which crop they are considering now.
+
+BoponX uses those choices to create a decision readiness advisory. The advisory checks:
+
+- whether the intended crop has an indexed official regional BAMIS calendar source
+- recent NASA POWER rainfall context compared with the selected month historical climatology
+- whether the field is mainly rainfed or irrigated
+- what happens after heavy rain
+- whether a soil test report exists
+- the farmer priority
+- recent crop history
+
+The advisory can say that a crop is reasonable to explore, that more verification is needed, or that a water or drainage issue should be checked first. It does not rank crop suitability until reviewed agronomic crop requirements and sequence rules are available.
+
+### Personalized three month climate plan
+
+BoponX now requests a three month NASA POWER climatology window for the selected coordinates. Each planning month receives its own historical temperature and rainfall reference.
+
+This means two farmers in different locations, two different starting months, or two different field situations can receive different 90 day tasks even when they use the same application.
+
+The monthly climate references are historical context, not weather forecasts.
+
 ### 5. 90 day field brief
 
 The plan is intentionally divided into three different stages:
@@ -122,6 +146,7 @@ The current frontend includes:
 | GET /api/v1/agronomy/calendars?region= | BAMIS calendar evidence |
 | GET /api/v1/environment/recent?lat=&lon= | selected location NASA POWER recent context |
 | GET /api/v1/environment/baseline?lat=&lon=&month= | selected month 2001 to 2020 POWER climatology |
+| GET /api/v1/environment/baseline-window?lat=&lon=&start_month= | three consecutive monthly POWER climatology references for the 90 day plan |
 | POST /api/v1/farms/validate | validate farmer context without inventing unknowns |
 | POST /api/v1/plans/preview | generate the deterministic three stage 90 day brief |
 | GET /api/v1/crops | remains empty until crop profiles pass review |

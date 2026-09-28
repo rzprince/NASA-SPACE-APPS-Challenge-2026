@@ -817,3 +817,294 @@ img{max-width:100%}
     margin:20px 16px;
   }
 }
+
+
+/* Personalized planning and readability pass */
+.question-help{
+  margin:-4px 0 15px 42px;
+  max-width:920px;
+  color:#aab9af;
+  font-size:12px;
+  line-height:1.6;
+}
+
+.crop-choice{
+  position:relative;
+}
+
+.crop-choice strong{
+  font-size:11.5px;
+  line-height:1.35;
+}
+
+.selection-order{
+  position:absolute;
+  right:8px;
+  top:8px;
+  width:20px;
+  height:20px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  background:var(--lime);
+  color:#07110c;
+  font-size:9px;
+  font-weight:900;
+}
+
+.intention-fieldset{
+  margin-top:8px !important;
+  padding-top:28px !important;
+  border-top:1px solid rgba(255,255,255,.12) !important;
+}
+
+.intention-grid .crop-choice.active{
+  border-color:rgba(114,232,243,.58);
+  background:rgba(114,232,243,.07);
+}
+
+.intention-grid .crop-choice.active .choice-icon{
+  color:var(--cyan);
+}
+
+.answer-card strong,
+.priority-choice strong{
+  font-size:11.5px;
+}
+
+.soil-choice{
+  font-size:11px;
+}
+
+.ph-field strong{
+  font-size:11px;
+}
+
+.ph-field small,
+.brief-label{
+  font-size:9.5px;
+}
+
+.section-kicker{
+  font-size:11px;
+}
+
+.section-copy{
+  font-size:14px;
+}
+
+.signal-card > p{
+  font-size:12px;
+}
+
+.signal-card dt{
+  font-size:9.5px;
+}
+
+.signal-card dd{
+  font-size:10px;
+}
+
+.crop-source-row strong{
+  font-size:12px;
+}
+
+.crop-source-row small,
+.coverage-lines div{
+  font-size:10.5px;
+}
+
+.decision-advice-panel{
+  margin:28px 42px 8px;
+  padding:24px;
+  border:1px solid #c9d1ca;
+  background:linear-gradient(135deg,#edf4eb,#f8f7f1);
+  color:#13231a;
+}
+
+.decision-advice-panel.review_water_risk_first,
+.decision-advice-panel.review_water_access_first,
+.decision-advice-panel.verify_before_committing{
+  border-color:#d5b27a;
+  background:linear-gradient(135deg,#faf2df,#f8f7f1);
+}
+
+.advice-header{
+  display:flex;
+  justify-content:space-between;
+  gap:22px;
+  align-items:flex-start;
+  padding-bottom:16px;
+  border-bottom:1px solid #d6ddd6;
+}
+
+.advice-header h3{
+  margin:7px 0 0;
+  max-width:920px;
+  font-size:clamp(24px,2.5vw,36px);
+  line-height:1.12;
+  letter-spacing:-.025em;
+}
+
+.advice-status{
+  flex:0 0 auto;
+  border:1px solid #93a69a;
+  padding:7px 9px;
+  color:#4b6755;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.07em;
+}
+
+.advice-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:28px;
+  margin-top:20px;
+}
+
+.advice-label{
+  display:block;
+  margin-bottom:9px;
+  color:#62766a;
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+
+.advice-grid ul{
+  margin:0;
+  padding-left:18px;
+}
+
+.advice-grid li,
+.advice-grid p{
+  color:#536459;
+  font-size:12px;
+  line-height:1.65;
+}
+
+.condition-pills{
+  display:flex;
+  gap:7px;
+  flex-wrap:wrap;
+  margin-top:14px;
+}
+
+.condition-pills span{
+  border:1px solid #ccd5cd;
+  background:#fff;
+  padding:6px 8px;
+  font-size:9.5px;
+  color:#51665a;
+}
+
+.regional-options{
+  margin-top:20px;
+  padding-top:17px;
+  border-top:1px solid #d6ddd6;
+}
+
+.regional-options > div{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:8px;
+}
+
+.regional-options a{
+  display:grid;
+  gap:4px;
+  padding:11px;
+  border:1px solid #d6ddd6;
+  background:#fff;
+  text-decoration:none;
+}
+
+.regional-options strong{
+  font-size:11px;
+}
+
+.regional-options small{
+  color:#718078;
+  font-size:9.5px;
+  line-height:1.45;
+}
+
+.advice-boundary{
+  margin:18px 0 0;
+  padding-top:14px;
+  border-top:1px dashed #c8d0c9;
+  color:#75847b;
+  font-size:10px;
+  line-height:1.55;
+}
+
+.month-climate-context{
+  margin:13px 0 15px;
+  padding:11px 12px;
+  border-left:3px solid #5f8f6c;
+  background:#edf2eb;
+  display:grid;
+  gap:4px;
+}
+
+.month-climate-context span{
+  color:#66776d;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+
+.month-climate-context strong{
+  font-size:13px;
+}
+
+.month-climate-context small{
+  color:#78867d;
+  font-size:9.5px;
+}
+
+.brief-task strong{
+  font-size:11.5px;
+}
+
+.task-reason{
+  display:block !important;
+  margin-top:5px;
+  color:#738179 !important;
+  font-size:9.5px !important;
+  line-height:1.5 !important;
+}
+
+.brief-source-columns a strong{
+  font-size:10.5px;
+}
+
+.brief-source-columns a small{
+  font-size:9px;
+}
+
+@media(max-width:760px){
+  .question-help{
+    margin-left:0;
+  }
+
+  .advice-grid{
+    grid-template-columns:1fr;
+  }
+
+  .regional-options > div{
+    grid-template-columns:1fr;
+  }
+
+  .decision-advice-panel{
+    margin:20px 16px 8px;
+    padding:18px;
+  }
+
+  .advice-header{
+    display:grid;
+  }
+}
