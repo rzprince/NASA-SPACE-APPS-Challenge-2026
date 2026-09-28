@@ -149,8 +149,11 @@ def place_reverse(
 
 
 @app.get("/api/v1/local-sources")
-def local_sources(country_code: str = Query(min_length=2, max_length=2)) -> dict:
-    return source_registry(country_code)
+def local_sources(
+    country_code: str = Query(min_length=2, max_length=2),
+    country_name: str | None = Query(default=None, max_length=120),
+) -> dict:
+    return source_registry(country_code, country_name)
 
 
 @app.get("/api/v1/agronomy/calendars")
