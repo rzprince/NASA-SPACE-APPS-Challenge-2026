@@ -1,4 +1,3 @@
-export type Language = "bn" | "en";
 export type Status = "idle" | "loading" | "ready" | "unavailable";
 
 export type Area = {
@@ -23,10 +22,22 @@ export type NasaSource = {
 };
 
 export type AgriculturalSource = {
+  id?: string;
   name: string;
+  organization?: string;
   scope: string;
+  kind?: string;
   status: string;
   source_url: string;
+  note?: string;
+};
+
+export type LocalSourceRegistry = {
+  country_code: string | null;
+  official_sources: AgriculturalSource[];
+  global_sources: AgriculturalSource[];
+  coverage: "verified_country_adapter" | "global_reference_only";
+  warning: string;
 };
 
 export type CalendarEvidence = {
@@ -64,19 +75,11 @@ export type PowerBaselineSummary = {
   calendar_month: number;
   calendar_month_key?: string;
   temperature_mean_c: number | null;
+  temperature_max_mean_c?: number | null;
+  temperature_min_mean_c?: number | null;
   precipitation_mean_daily_mm: number | null;
-};
-
-export type PowerBaseline = {
-  status: "available" | "unavailable";
-  provider: string;
-  kind: string;
-  baseline_period?: { start_year: number; end_year: number };
-  coordinates?: { latitude: number; longitude: number };
-  summary?: PowerBaselineSummary | null;
-  source_products?: string[];
-  source_request_url?: string;
-  limitations?: string[];
+  relative_humidity_mean_pct?: number | null;
+  wind_speed_mean_m_s?: number | null;
 };
 
 export type PowerBaselineWindow = {
@@ -94,6 +97,7 @@ export type PowerBaselineWindow = {
 export type LocationContext = {
   coordinates: { latitude: number; longitude: number };
   within_bangladesh: boolean;
+  global_environmental_coverage: boolean;
   nearest_supported_region: Area & {
     distance_km: number;
     note: string;
@@ -124,7 +128,11 @@ export type RecentEnvironment = {
     temperature_valid_days: number;
     precipitation_valid_days: number;
     temperature_mean_c: number | null;
+    temperature_max_mean_c?: number | null;
+    temperature_min_mean_c?: number | null;
     precipitation_total_mm: number | null;
+    relative_humidity_mean_pct?: number | null;
+    wind_speed_mean_m_s?: number | null;
   };
   source_request_url?: string;
   limitations?: string[];
@@ -206,7 +214,7 @@ export type PlanBrief = {
   };
   months: PlanMonth[];
   recent_environment: RecentEnvironment | null;
-  historical_baseline: PowerBaseline | null;
+  historical_baseline?: unknown;
   historical_baseline_window?: PowerBaselineWindow | null;
   rotation_explorer: {
     status: string;
