@@ -20,6 +20,10 @@ NASA evidence is resolved once, then reused by the decision engine. Local source
 
 ## Earth Twin
 
+The main interface is now a custom Three.js **realistic Earth from space** rather than a flat map styled as a globe.
+
+The sphere uses NASA GIBS global imagery. It supports NASA Blue Marble, dated MODIS Terra true color imagery, GPM IMERG precipitation overlays, and SMAP surface soil moisture overlays. The farmer or adviser can rotate the planet, zoom from space, tap a location on the globe, search a place, or allow browser geolocation.
+
 The main interface is an interactive global Earth selector.
 
 A farmer or adviser can:
@@ -36,7 +40,7 @@ The selected coordinate drives the NASA POWER queries and the local source looku
 The Earth Twin currently exposes:
 
 - **NASA GIBS true color imagery**
-- **GPM IMERG V07B precipitation visualization**
+- **GPM IMERG Early V07B precipitation visualization**
 - **SMAP surface soil moisture visualization**
 
 The map always keeps a standard OpenStreetMap base available. A NASA imagery failure cannot prevent field selection.
@@ -114,7 +118,9 @@ This keeps the visual impact of a mission control interface without pretending t
 
 There is no single reliable API containing every government's agricultural information.
 
-BoponX therefore uses a **verified adapter architecture** instead of inventing worldwide local data.
+BoponX therefore uses a **verified adapter architecture** instead of inventing worldwide local data. Every selected country now receives a visible **government agriculture portal finder** so the user can reach the country's official agriculture ministry or data portal. This is labelled as a discovery route until the direct government domain has been manually reviewed.
+
+Verified direct links remain visually distinct from discovery links.
 
 Currently reviewed adapters include:
 
@@ -209,8 +215,9 @@ BoponX intentionally uses a focused stack instead of adding languages only to in
 - React
 - TypeScript
 - Vite
-- MapLibre GL globe projection
-- NASA GIBS WMS layers
+- Three.js realistic Earth renderer
+- OrbitControls and globe ray casting for field selection
+- NASA GIBS WMS textures and overlays
 - custom mission control UI
 - responsive and print layouts
 

@@ -67,3 +67,22 @@
 - [ ] no blank screen after GPS
 - [ ] no blank screen after plan generation
 - [ ] app recovery screen appears on unexpected React error
+
+
+## Realistic Earth regression checks
+
+- [ ] Earth renders as a spherical planet against space, not as a flat map
+- [ ] NASA Blue Marble or dated true color imagery loads
+- [ ] drag rotates the planet
+- [ ] mouse wheel or trackpad zoom changes camera distance
+- [ ] tapping Bangladesh selects a Bangladesh coordinate
+- [ ] tapping another continent returns plausible global coordinates
+- [ ] browser geolocation moves the camera to the selected field
+- [ ] place search moves the field marker and camera
+- [ ] IMERG overlay appears on top of the Earth texture
+- [ ] SMAP overlay appears on top of the Earth texture
+- [ ] overlay failure leaves the base Earth selectable
+- [ ] selected country shows verified government links when an adapter exists
+- [ ] every country shows the government portal finder
+- [ ] portal finder is never labelled verified
+- [ ] FAO global references remain visible
