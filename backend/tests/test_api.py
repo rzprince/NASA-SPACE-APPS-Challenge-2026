@@ -103,10 +103,12 @@ def test_ph_is_only_accepted_with_explicit_soil_test():
     assert response.status_code == 200
 
 
-def test_outside_bangladesh_is_rejected():
+def test_global_farmer_location_is_accepted_with_local_evidence_boundary():
     response = client.post("/api/v1/farms/validate", json=farmer(latitude=35.0, longitude=90.0))
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "OUTSIDE_BANGLADESH_PILOT"
+    assert response.status_code == 200
+    content = response.json()
+    assert content["context"]["global_environmental_coverage"] is True
+    assert content["context"]["coverage"]["local_agricultural_evidence"] == "country_adapter_required"
 
 
 def test_no_crop_or_rotation_claim_without_rules():
@@ -293,3 +295,41 @@ def test_each_month_has_location_specific_climate_task():
     assert "February" in climate_tasks[1]
     assert "March" in climate_tasks[2]
     assert len(set(climate_tasks)) == 3
+
+
+
+def test_verified_local_source_registry_and_global_fallback():
+    bd = client.get("/api/v1/local-sources?country_code=bd")
+    assert bd.status_code == 200
+    assert bd.json()["coverage"] == "verified_country_adapter"
+    assert any(source["id"] == "bd-bamis" for source in bd.json()["official_sources"])
+
+    zz = client.get("/api/v1/local-sources?country_code=zz")
+    assert zz.status_code == 200
+    assert zz.json()["coverage"] == "global_reference_only"
+    assert zz.json()["official_sources"] == []
+    assert any(source["id"] == "fao-crop-calendar" for source in zz.json()["global_sources"])
+
+
+def test_global_plan_can_run_without_fabricating_local_crop_evidence():
+    response = client.post(
+        "/api/v1/plans/preview",
+        json={
+            "farm": farmer(
+                latitude=40.0,
+                longitude=-100.0,
+                intended_crop="wheat",
+                water_source="rainfed",
+                water_after_heavy_rain="drains",
+            ),
+            "start_year": 2026,
+            "start_month": 10,
+            "include_recent_power": False,
+            "include_climate_baseline": False,
+        },
+    )
+    assert response.status_code == 200
+    brief = response.json()
+    assert brief["location"]["region_id"] == "global-field"
+    assert brief["evidence"]["calendar_evidence"] == []
+    assert brief["decision_advice"]["regional_calendar_match"] is False
