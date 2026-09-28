@@ -134,20 +134,32 @@ def build_context(lat: float, lon: float) -> dict[str, Any]:
         calendars = calendar_evidence_for_region(area.evidence_region)
         agricultural_sources = [
             {
-                "name": "BAMIS / Department of Agricultural Extension",
+                "name": "Bangladesh Agro Meteorological Information Service",
                 "scope": f"{area.evidence_region} crop weather calendars and agromet information",
                 "status": "official_calendar_index_connected",
                 "source_url": "https://www.bamis.gov.bd/",
             },
             {
                 "name": "Bangladesh Agricultural Research Council crop zoning",
-                "scope": "Agro-edaphic and agro-climatic crop zoning reference",
+                "scope": "Upazila level agro edaphic and agro climatic crop suitability and zoning reference",
                 "status": "official_reference",
                 "source_url": "https://apps.barc.gov.bd/cropzoning/",
             },
             {
+                "name": "Agriculture Information Service",
+                "scope": "Government crop production technology, seasonal agriculture guidance, market information and farmer information services",
+                "status": "official_reference",
+                "source_url": "https://ais.gov.bd/",
+            },
+            {
+                "name": "Department of Agricultural Extension",
+                "scope": "Government extension service and local farmer support",
+                "status": "official_reference",
+                "source_url": "https://dae.gov.bd/",
+            },
+            {
                 "name": "FAO Crop Calendar",
-                "scope": "Country and agroecological-zone crop calendar reference",
+                "scope": "Country and agroecological zone crop calendar reference",
                 "status": "global_reference",
                 "source_url": "https://cropcalendar.apps.fao.org/",
             },

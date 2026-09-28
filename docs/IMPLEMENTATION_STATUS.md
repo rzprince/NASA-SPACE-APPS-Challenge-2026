@@ -94,3 +94,21 @@ Implemented:
 - FAO Crop Calendar and FAOLEX country profiles remain global reference layers
 
 The portal finder is deliberately not labelled as a verified government data source. Direct government links only receive verified status after manual review.
+
+
+## 28 September Earth Twin reliability and farmer output refinement
+
+Implemented:
+- NASA Blue Marble now loads first as the complete Earth texture
+- dated MODIS true color is an optional overlay rather than the base Earth
+- dark no data areas in daily true color are masked so they do not create black bands across the planet
+- NASA GIBS Reference Labels are displayed on a separate transparent sphere and become more visible when zoomed closer
+- the Earth begins rotating automatically and resumes after interaction
+- field selection still works if an optional NASA overlay is unavailable
+- Bangladesh quick selection covers all 8 divisions and 64 districts through the global geocoder
+- Bangladesh local evidence adds Ministry of Agriculture, Department of Agricultural Extension and Agriculture Information Service
+- reviewed national agriculture adapters expanded to Canada, Japan, Brazil, Philippines and Sri Lanka in addition to existing adapters
+- fake Local crop A, Local crop B and Local crop C fallbacks were removed from Rotation Lab
+- the farmer field plan was redesigned with visual tasks, evidence reasons, monthly climate context and local support
+- Bangladesh printed plans include Agriculture Call Center 16123 so the paper output does not depend on clicking a website
+- mission control text received a readability pass across both side rails, Earth controls, Rotation Lab and Field Plan

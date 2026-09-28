@@ -34,6 +34,23 @@ const cropLabels: Record<string, string> = Object.fromEntries(
   cropOptions.map(([id, label]) => [id, label]),
 );
 
+const bangladeshDivisions = [
+  "Barishal", "Chattogram", "Dhaka", "Khulna", "Mymensingh", "Rajshahi", "Rangpur", "Sylhet",
+] as const;
+
+const bangladeshDistricts = [
+  "Bagerhat", "Bandarban", "Barguna", "Barishal", "Bhola", "Bogura", "Brahmanbaria", "Chandpur",
+  "Chapainawabganj", "Chattogram", "Chuadanga", "Cox's Bazar", "Cumilla", "Dhaka", "Dinajpur",
+  "Faridpur", "Feni", "Gaibandha", "Gazipur", "Gopalganj", "Habiganj", "Jamalpur", "Jashore",
+  "Jhalokati", "Jhenaidah", "Joypurhat", "Khagrachhari", "Khulna", "Kishoreganj", "Kurigram",
+  "Kushtia", "Lakshmipur", "Lalmonirhat", "Madaripur", "Magura", "Manikganj", "Meherpur",
+  "Moulvibazar", "Munshiganj", "Mymensingh", "Naogaon", "Narail", "Narayanganj", "Narsingdi",
+  "Natore", "Netrokona", "Nilphamari", "Noakhali", "Pabna", "Panchagarh", "Patuakhali",
+  "Pirojpur", "Rajbari", "Rajshahi", "Rangamati", "Rangpur", "Satkhira", "Shariatpur",
+  "Sherpur", "Sirajganj", "Sunamganj", "Sylhet", "Tangail", "Thakurgaon",
+] as const;
+
+
 function dateMinus(days: number) {
   return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 }
@@ -61,28 +78,39 @@ function buildStrategies(
   const unique = Array.from(new Set(names));
   const intentLabel = intendedCrop ? cropLabels[intendedCrop] ?? intendedCrop : null;
   const previousLabel = previousCrops[0] ? cropLabels[previousCrops[0]] ?? previousCrops[0] : null;
-  const pool = [intentLabel, ...unique].filter((value): value is string => Boolean(value));
-  const fallback = ["Local crop A", "Local crop B", "Local crop C"];
-  const source = pool.length >= 3 ? pool : [...pool, ...fallback].slice(0, 3);
+  const source = Array.from(new Set(
+    [intentLabel, ...unique].filter((value): value is string => Boolean(value)),
+  ));
+
+  if (source.length < 3) {
+    return [
+      {
+        id: "A",
+        title: "Rotation evidence gate",
+        crops: ["Regional crop evidence", "Crop sequence rules", "Soil constraints"],
+        note: "BoponX withholds a crop sequence here because three evidence backed crop options are not available for this selected location.",
+      },
+    ];
+  }
 
   return [
     {
       id: "A",
-      title: "Water cautious path",
+      title: "Water cautious exploration",
       crops: [source[0], source[1], source[2]],
-      note: "Exploration path only. Check local calendar, water access and soil evidence before committing.",
+      note: "Exploration only. Water access, drainage, local calendars and soil evidence still need to support the sequence.",
     },
     {
       id: "B",
-      title: "Soil recovery path",
-      crops: [source[1] ?? source[0], source[2] ?? source[0], source[0]],
-      note: "Sequence is not ranked until reviewed crop sequence rules are connected.",
+      title: "Alternative regional exploration",
+      crops: [source[1], source[2], source[0]],
+      note: "Uses only crops with regional calendar evidence. Sequence ranking remains locked until reviewed crop sequence rules are connected.",
     },
     {
       id: "C",
-      title: "Farmer intent path",
-      crops: [previousLabel ?? source[2], intentLabel ?? source[0], source[1] ?? source[0]],
-      note: "Keeps the farmer intention visible while evidence gaps are reviewed.",
+      title: "Farmer intent exploration",
+      crops: [previousLabel ?? source[2], intentLabel ?? source[0], source[1]],
+      note: "Keeps the farmer intention visible while the local agronomic evidence gate remains explicit.",
     },
   ];
 }
@@ -95,12 +123,13 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [gpsBusy, setGpsBusy] = useState(false);
+  const [adminBusy, setAdminBusy] = useState(false);
   const [context, setContext] = useState<LocationContext | null>(null);
   const [localSources, setLocalSources] = useState<LocalSourceRegistry | null>(null);
   const [recent, setRecent] = useState<RecentEnvironment | null>(null);
   const [baselineWindow, setBaselineWindow] = useState<PowerBaselineWindow | null>(null);
   const [dataBusy, setDataBusy] = useState(false);
-  const [activeLayer, setActiveLayer] = useState<LayerKey | null>("trueColor");
+  const [activeLayer, setActiveLayer] = useState<LayerKey | null>(null);
   const [error, setError] = useState("");
 
   const [previousCrops, setPreviousCrops] = useState<string[]>([]);
@@ -265,6 +294,31 @@ export default function App() {
     );
   }
 
+  async function chooseBangladeshArea(name: string) {
+    if (!name) return;
+    setAdminBusy(true);
+    setError("");
+    try {
+      const payload = await apiGet<{ results: PlaceResult[] }>(
+        `/api/v1/places/search?q=${encodeURIComponent(`${name}, Bangladesh`)}`,
+      );
+      const match =
+        payload.results.find((result) => result.address.country_code === "bd") ??
+        payload.results[0];
+      if (!match) {
+        setError(`Could not resolve ${name}. Use the global search instead.`);
+        return;
+      }
+      choosePoint({ latitude: match.latitude, longitude: match.longitude }, match);
+      setSearch("");
+      setSearchResults([]);
+    } catch {
+      setError(`Could not resolve ${name}. Use the global search instead.`);
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
   function toggleHistory(crop: string) {
     setPreviousCrops((current) => {
       if (current.includes(crop)) return current.filter((item) => item !== crop);
@@ -390,6 +444,31 @@ export default function App() {
               )}
             </div>
 
+            <div className="bangladesh-admin-select">
+              <label htmlFor="bd-area-select">
+                <span>BANGLADESH QUICK SELECT</span>
+                <small>All 8 divisions and 64 districts</small>
+              </label>
+              <select
+                id="bd-area-select"
+                defaultValue=""
+                disabled={adminBusy}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value) void chooseBangladeshArea(value);
+                  event.currentTarget.value = "";
+                }}
+              >
+                <option value="">{adminBusy ? "Resolving area…" : "Choose a division or district"}</option>
+                <optgroup label="Divisions">
+                  {bangladeshDivisions.map((name) => <option value={name} key={`division-${name}`}>{name} Division</option>)}
+                </optgroup>
+                <optgroup label="Districts">
+                  {bangladeshDistricts.map((name) => <option value={name} key={`district-${name}`}>{name} District</option>)}
+                </optgroup>
+              </select>
+            </div>
+
             <section className="selected-field-card">
               <span className="micro-label">SELECTED FIELD</span>
               <h2>{placeLabel(place, point)}</h2>
@@ -404,9 +483,10 @@ export default function App() {
               </div>
               {(localSources?.official_sources ?? []).map((source) => (
                 <a className="official-source" key={source.id ?? source.name} href={source.source_url} target="_blank" rel="noreferrer">
-                  <span className="source-status verified">VERIFIED OFFICIAL</span>
+                  <span className="source-status verified">OFFICIAL AGRICULTURE SOURCE</span>
                   <strong>{source.name}</strong>
                   <small>{source.scope}</small>
+                  <em>Open official source ↗</em>
                 </a>
               ))}
               {localSources?.official_sources.length === 0 && (
@@ -417,9 +497,10 @@ export default function App() {
               )}
               {localSources?.government_discovery && (
                 <a className="government-discovery" href={localSources.government_discovery.source_url} target="_blank" rel="noreferrer">
-                  <span className="source-status discover">COUNTRY PORTAL FINDER</span>
+                  <span className="source-status discover">OFFICIAL PORTAL ROUTE</span>
                   <strong>{localSources.government_discovery.name}</strong>
                   <small>{localSources.government_discovery.note}</small>
+                  <em>Open country agriculture route ↗</em>
                 </a>
               )}
               {(localSources?.global_sources ?? []).map((source) => (
@@ -477,7 +558,7 @@ export default function App() {
               </div>
               <div className="pulse-copy">
                 <strong>{dataBusy ? "Resolving Earth signals…" : "Earth Pulse"}</strong>
-                <small>NASA data are fused once here, then reused by the decision engine.</small>
+                <small>NASA climate and Earth observation signals are resolved for this field, then reused by the farm analysis.</small>
               </div>
             </div>
 
@@ -515,7 +596,7 @@ export default function App() {
             </div>
 
             <div className="source-stack">
-              <div><i className="green" /><span>GPM IMERG Early V07B</span><small>current 2026 near real time rain layer</small></div>
+              <div><i className="green" /><span>GPM IMERG V07</span><small>recent precipitation spatial evidence</small></div>
               <div><i className="blue" /><span>SMAP SPL3SMP E V6</span><small>surface soil moisture context</small></div>
               <div><i className="amber" /><span>NASA POWER</span><small>agroclimate + baseline</small></div>
               <div><i className="white" /><span>NASA GIBS</span><small>spatial evidence delivery</small></div>
