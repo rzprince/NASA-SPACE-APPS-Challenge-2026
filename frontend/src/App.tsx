@@ -7,6 +7,7 @@ import {
   ApiError,
   apiGet,
   apiPost,
+  type EarthdataDiscovery,
   type FarmerProfile,
   type LocationContext,
   type NasaSource,
@@ -90,6 +91,8 @@ export default function App() {
   const [baselineWindow, setBaselineWindow] = useState<PowerBaselineWindow | null>(null);
   const [baselineStatus, setBaselineStatus] = useState<Status>("idle");
   const [nasaCatalog, setNasaCatalog] = useState<NasaSource[]>([]);
+  const [earthdataDiscovery, setEarthdataDiscovery] = useState<EarthdataDiscovery | null>(null);
+  const [earthdataStatus, setEarthdataStatus] = useState<Status>("idle");
   const [search, setSearch] = useState("");
   const [searchStatus, setSearchStatus] = useState<Status>("idle");
   const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
@@ -160,12 +163,15 @@ export default function App() {
       setContextStatus("idle");
       setRecentStatus("idle");
       setBaselineStatus("idle");
+      setEarthdataDiscovery(null);
+      setEarthdataStatus("idle");
       return;
     }
 
     const controller = new AbortController();
     setContextStatus("loading");
     setRecentStatus("loading");
+    setEarthdataStatus("loading");
     setLocationError("");
     setPlan(null);
 
@@ -191,10 +197,14 @@ export default function App() {
         (countryCode ? `&country_code=${encodeURIComponent(countryCode)}` : "") +
         (countryName ? `&country_name=${encodeURIComponent(countryName)}` : "");
 
-      const [contextResult, recentResult] = await Promise.allSettled([
+      const [contextResult, recentResult, earthdataResult] = await Promise.allSettled([
         apiGet<LocationContext>(contextQuery, controller.signal),
         apiGet<RecentEnvironment>(
           `/api/v1/environment/recent?lat=${point.latitude}&lon=${point.longitude}`,
+          controller.signal,
+        ),
+        apiGet<EarthdataDiscovery>(
+          `/api/v1/earthdata/discovery?lat=${point.latitude}&lon=${point.longitude}`,
           controller.signal,
         ),
       ]);
@@ -216,6 +226,17 @@ export default function App() {
       } else {
         setRecent(null);
         setRecentStatus("unavailable");
+      }
+
+      if (earthdataResult.status === "fulfilled") {
+        setEarthdataDiscovery(earthdataResult.value);
+        const anyChannel =
+          earthdataResult.value.hls.status === "available" ||
+          earthdataResult.value.ecostress.status === "available";
+        setEarthdataStatus(anyChannel ? "ready" : "unavailable");
+      } else {
+        setEarthdataDiscovery(null);
+        setEarthdataStatus("unavailable");
       }
     };
 
@@ -674,17 +695,34 @@ export default function App() {
                 <small>truthful adapter state</small>
               </div>
               <div className="highres-grid">
-                {adapterSources.map((source) => (
-                  <article key={source.id}>
-                    <span>{source.mission}</span>
-                    <strong>{source.product}</strong>
-                    <p>{source.decision_use}</p>
-                    <div>
-                      <b>{source.spatial}</b>
-                      <small>{integrationLabel(source.integration)}</small>
-                    </div>
-                  </article>
-                ))}
+                {adapterSources.map((source) => {
+                  const channel =
+                    source.mission === "HLS"
+                      ? earthdataDiscovery?.hls
+                      : source.mission === "ECOSTRESS"
+                        ? earthdataDiscovery?.ecostress
+                        : null;
+                  return (
+                    <article key={source.id}>
+                      <span>{source.mission}</span>
+                      <strong>{source.product}</strong>
+                      <p>{source.decision_use}</p>
+                      <div className="highres-discovery">
+                        <b>{source.spatial}</b>
+                        <small>
+                          {channel
+                            ? channel.status === "available"
+                              ? `${channel.granule_count_returned ?? 0} RECENT GRANULES`
+                              : channel.status.replaceAll("_", " ").toUpperCase()
+                            : earthdataStatus === "loading"
+                              ? "SEARCHING CMR"
+                              : integrationLabel(source.integration)}
+                        </small>
+                      </div>
+                      {channel?.latest_time && <em>Latest nearby acquisition: {channel.latest_time.slice(0, 10)}</em>}
+                    </article>
+                  );
+                })}
               </div>
             </section>
           </div>

@@ -15,6 +15,7 @@ from backend.app.compute.context import build_context, list_areas
 from backend.app.compute.global_sources import local_sources_for_country, nasa_data_stack
 from backend.app.compute.monthly import aggregate_monthly
 from backend.app.compute.plan import make_90_day_plan
+from backend.app.services.earthdata_cmr import discover_field_observations
 from backend.app.services.geocoder import reverse_global_place, search_global_places
 from backend.app.services.power_live import fetch_power_climatology, fetch_power_climatology_window, fetch_recent_power
 
@@ -188,6 +189,14 @@ def location_context(
     country_name: str | None = Query(default=None, max_length=100),
 ) -> dict:
     return build_context(lat, lon, country_code=country_code, country_name=country_name)
+
+
+@app.get("/api/v1/earthdata/discovery")
+def earthdata_discovery(
+    lat: float = Query(ge=-90, le=90),
+    lon: float = Query(ge=-180, le=180),
+) -> dict:
+    return discover_field_observations(lat, lon)
 
 
 @app.get("/api/v1/environment/recent")

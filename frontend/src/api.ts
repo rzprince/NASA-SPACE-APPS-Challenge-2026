@@ -155,6 +155,30 @@ export type RecentEnvironment = {
   message?: string;
 };
 
+export type EarthdataDiscoveryChannel = {
+  status: "available" | "no_recent_granules" | "unavailable";
+  search_window_days?: number;
+  collections: Array<{ name: string; concept_id: string }>;
+  granule_count_returned?: number;
+  latest_time?: string | null;
+  granules: Array<{
+    id?: string;
+    title?: string;
+    time_start?: string;
+    time_end?: string;
+    updated?: string;
+  }>;
+  source_request_url?: string;
+};
+
+export type EarthdataDiscovery = {
+  provider: string;
+  coordinates: { latitude: number; longitude: number };
+  hls: EarthdataDiscoveryChannel;
+  ecostress: EarthdataDiscoveryChannel;
+  limitations: string[];
+};
+
 export type FarmerProfile = {
   latitude: number;
   longitude: number;
