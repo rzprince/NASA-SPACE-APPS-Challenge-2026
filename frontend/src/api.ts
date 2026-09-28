@@ -1,5 +1,5 @@
-export type Language = "bn" | "en";
 export type Status = "idle" | "loading" | "ready" | "unavailable";
+export type Workspace = "earth" | "intelligence" | "rotation" | "brief";
 
 export type Area = {
   id: string;
@@ -13,20 +13,27 @@ export type Area = {
 export type NasaSource = {
   id: string;
   name: string;
+  mission: string;
   role: string;
-  kind: string;
-  status: string;
-  latency_note: string;
-  resolution_note: string;
+  decision_use: string;
+  product: string;
+  temporal: string;
+  spatial: string;
+  latency: string;
+  coverage: string;
+  access: string;
+  integration: string;
   source_url: string;
+  boundary: string;
   advisory?: string;
 };
 
 export type AgriculturalSource = {
   name: string;
-  scope: string;
-  status: string;
+  agency: string;
+  kind: string;
   source_url: string;
+  integration: string;
 };
 
 export type CalendarEvidence = {
@@ -65,11 +72,15 @@ export type PowerBaselineSummary = {
   calendar_month_key?: string;
   temperature_mean_c: number | null;
   precipitation_mean_daily_mm: number | null;
+  relative_humidity_mean_pct?: number | null;
+  wind_speed_2m_mean_ms?: number | null;
+  solar_radiation_mean_kwh_m2_day?: number | null;
 };
 
 export type PowerBaseline = {
   status: "available" | "unavailable";
   provider: string;
+  product?: string;
   kind: string;
   baseline_period?: { start_year: number; end_year: number };
   coordinates?: { latitude: number; longitude: number };
@@ -82,6 +93,7 @@ export type PowerBaseline = {
 export type PowerBaselineWindow = {
   status: "available" | "unavailable";
   provider: string;
+  product?: string;
   kind: string;
   baseline_period?: { start_year: number; end_year: number };
   coordinates?: { latitude: number; longitude: number };
@@ -94,6 +106,10 @@ export type PowerBaselineWindow = {
 export type LocationContext = {
   coordinates: { latitude: number; longitude: number };
   within_bangladesh: boolean;
+  country: {
+    code: string | null;
+    name: string;
+  };
   nearest_supported_region: Area & {
     distance_km: number;
     note: string;
@@ -105,6 +121,7 @@ export type LocationContext = {
   };
   calendar_evidence: CalendarEvidence[];
   agricultural_sources: AgriculturalSource[];
+  local_source_note: string;
   nasa_sources: NasaSource[];
   privacy: {
     coordinates_persisted: boolean;
@@ -116,6 +133,8 @@ export type RecentEnvironment = {
   status: "available" | "unavailable";
   mode?: string;
   provider: string;
+  product?: string;
+  parameters?: string[];
   source_products?: string[];
   period?: { start: string; end: string; time_standard: string };
   coordinates?: { latitude: number; longitude: number };
@@ -124,7 +143,12 @@ export type RecentEnvironment = {
     temperature_valid_days: number;
     precipitation_valid_days: number;
     temperature_mean_c: number | null;
+    temperature_max_mean_c?: number | null;
+    temperature_min_mean_c?: number | null;
     precipitation_total_mm: number | null;
+    relative_humidity_mean_pct?: number | null;
+    wind_speed_2m_mean_ms?: number | null;
+    solar_radiation_mean_kwh_m2_day?: number | null;
   };
   source_request_url?: string;
   limitations?: string[];
@@ -142,6 +166,9 @@ export type FarmerProfile = {
   soil_test: "yes" | "no" | "unknown";
   soil_ph: number | null;
   priority: "water" | "soil" | "production_stability";
+  country_code: string | null;
+  country_name: string | null;
+  place_name: string | null;
 };
 
 export type PlanTask = {
