@@ -1,233 +1,93 @@
-import type { CalendarEvidence, NasaSource, PlanBrief, PlanMonth } from "./api";
+import type { PlanBrief } from "./api";
 
-function metric(value: number | null | undefined, suffix: string) {
+function metric(value: number | null | undefined, suffix = "") {
   if (value === null || value === undefined || !Number.isFinite(value)) return "Not available";
-  return `${new Intl.NumberFormat("en-BD", { maximumFractionDigits: 1 }).format(value)}${suffix}`;
+  return `${new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(value)}${suffix}`;
 }
 
-function safeArray<T>(value: T[] | null | undefined): T[] {
-  return Array.isArray(value) ? value : [];
-}
+export default function DecisionReport({ brief, placeName }: { brief: PlanBrief; placeName: string }) {
+  const advice = brief.decision_advice;
+  const months = Array.isArray(brief.months) ? brief.months : [];
+  const recent = brief.recent_environment?.status === "available" ? brief.recent_environment.summary : undefined;
 
-export default function DecisionReport({ brief }: { brief: PlanBrief }) {
-  const recent = brief?.recent_environment ?? null;
-  const baseline = brief?.historical_baseline ?? null;
-  const months = safeArray<PlanMonth>(brief?.months);
-  const nasaSources = safeArray<NasaSource>(brief?.evidence?.nasa_sources);
-  const calendars = safeArray<CalendarEvidence>(brief?.evidence?.calendar_evidence);
-  const latitude = Number(brief?.location?.coordinates?.latitude);
-  const longitude = Number(brief?.location?.coordinates?.longitude);
-  const regionName = brief?.location?.region_name_en || "Selected field";
-  const limitation = brief?.limitations?.en || "This field brief is decision support, not a crop prescription or weather forecast.";
-  const rotationMessage =
-    brief?.rotation_explorer?.message_en ||
-    "Rotation alternatives remain behind evidence review until local crop and sequence rules are approved.";
-  const advice = brief?.decision_advice ?? null;
-  const conditions = brief?.conditions ?? null;
-
-  function printBrief() {
+  function printPlan() {
     const previous = document.title;
-    document.title = "BoponX field brief";
+    document.title = "BoponX Farmer Action Card";
     window.print();
-    window.setTimeout(() => {
-      document.title = previous;
-    }, 300);
+    window.setTimeout(() => (document.title = previous), 250);
   }
 
   return (
-    <section className="field-brief-section bx-section" id="field-brief">
-      <div className="brief-screen">
-        <div className="brief-screen-bar no-print">
-          <div>
-            <span className="brief-status-dot" />
-            <span>FIELD BRIEF READY</span>
-          </div>
-          <button type="button" onClick={printBrief}>Print or save PDF ↗</button>
+    <section className="field-plan-shell">
+      <header className="plan-console-head no-print">
+        <div>
+          <span>FIELD PLAN | READY</span>
+          <strong>{placeName}</strong>
         </div>
+        <button onClick={printPlan}>Print Farmer Action Card</button>
+      </header>
 
-        <header className="brief-hero">
-          <div>
-            <p className="section-kicker">The next 90 days</p>
-            <h2>Three months. Three different jobs.</h2>
+      <div className="farmer-action-card">
+        <header className="action-card-head">
+          <div className="action-brand">
+            <span className="action-mark">BX</span>
+            <div><strong>BoponX</strong><small>From Space to Soil</small></div>
           </div>
-
-          <div className="brief-place">
-            <span>{regionName}</span>
-            <strong>Field decision brief</strong>
-            <small>
-              {Number.isFinite(latitude) && Number.isFinite(longitude)
-                ? `${latitude.toFixed(4)}° N | ${longitude.toFixed(4)}° E`
-                : "Coordinates unavailable"}
-            </small>
+          <div className="action-field">
+            <span>FIELD</span>
+            <strong>{placeName}</strong>
+            <small>{brief.location.coordinates.latitude.toFixed(4)}°, {brief.location.coordinates.longitude.toFixed(4)}°</small>
           </div>
         </header>
 
-        <div className="brief-evidence-strip">
+        <section className="action-decision">
+          <span className="action-label">WHAT BOPONX SEES</span>
+          <h1>{advice?.verdict ?? "Your field evidence is ready for review."}</h1>
+          <p>{advice?.better_next_step ?? "Review the three month actions before the next seasonal decision."}</p>
+          <div className="action-signal-row">
+            <div><span>RAIN</span><strong>{brief.conditions?.rain_signal?.replaceAll("_", " ") ?? "unknown"}</strong></div>
+            <div><span>TEMP</span><strong>{brief.conditions?.temperature_signal?.replaceAll("_", " ") ?? "unknown"}</strong></div>
+            <div><span>RECENT RAIN</span><strong>{metric(recent?.precipitation_total_mm, " mm")}</strong></div>
+            <div><span>RECENT TEMP</span><strong>{metric(recent?.temperature_mean_c, "°C")}</strong></div>
+          </div>
+        </section>
+
+        <section className="action-months">
+          {months.map((month) => (
+            <article key={month.planning_month}>
+              <header>
+                <span>MONTH {month.index}</span>
+                <strong>{month.month_name.en}</strong>
+                <small>{month.phase.en}</small>
+              </header>
+              <p>{month.objective.en}</p>
+              <ol>
+                {month.tasks.slice(0, 5).map((task) => <li key={task.code}>{task.en}</li>)}
+              </ol>
+            </article>
+          ))}
+        </section>
+
+        <section className="action-evidence">
           <div>
-            <span>Recent temperature</span>
-            <strong>{metric(recent?.summary?.temperature_mean_c, "°C")}</strong>
-            <small>{recent?.period ? `${recent.period.start} to ${recent.period.end}` : "Recent NASA POWER data unavailable"}</small>
+            <span className="action-label">EVIDENCE USED</span>
+            <p>NASA POWER recent agroclimate and historical baseline</p>
+            <p>GPM IMERG recent precipitation layer</p>
+            <p>SMAP surface soil moisture layer</p>
+            <p>{brief.evidence.calendar_evidence.length ? "Bangladesh official crop weather calendar evidence" : "FAO or verified local source review required"}</p>
+            <p>Farmer crop history, water, drainage, soil test status and priority</p>
           </div>
-
           <div>
-            <span>Recent rainfall</span>
-            <strong>{metric(recent?.summary?.precipitation_total_mm, " mm")}</strong>
-            <small>NASA POWER regional climate context</small>
+            <span className="action-label">IMPORTANT</span>
+            <p>{brief.limitations.en}</p>
+            <p>No NASA product is treated as field pH, nutrient chemistry or a crop prescription.</p>
           </div>
+        </section>
 
-          <div>
-            <span>Planning month baseline</span>
-            <strong>{metric(baseline?.summary?.temperature_mean_c, "°C")}</strong>
-            <small>{baseline?.baseline_period ? `${baseline.baseline_period.start_year} to ${baseline.baseline_period.end_year}` : "Historical baseline unavailable"}</small>
-          </div>
-
-          <div>
-            <span>Local calendar sources</span>
-            <strong>{calendars.length}</strong>
-            <small>BAMIS | {regionName}</small>
-          </div>
-        </div>
-
-        {advice && (
-          <section className={`decision-advice-panel ${advice.status.toLowerCase()}`}>
-            <div className="advice-header">
-              <div>
-                <span className="brief-source-title">BoponX decision advice</span>
-                <h3>{advice.verdict}</h3>
-              </div>
-              <span className="advice-status">{advice.status.replaceAll("_", " ")}</span>
-            </div>
-
-            <div className="advice-grid">
-              <div>
-                <span className="advice-label">Why</span>
-                <ul>
-                  {safeArray(advice.reasons).map((reason, index) => <li key={index}>{reason}</li>)}
-                </ul>
-              </div>
-              <div>
-                <span className="advice-label">Better next step</span>
-                <p>{advice.better_next_step}</p>
-                {conditions && (
-                  <div className="condition-pills">
-                    <span>Rain signal: {conditions.rain_signal.replaceAll("_", " ")}</span>
-                    <span>Temperature signal: {conditions.temperature_signal.replaceAll("_", " ")}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {safeArray(advice.regional_options_to_investigate).length > 0 && (
-              <div className="regional-options">
-                <span className="advice-label">Other regionally documented crops to investigate</span>
-                <div>
-                  {advice.regional_options_to_investigate.map((option, index) => (
-                    <a href={option.source_url || "#"} target="_blank" rel="noreferrer" key={option.id || index}>
-                      <strong>{option.name || "Regional crop option"}</strong>
-                      <small>{option.note}</small>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <p className="advice-boundary">{advice.boundary}</p>
-          </section>
-        )}
-
-        {months.length === 3 ? (
-          <div className="brief-timeline">
-            {months.map((month, index) => (
-              <article className="brief-month" key={month?.planning_month || index}>
-                <div className="month-rail">
-                  <span>{String(month?.index ?? index + 1).padStart(2, "0")}</span>
-                  {index < months.length - 1 && <i />}
-                </div>
-
-                <div className="month-content">
-                  <div className="month-title-row">
-                    <div>
-                      <small>{month?.planning_month || "Planning month"}</small>
-                      <h3>{month?.phase?.en || "Field review"}</h3>
-                    </div>
-                    <span className="month-name">{month?.month_name?.en || ""}</span>
-                  </div>
-
-                  <p className="month-objective">{month?.objective?.en || "Review field evidence before the next decision."}</p>
-
-                  {month?.context?.baseline && (
-                    <div className="month-climate-context">
-                      <span>Monthly NASA POWER baseline</span>
-                      <strong>
-                        {metric(month.context.baseline.temperature_mean_c, "°C")}
-                        {" | "}
-                        {metric(month.context.baseline.precipitation_mean_daily_mm, " mm per day")}
-                      </strong>
-                      <small>Historical climate reference, not a forecast</small>
-                    </div>
-                  )}
-
-                  <div className="month-task-grid">
-                    {safeArray(month?.tasks).map((task, taskIndex) => (
-                      <div className="brief-task" key={task?.code || taskIndex}>
-                        <span>{String(taskIndex + 1).padStart(2, "0")}</span>
-                        <div>
-                          <strong>{task?.en || "Review the available field evidence."}</strong>
-                          {task?.reason && <small className="task-reason">{task.reason}</small>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="field-notes-lines">
-                    <span>Farmer or adviser notes</span>
-                    <i /><i />
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className="report-recovery-note">
-            The plan response was incomplete. Return to the farm questions and build the field brief again.
-          </div>
-        )}
-
-        <div className="rotation-lock-panel">
-          <div className="rotation-lock-icon"><span>↻</span><i /></div>
-          <div>
-            <p className="section-kicker">Three season rotation explorer</p>
-            <h3>The evidence review is still active.</h3>
-            <p>{rotationMessage}</p>
-          </div>
-          <span className="lock-chip">NOT YET PRESCRIPTIVE</span>
-        </div>
-
-        <div className="brief-source-columns">
-          <div>
-            <span className="brief-source-title">NASA evidence</span>
-            {nasaSources.map((source, index) => (
-              <a href={source?.source_url || "#"} target="_blank" rel="noreferrer" key={source?.id || index}>
-                <strong>{source?.name || "NASA source"}</strong>
-                <small>{String(source?.role || "evidence").replaceAll("_", " ")}</small>
-              </a>
-            ))}
-          </div>
-
-          <div>
-            <span className="brief-source-title">Local evidence</span>
-            {calendars.slice(0, 8).map((crop, index) => (
-              <a href={crop?.source_url || "#"} target="_blank" rel="noreferrer" key={crop?.id || index}>
-                <strong>{crop?.name_en || "Regional crop calendar"}</strong>
-                <small>BAMIS calendar source | not a recommendation</small>
-              </a>
-            ))}
-          </div>
-        </div>
-
-        <footer className="brief-footer">
-          <p>{limitation}</p>
-          <span>BoponX | Team EARTH.exe | Bangladesh</span>
+        <footer className="action-footer">
+          <strong>Team EARTH.exe</strong>
+          <span>NASA Space Apps Challenge 2026 | Field Shift</span>
+          <small>Independent project. NASA does not endorse BoponX.</small>
         </footer>
       </div>
     </section>

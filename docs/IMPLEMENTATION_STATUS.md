@@ -1,94 +1,74 @@
-# BoponX implementation status
+# Implementation status
 
-**Reviewed:** 27 September 2026  
-**Owner:** Team EARTH.exe
+**Reviewed:** 28 September 2026
 
-## Active demo candidate
+## Implemented
 
-The current frontend is the cinematic location aware rebuild. The latest stability pass addresses the blank screen reports seen after location selection and after generating the 90 day plan.
+### Global Earth Twin
 
-### Implemented
-
-- English only farmer interface
-- real NASA Landsat Bangladesh imagery
-- Three.js animated Earth and satellite scene
-- off screen 3D rendering pause for lower GPU load
+- interactive globe
+- global place search
 - browser geolocation
-- Bangladesh place search
-- regional evidence hub fallback
-- direct map point selection
-- MapLibre map with OpenStreetMap as the independent base
-- optional NASA GIBS true color imagery
-- optional NASA GIBS IMERG rainfall layer
-- selected location NASA POWER recent context
-- selected month 2001 to 2020 NASA POWER climatology
-- SMAP regional soil moisture evidence card with 2026 quality advisory
-- location specific BAMIS crop calendar evidence
-- professional SVG icons for farmer choices
-- farmer questions based on observable information
-- optional pH only after a soil test report is declared
-- three different 90 day stages
-- farmer priority changes Month 2 tasks
-- defensive printable field brief
-- React error recovery screen instead of a blank root
-- deterministic plan generation without repeated NASA network calls
-- backend tests for plan stage separation and priority sensitivity
+- click anywhere on Earth
+- NASA GIBS true color layer
+- GPM IMERG layer
+- SMAP soil moisture layer
+- OpenStreetMap base fallback
 
-### Deliberately gated
+### NASA Fusion Engine
 
-- quantitative SMAP values inside farmer decisions
-- quantitative IMERG calculations inside the decision engine
-- parcel soil chemistry
-- nationwide reviewed crop rule coverage
-- crop planting dates
-- fertilizer and pesticide prescriptions
-- yield gain claims
-- water saving claims
-- soil health scores
-- final three season crop rotation alternatives
+- selected point NASA POWER recent request
+- T2M
+- T2M_MAX
+- T2M_MIN
+- PRECTOTCORR
+- RH2M
+- WS2M
+- three month POWER climatology
+- recent rainfall comparison with historical month
+- recent temperature comparison with historical month
+- evidence completeness score labelled Decision Readiness
 
-The rotation endpoint remains fail closed until reviewed Bangladesh crop requirements, soil constraints and sequence rules are implemented.
+### Local Data Mesh
 
-## Validation
+- verified adapter registry
+- Bangladesh deep adapter
+- India official agromet reference
+- United States official soil and climate references
+- Australian official soil and climate references
+- UK official agriculture climate reference
+- FAO Crop Calendar global fallback
+- explicit unsupported country behavior
 
-Automated validation covers:
+### Farmer and decision workflow
 
-- backend tests
-- three stage plan route behavior
-- priority sensitive plan behavior
-- frontend TypeScript check
-- Vite production build
-
-Manual validation is still required for:
-
-- actual browser geolocation
-- place search against the live geocoder
-- live OpenStreetMap tiles
-- NASA GIBS imagery
-- NASA POWER network requests
-- Samsung and desktop rendering
-- Print or Save PDF
-- reduced motion mode
-- poor network behavior
-
-The project should be described as a **demo candidate** until this manual acceptance pass succeeds on the machine that will be used for recording.
-
-
-## 28 September personalized planning update
-
-The farmer workflow now records recent crop history as a list and asks what crop the farmer is considering next.
-
-The 90 day planner now uses:
-- selected field coordinates and regional evidence hub
-- recent NASA POWER context when available
-- a three month NASA POWER climatology window for the selected coordinates
-- farmer water source and drainage observation
-- soil test availability
-- farmer priority
 - crop history
-- farmer intended next crop
-- regional BAMIS calendar evidence
+- farmer intended crop
+- water source
+- drainage observation
+- soil test status
+- optional report based pH
+- farmer priority
+- deterministic 90 day plan
+- Rotation Lab exploration paths
+- evidence gate on final agronomic ranking
 
-The field brief now includes an evidence bounded decision advice panel. It can identify that an intended crop has regional calendar evidence, that more verification is needed, or that water or drainage should be checked before commitment. It does not rank crop suitability until reviewed agronomic rules are available.
+### Farmer Action Card
 
-Each planning month receives its own NASA POWER historical climate reference and its own task set. These references are context, not forecasts.
+- print layout
+- no dependency on clickable links
+- source names written as text
+- three month actions
+- evidence and limitation summary
+
+## Still gated
+
+- automated extraction of every country's agriculture ministry data
+- parcel scale soil chemistry
+- SMAP numeric decision thresholding
+- IMERG numeric crop thresholding
+- universal crop requirement database
+- universal crop sequence rule database
+- final ranked crop rotation recommendation
+
+These items are gated because unsupported completeness would be more damaging than an explicit evidence gap.

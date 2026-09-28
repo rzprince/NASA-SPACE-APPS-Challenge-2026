@@ -14,7 +14,8 @@ from backend.app.compute.agronomy import calendar_evidence_for_region, supported
 from backend.app.compute.context import build_context, list_areas
 from backend.app.compute.monthly import aggregate_monthly
 from backend.app.compute.plan import make_90_day_plan
-from backend.app.services.geocoder import reverse_bangladesh_place, search_bangladesh_places
+from backend.app.compute.local_sources import source_registry
+from backend.app.services.geocoder import reverse_place, search_places
 from backend.app.services.power_live import fetch_power_climatology, fetch_power_climatology_window, fetch_recent_power
 
 app = FastAPI(title="BoponX API")
@@ -103,6 +104,8 @@ def health() -> dict:
         "location_context_ready": True,
         "place_search_ready": True,
         "regional_calendar_index_ready": True,
+        "global_nasa_context_ready": True,
+        "verified_local_source_registry_ready": True,
     }
 
 
@@ -117,7 +120,7 @@ def areas() -> dict:
 @app.get("/api/v1/places/search")
 def place_search(q: str = Query(min_length=2, max_length=120)) -> dict:
     try:
-        results = search_bangladesh_places(q)
+        results = search_places(q)
     except Exception:
         results = []
     return {
@@ -125,7 +128,7 @@ def place_search(q: str = Query(min_length=2, max_length=120)) -> dict:
         "results": results,
         "provider": "OpenStreetMap Nominatim",
         "status": "available" if results else "no_results_or_service_unavailable",
-        "note": "Place search is for location selection only; it is not an agricultural evidence source.",
+        "note": "Global place search is for location selection only; it is not an agricultural evidence source.",
     }
 
 
@@ -135,7 +138,7 @@ def place_reverse(
     lon: float = Query(ge=-180, le=180),
 ) -> dict:
     try:
-        place = reverse_bangladesh_place(lat, lon)
+        place = reverse_place(lat, lon)
     except Exception:
         place = None
     return {
@@ -143,6 +146,11 @@ def place_reverse(
         "provider": "OpenStreetMap Nominatim",
         "status": "available" if place else "unavailable",
     }
+
+
+@app.get("/api/v1/local-sources")
+def local_sources(country_code: str = Query(min_length=2, max_length=2)) -> dict:
+    return source_registry(country_code)
 
 
 @app.get("/api/v1/agronomy/calendars")
@@ -171,8 +179,6 @@ def recent_environment(
     lon: float = Query(ge=-180, le=180),
 ) -> dict:
     context = build_context(lat, lon)
-    if not context["within_bangladesh"]:
-        raise HTTPException(status_code=400, detail={"code": "OUTSIDE_BANGLADESH_PILOT", "message": "Choose a location inside Bangladesh."})
     try:
         return fetch_recent_power(lat, lon)
     except Exception:
@@ -196,8 +202,6 @@ def environment_baseline(
     month: int = Query(ge=1, le=12),
 ) -> dict:
     context = build_context(lat, lon)
-    if not context["within_bangladesh"]:
-        raise HTTPException(status_code=400, detail={"code": "OUTSIDE_BANGLADESH_PILOT", "message": "Choose a location inside Bangladesh."})
     try:
         return fetch_power_climatology(lat, lon, month=month)
     except Exception:
@@ -219,11 +223,6 @@ def environment_baseline_window(
     start_month: int = Query(ge=1, le=12),
 ) -> dict:
     context = build_context(lat, lon)
-    if not context["within_bangladesh"]:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "OUTSIDE_BANGLADESH_PILOT", "message": "Choose a location inside Bangladesh."},
-        )
     try:
         return fetch_power_climatology_window(lat, lon, start_month=start_month, months=3)
     except Exception:
@@ -259,11 +258,6 @@ def validate_farm(profile: FarmerProfile) -> dict:
             detail={"code": "SOIL_TEST_REQUIRED", "message": "Enter soil pH only when it comes from a soil-test report."},
         )
     context = build_context(profile.latitude, profile.longitude)
-    if not context["within_bangladesh"]:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "OUTSIDE_BANGLADESH_PILOT", "message": "The current farmer workflow supports locations inside Bangladesh."},
-        )
     unknowns = []
     if not profile.previous_crop and not profile.previous_crops:
         unknowns.append("previous_crops")
@@ -292,8 +286,6 @@ def planning_preview(request: PlanRequest) -> dict:
             detail={"code": "SOIL_TEST_REQUIRED", "message": "Enter soil pH only when it comes from a soil-test report."},
         )
     context = build_context(request.farm.latitude, request.farm.longitude)
-    if not context["within_bangladesh"]:
-        raise HTTPException(status_code=400, detail={"code": "OUTSIDE_BANGLADESH_PILOT"})
     recent = request.recent_environment
     baseline = request.baseline_environment
     baseline_window = request.baseline_window

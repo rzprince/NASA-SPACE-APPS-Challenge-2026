@@ -1,144 +1,146 @@
-# BoponX evidence register and scientific boundary
-**Reviewed:** 26 September 2026
+# Evidence register
 
-BoponX separates evidence by meaning. A satellite/reanalysis value must never be silently promoted into a field measurement, soil test or crop recommendation.
+**Reviewed:** 28 September 2026
 
-## Challenge frame
+## Challenge
 
-The official 2026 Field Shift summary asks for a decision-support tool using NASA Earth observations together with local soil information, crop characteristics and farmer priorities to help farmers explore crop-rotation strategies for soil health and adaptation.
-
-BoponX implements the evidence pipeline now and keeps the final crop-rotation recommendation layer gated until the local agronomic rules are sourced and reviewable.
+Field Shift asks for a decision support tool using NASA Earth observations with local soil information, crop characteristics and farmer priorities to explore crop rotation strategies.
 
 Source:
 https://www.spaceappschallenge.org/2026/challenges/field-shift-adapting-farms-with-nasa-data/
 
 ## GPM IMERG Early V07B
 
-Current NASA documentation:
-- coverage: January 1998–present
-- current algorithm: V07B
-- minimum latency: about 4 hours
-- spatial resolution: 0.1 degree / about 10 km
-- 30-minute products available
+Role:
+recent precipitation spatial context
 
-Current BoponX use:
-- dated NASA GIBS rainfall layer around the farmer-selected field
-- described as near-real-time / latest available
-- never described as a future forecast
+NASA documentation currently lists:
 
-BoponX does not yet derive a quantitative crop rule from IMERG precipitation.
+- current algorithm V07B
+- January 1998 to present
+- about 4 hour minimum latency
+- 0.1 degree / about 10 km
+- 30 minute products available
 
-Sources:
-https://gpm.nasa.gov/data/directory
-https://gpm.nasa.gov/data/imerg
+BoponX uses IMERG as a spatial evidence layer.
 
-## NASA GIBS / true-color imagery
-
-Current BoponX map can toggle NASA GIBS true-color imagery and the GPM IMERG rainfall layer while preserving OpenStreetMap navigation.
-
-GIBS imagery is visualization of Earth-observation products. It is not itself an agronomic recommendation.
+It is not presented as a forecast or field rain gauge.
 
 Source:
-https://worldview.earthdata.nasa.gov/
+https://gpm.nasa.gov/data/directory
 
 ## SMAP SPL3SMP_E Version 6
 
 Role:
-- candidate regional surface-soil-moisture evidence
+regional surface soil moisture context
 
-Official NSIDC information:
-- dataset: SPL3SMP_E
-- version: 6
+Official product characteristics:
+
+- SPL3SMP_E
+- Version 6
 - daily
 - 9 km EASE-Grid
 
-Critical 2026 advisory:
-NSIDC reports a geolocation issue affecting Standard/NRT products from **14 May to 28 July 2026**. Standard products for that interval are being reprocessed; NRT products will not be replaced.
+2026 advisory:
 
-Current BoponX behavior:
-- the source, resolution and warning are visible
-- numeric soil-moisture use is QA-gated
-- SMAP is never treated as pH or nutrient chemistry
+NSIDC reports a geolocation issue affecting Standard and Near Real Time products from 14 May to 28 July 2026. Standard products are being reprocessed. Near Real Time products will not be replaced.
+
+BoponX keeps numeric use gated and exposes the spatial layer as regional context.
 
 Source:
 https://nsidc.org/data/spl3smp_e/versions/6
 
-## NASA POWER recent context
+## NASA POWER Daily
 
-The backend requests:
+Role:
+selected point recent agroclimate context
+
+Requested variables:
+
 - T2M
+- T2M_MAX
+- T2M_MIN
 - PRECTOTCORR
-- selected farmer coordinates
-- a recent 14-day period ending seven days before the request to reduce incomplete-upstream failures
-- LST time standard
+- RH2M
+- WS2M
 
-The response preserves valid-day counts, exact source request URL, provider/source-product metadata, time period, coordinates and limitations.
+The request ends several days before today to reduce incomplete upstream values.
 
-A precipitation total is suppressed if the requested period is incomplete.
-
-POWER values are regional gridded context, not field measurements and not a weather forecast.
+POWER is gridded context, not an instrument in the farmer's field.
 
 Source:
 https://power.larc.nasa.gov/docs/services/api/temporal/daily/
 
 ## NASA POWER climatology
 
-The selected planning month also requests a 2001–2020 POWER climatology.
+Role:
+historical monthly comparison
 
-Purpose:
-- show historical context alongside recent observations
-- avoid treating one historical year as climate evidence
+BoponX requests three consecutive calendar months for the selected location and compares recent rainfall and temperature with the first planning month historical reference.
 
-It is not a current-condition measurement or forecast.
+These values are context, not a forecast.
 
 Source:
 https://power.larc.nasa.gov/docs/services/api/temporal/climatology/
 
-## Real Bangladesh NASA visual case study
+## NASA GIBS
 
-The active website uses a real NASA Earth Observatory / USGS Landsat image of **Baniachong, Bangladesh** from the NASA story “Fine-Tuning Irrigation in Asia”.
-
-NASA describes how Landsat thermal information and other satellite data were used in South Asian irrigation research. BoponX presents this as a precedent for connecting Earth observations to farmer decisions; it does not copy the study's irrigation results as BoponX outcomes.
-
-Source:
-https://science.nasa.gov/earth/earth-observatory/fine-tuning-irrigation-in-asia-148203/
-
-## Bangladesh crop-calendar evidence
-
-BoponX maintains a calendar-presence index for major crops across official BAMIS regional hubs. This is only a routing layer to relevant evidence.
-
-Current indexed crops:
-- Rice Aman
-- Rice Aus
-- Rice Boro
-- Wheat
-- Mustard
-- Lentil
-- Jute
-- Maize (Kharif-1)
-- Green Gram (Kharif-1)
-
-A crop appearing in the interface means an official BAMIS regional calendar exists. It does not mean the crop has been recommended for the field.
+Role:
+delivery of Earth imagery and product visualization in the global Earth Twin
 
 Source:
-https://www.bamis.gov.bd/en/calendar
+https://worldview.earthdata.nasa.gov/
 
-## Farmer-entered evidence
+## FAO Crop Calendar
 
-Farmer-known inputs:
-- field location
-- previous crop
-- rain-fed / irrigated / both / unknown
-- what happens after heavy rain
-- whether a soil-test report exists
-- current priority
+Role:
+global crop calendar reference when a verified national adapter is not available
 
-Numeric pH is accepted only when the farmer explicitly says a soil-test report exists.
+FAO describes the Crop Calendar as a searchable platform for crop production planning by country, crop and agroecological zone.
 
-Unknown answers remain unknown.
+Source:
+https://cropcalendar.apps.fao.org/
 
-## Decision boundary
+## Verified public sector adapters
 
-The current 90-day routine is decision preparation, not a crop prescription.
+### Bangladesh
 
-The three-season rotation explorer must remain gated until crop requirements, seasonal windows, relevant local soil constraints, crop-sequence constraints, geographic applicability, reuse terms and agronomic review are encoded as deterministic, testable rule packs.
+BAMIS / Department of Agricultural Extension  
+https://www.bamis.gov.bd/
+
+BARC Crop Zoning  
+https://apps.barc.gov.bd/cropzoning/
+
+### India
+
+India Meteorological Department Agromet Advisory Services  
+https://mausam.imd.gov.in/responsive/agromet_adv_ser_district_current_en.php
+
+### United States
+
+USDA Web Soil Survey  
+https://websoilsurvey.sc.egov.usda.gov/App/
+
+USDA Climate Hubs  
+https://www.climatehubs.usda.gov/commodity/crops
+
+### Australia
+
+Department of Agriculture, Fisheries and Forestry soil information  
+https://www.agriculture.gov.au/agriculture-land/farm-food-drought/natural-resources/soils
+
+Agriculture climate adaptation information  
+https://www.agriculture.gov.au/agriculture-land/farm-food-drought/climatechange
+
+### United Kingdom
+
+DEFRA agriculture and climate change collection  
+https://www.gov.uk/government/collections/agricultural-statistics-and-climate-change
+
+## Boundary
+
+The presence of an official source does not mean BoponX has already encoded every agronomic rule from that source.
+
+Global NASA coverage is implemented.
+
+Country specific agronomic rule packs remain a reviewed adapter process.
