@@ -1,233 +1,261 @@
-import type { CalendarEvidence, NasaSource, PlanBrief, PlanMonth } from "./api";
+import type { AgriculturalSource, PlanBrief, PlanMonth } from "./api";
 
-function metric(value: number | null | undefined, suffix: string) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "Not available";
-  return `${new Intl.NumberFormat("en-BD", { maximumFractionDigits: 1 }).format(value)}${suffix}`;
+function metric(value: number | null | undefined, suffix = "") {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "Unavailable";
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value)}${suffix}`;
 }
 
 function safeArray<T>(value: T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : [];
 }
 
-export default function DecisionReport({ brief }: { brief: PlanBrief }) {
-  const recent = brief?.recent_environment ?? null;
-  const baseline = brief?.historical_baseline ?? null;
+function taskIcon(category?: string) {
+  const icons: Record<string, string> = {
+    nasa_context: "◎",
+    field_history: "↺",
+    farmer_intention: "→",
+    field_observation: "◉",
+    soil_evidence: "▦",
+    recent_conditions: "≋",
+    monitoring: "⌁",
+    farmer_priority: "◇",
+    local_evidence: "⌂",
+    decision_advice: "✓",
+    decision_record: "□",
+  };
+  return icons[category ?? ""] ?? "•";
+}
+
+export default function DecisionReport({
+  brief,
+  localSources,
+  onBack,
+  onEarth,
+}: {
+  brief: PlanBrief;
+  localSources: AgriculturalSource[];
+  onBack: () => void;
+  onEarth: () => void;
+}) {
   const months = safeArray<PlanMonth>(brief?.months);
-  const nasaSources = safeArray<NasaSource>(brief?.evidence?.nasa_sources);
-  const calendars = safeArray<CalendarEvidence>(brief?.evidence?.calendar_evidence);
-  const latitude = Number(brief?.location?.coordinates?.latitude);
-  const longitude = Number(brief?.location?.coordinates?.longitude);
-  const regionName = brief?.location?.region_name_en || "Selected field";
-  const limitation = brief?.limitations?.en || "This field brief is decision support, not a crop prescription or weather forecast.";
-  const rotationMessage =
-    brief?.rotation_explorer?.message_en ||
-    "Rotation alternatives remain behind evidence review until local crop and sequence rules are approved.";
-  const advice = brief?.decision_advice ?? null;
-  const conditions = brief?.conditions ?? null;
+  const advice = brief?.decision_advice;
+  const recent = brief?.recent_environment;
+  const conditions = brief?.conditions;
+  const region = brief?.location?.region_name_en || brief?.farmer_context?.country_name || "Selected field";
 
   function printBrief() {
     const previous = document.title;
-    document.title = "BoponX field brief";
+    document.title = "BoponX Farmer Brief";
     window.print();
     window.setTimeout(() => {
       document.title = previous;
     }, 300);
   }
 
+  function readBrief() {
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const text = [
+      `BoponX farmer brief for ${region}.`,
+      advice?.verdict ?? "",
+      advice?.better_next_step ? `Next step. ${advice.better_next_step}` : "",
+      ...months.flatMap((month) => [
+        `${month.month_name.en}. ${month.phase.en}. ${month.objective.en}`,
+        ...safeArray(month.tasks).map((task) => task.en),
+      ]),
+    ].filter(Boolean).join(" ");
+    const speech = new SpeechSynthesisUtterance(text);
+    speech.rate = 0.92;
+    speech.pitch = 1;
+    window.speechSynthesis.speak(speech);
+  }
+
   return (
-    <section className="field-brief-section bx-section" id="field-brief">
-      <div className="brief-screen">
-        <div className="brief-screen-bar no-print">
-          <div>
-            <span className="brief-status-dot" />
-            <span>FIELD BRIEF READY</span>
-          </div>
-          <button type="button" onClick={printBrief}>Print or save PDF ↗</button>
+    <section className="farmer-brief">
+      <div className="brief-toolbar no-print">
+        <div>
+          <button type="button" onClick={onBack}>← Rotation Lab</button>
+          <button type="button" onClick={onEarth}>Earth selector</button>
         </div>
+        <div>
+          <button type="button" onClick={readBrief}>◉ Read aloud</button>
+          <button type="button" className="print-command" onClick={printBrief}>Print farmer brief</button>
+        </div>
+      </div>
 
-        <header className="brief-hero">
-          <div>
-            <p className="section-kicker">The next 90 days</p>
-            <h2>Three months. Three different jobs.</h2>
+      <div className="brief-paper">
+        <header className="brief-command-header">
+          <div className="brief-mark">
+            <span className="brief-mark-icon"><i /><i /><i /></span>
+            <div>
+              <strong>BoponX</strong>
+              <small>FARMER DECISION BRIEF</small>
+            </div>
           </div>
-
-          <div className="brief-place">
-            <span>{regionName}</span>
-            <strong>Field decision brief</strong>
-            <small>
-              {Number.isFinite(latitude) && Number.isFinite(longitude)
-                ? `${latitude.toFixed(4)}° N | ${longitude.toFixed(4)}° E`
-                : "Coordinates unavailable"}
-            </small>
+          <div className="brief-location">
+            <span>{region}</span>
+            <strong>{brief.location.coordinates.latitude.toFixed(4)}° · {brief.location.coordinates.longitude.toFixed(4)}°</strong>
+            <small>{brief.planning_window.start} → {brief.planning_window.end}</small>
           </div>
         </header>
 
-        <div className="brief-evidence-strip">
+        <section className="brief-action">
+          <div className="brief-action-code">NEXT MOVE</div>
           <div>
-            <span>Recent temperature</span>
+            <h1>{advice?.verdict ?? "Review the field evidence before deciding."}</h1>
+            <p>{advice?.better_next_step ?? "Use the three month routine below to reduce uncertainty before the next crop decision."}</p>
+          </div>
+          <div className="brief-action-status">
+            <span>{advice?.status?.replaceAll("_", " ") ?? "EVIDENCE REVIEW"}</span>
+            <strong>{brief.farmer_context.intended_crop ? brief.farmer_context.intended_crop.toUpperCase() : "NOT DECIDED"}</strong>
+          </div>
+        </section>
+
+        <section className="brief-signal-strip">
+          <div>
+            <span>RECENT TEMP</span>
             <strong>{metric(recent?.summary?.temperature_mean_c, "°C")}</strong>
-            <small>{recent?.period ? `${recent.period.start} to ${recent.period.end}` : "Recent NASA POWER data unavailable"}</small>
           </div>
-
           <div>
-            <span>Recent rainfall</span>
+            <span>RECENT RAIN</span>
             <strong>{metric(recent?.summary?.precipitation_total_mm, " mm")}</strong>
-            <small>NASA POWER regional climate context</small>
           </div>
-
           <div>
-            <span>Planning month baseline</span>
-            <strong>{metric(baseline?.summary?.temperature_mean_c, "°C")}</strong>
-            <small>{baseline?.baseline_period ? `${baseline.baseline_period.start_year} to ${baseline.baseline_period.end_year}` : "Historical baseline unavailable"}</small>
+            <span>RAIN SIGNAL</span>
+            <strong>{conditions?.rain_signal?.replaceAll("_", " ") ?? "unavailable"}</strong>
           </div>
-
           <div>
-            <span>Local calendar sources</span>
-            <strong>{calendars.length}</strong>
-            <small>BAMIS | {regionName}</small>
+            <span>WATER</span>
+            <strong>{brief.farmer_context.water_source.replaceAll("_", " ")}</strong>
           </div>
-        </div>
+          <div>
+            <span>PRIORITY</span>
+            <strong>{brief.farmer_context.priority.replaceAll("_", " ")}</strong>
+          </div>
+        </section>
 
         {advice && (
-          <section className={`decision-advice-panel ${advice.status.toLowerCase()}`}>
-            <div className="advice-header">
-              <div>
-                <span className="brief-source-title">BoponX decision advice</span>
-                <h3>{advice.verdict}</h3>
-              </div>
-              <span className="advice-status">{advice.status.replaceAll("_", " ")}</span>
+          <section className="brief-why">
+            <div>
+              <span className="brief-section-code">WHY THIS ADVICE</span>
+              <h2>Evidence behind the next move</h2>
             </div>
-
-            <div className="advice-grid">
-              <div>
-                <span className="advice-label">Why</span>
-                <ul>
-                  {safeArray(advice.reasons).map((reason, index) => <li key={index}>{reason}</li>)}
-                </ul>
-              </div>
-              <div>
-                <span className="advice-label">Better next step</span>
-                <p>{advice.better_next_step}</p>
-                {conditions && (
-                  <div className="condition-pills">
-                    <span>Rain signal: {conditions.rain_signal.replaceAll("_", " ")}</span>
-                    <span>Temperature signal: {conditions.temperature_signal.replaceAll("_", " ")}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {safeArray(advice.regional_options_to_investigate).length > 0 && (
-              <div className="regional-options">
-                <span className="advice-label">Other regionally documented crops to investigate</span>
-                <div>
-                  {advice.regional_options_to_investigate.map((option, index) => (
-                    <a href={option.source_url || "#"} target="_blank" rel="noreferrer" key={option.id || index}>
-                      <strong>{option.name || "Regional crop option"}</strong>
-                      <small>{option.note}</small>
-                    </a>
-                  ))}
+            <div className="brief-reasons">
+              {safeArray(advice.reasons).map((reason, index) => (
+                <div key={index}>
+                  <span>{String(index + 1).padStart(2, "0")}</span>
+                  <p>{reason}</p>
                 </div>
-              </div>
-            )}
-
-            <p className="advice-boundary">{advice.boundary}</p>
+              ))}
+            </div>
           </section>
         )}
 
-        {months.length === 3 ? (
-          <div className="brief-timeline">
-            {months.map((month, index) => (
-              <article className="brief-month" key={month?.planning_month || index}>
-                <div className="month-rail">
-                  <span>{String(month?.index ?? index + 1).padStart(2, "0")}</span>
-                  {index < months.length - 1 && <i />}
+        <section className="brief-plan">
+          <div className="brief-plan-head">
+            <div>
+              <span className="brief-section-code">90 DAY ROUTINE</span>
+              <h2>Three months. Three jobs.</h2>
+            </div>
+            <p>Use this page in the field. Tick tasks when they are done. A link is not required to follow the routine.</p>
+          </div>
+
+          <div className="brief-months">
+            {months.map((month, monthIndex) => (
+              <article className="brief-month-card" key={month.planning_month}>
+                <div className="brief-month-top">
+                  <span>{String(monthIndex + 1).padStart(2, "0")}</span>
+                  <div>
+                    <small>{month.planning_month}</small>
+                    <strong>{month.month_name.en}</strong>
+                  </div>
                 </div>
 
-                <div className="month-content">
-                  <div className="month-title-row">
-                    <div>
-                      <small>{month?.planning_month || "Planning month"}</small>
-                      <h3>{month?.phase?.en || "Field review"}</h3>
-                    </div>
-                    <span className="month-name">{month?.month_name?.en || ""}</span>
+                <h3>{month.phase.en}</h3>
+                <p className="brief-month-objective">{month.objective.en}</p>
+
+                {month.context?.baseline && (
+                  <div className="brief-climate">
+                    <span>NASA POWER historical reference</span>
+                    <strong>
+                      {metric(month.context.baseline.temperature_mean_c, "°C")}
+                      {" · "}
+                      {metric(month.context.baseline.precipitation_mean_daily_mm, " mm/day")}
+                    </strong>
+                    <small>Reference only. Not a forecast.</small>
                   </div>
+                )}
 
-                  <p className="month-objective">{month?.objective?.en || "Review field evidence before the next decision."}</p>
-
-                  {month?.context?.baseline && (
-                    <div className="month-climate-context">
-                      <span>Monthly NASA POWER baseline</span>
-                      <strong>
-                        {metric(month.context.baseline.temperature_mean_c, "°C")}
-                        {" | "}
-                        {metric(month.context.baseline.precipitation_mean_daily_mm, " mm per day")}
-                      </strong>
-                      <small>Historical climate reference, not a forecast</small>
-                    </div>
-                  )}
-
-                  <div className="month-task-grid">
-                    {safeArray(month?.tasks).map((task, taskIndex) => (
-                      <div className="brief-task" key={task?.code || taskIndex}>
-                        <span>{String(taskIndex + 1).padStart(2, "0")}</span>
-                        <div>
-                          <strong>{task?.en || "Review the available field evidence."}</strong>
-                          {task?.reason && <small className="task-reason">{task.reason}</small>}
-                        </div>
+                <div className="brief-tasks">
+                  {safeArray(month.tasks).map((task, taskIndex) => (
+                    <div className="brief-task-row" key={task.code || taskIndex}>
+                      <span className="brief-task-check">□</span>
+                      <span className="brief-task-icon">{taskIcon(task.category)}</span>
+                      <div>
+                        <strong>{task.en}</strong>
+                        {task.reason && <small>{task.reason}</small>}
                       </div>
-                    ))}
-                  </div>
-
-                  <div className="field-notes-lines">
-                    <span>Farmer or adviser notes</span>
-                    <i /><i />
-                  </div>
+                    </div>
+                  ))}
                 </div>
               </article>
             ))}
           </div>
-        ) : (
-          <div className="report-recovery-note">
-            The plan response was incomplete. Return to the farm questions and build the field brief again.
-          </div>
-        )}
+        </section>
 
-        <div className="rotation-lock-panel">
-          <div className="rotation-lock-icon"><span>↻</span><i /></div>
+        <section className="advisor-handoff">
+          <div className="advisor-icon">⌂</div>
           <div>
-            <p className="section-kicker">Three season rotation explorer</p>
-            <h3>The evidence review is still active.</h3>
-            <p>{rotationMessage}</p>
+            <span className="brief-section-code">WHEN EXPERT HELP IS NEEDED</span>
+            <h2>Take this page to a local agriculture adviser.</h2>
+            <p>
+              Bring the printed brief, any soil test report, and the farmer's field notes. The adviser can review local crop rules and soil information without asking the farmer to open a web link.
+            </p>
           </div>
-          <span className="lock-chip">NOT YET PRESCRIPTIVE</span>
-        </div>
-
-        <div className="brief-source-columns">
-          <div>
-            <span className="brief-source-title">NASA evidence</span>
-            {nasaSources.map((source, index) => (
-              <a href={source?.source_url || "#"} target="_blank" rel="noreferrer" key={source?.id || index}>
-                <strong>{source?.name || "NASA source"}</strong>
-                <small>{String(source?.role || "evidence").replaceAll("_", " ")}</small>
-              </a>
-            ))}
+          <div className="advisor-checklist">
+            <span>□ Soil report if available</span>
+            <span>□ Previous crop history</span>
+            <span>□ Water and drainage notes</span>
+            <span>□ This printed BoponX brief</span>
           </div>
+        </section>
 
-          <div>
-            <span className="brief-source-title">Local evidence</span>
-            {calendars.slice(0, 8).map((crop, index) => (
-              <a href={crop?.source_url || "#"} target="_blank" rel="noreferrer" key={crop?.id || index}>
-                <strong>{crop?.name_en || "Regional crop calendar"}</strong>
-                <small>BAMIS calendar source | not a recommendation</small>
-              </a>
-            ))}
-          </div>
-        </div>
+        <section className="expert-evidence no-print">
+          <details>
+            <summary>
+              <span>EXPERT EVIDENCE APPENDIX</span>
+              <strong>Sources, products, and provenance</strong>
+            </summary>
+            <div className="expert-grid">
+              <div>
+                <span className="expert-title">NASA sources used in this decision pipeline</span>
+                {safeArray(brief.evidence?.nasa_sources).map((source) => (
+                  <a href={source.source_url} target="_blank" rel="noreferrer" key={source.id}>
+                    <strong>{source.name}</strong>
+                    <small>{source.product} · {source.spatial}</small>
+                    <p>{source.boundary}</p>
+                  </a>
+                ))}
+              </div>
+              <div>
+                <span className="expert-title">Verified local source pathways</span>
+                {localSources.length ? localSources.map((source) => (
+                  <a href={source.source_url} target="_blank" rel="noreferrer" key={source.name}>
+                    <strong>{source.name}</strong>
+                    <small>{source.agency}</small>
+                  </a>
+                )) : (
+                  <p className="expert-gap">No verified local government adapter is onboarded for this country. BoponX did not invent one.</p>
+                )}
+              </div>
+            </div>
+          </details>
+        </section>
 
-        <footer className="brief-footer">
-          <p>{limitation}</p>
-          <span>BoponX | Team EARTH.exe | Bangladesh</span>
+        <footer className="brief-disclaimer">
+          <strong>Decision support, not prescription.</strong>
+          <p>{brief.limitations.en}</p>
+          <span>EARTH.exe · NASA Space Apps Challenge 2026 · Independent project</span>
         </footer>
       </div>
     </section>
