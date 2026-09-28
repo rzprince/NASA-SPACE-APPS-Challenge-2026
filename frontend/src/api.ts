@@ -60,18 +60,32 @@ export type PlaceResult = {
   provider: string;
 };
 
+export type PowerBaselineSummary = {
+  calendar_month: number;
+  calendar_month_key?: string;
+  temperature_mean_c: number | null;
+  precipitation_mean_daily_mm: number | null;
+};
+
 export type PowerBaseline = {
   status: "available" | "unavailable";
   provider: string;
   kind: string;
   baseline_period?: { start_year: number; end_year: number };
   coordinates?: { latitude: number; longitude: number };
-  summary?: {
-    calendar_month: number;
-    calendar_month_key: string;
-    temperature_mean_c: number | null;
-    precipitation_mean_daily_mm: number | null;
-  } | null;
+  summary?: PowerBaselineSummary | null;
+  source_products?: string[];
+  source_request_url?: string;
+  limitations?: string[];
+};
+
+export type PowerBaselineWindow = {
+  status: "available" | "unavailable";
+  provider: string;
+  kind: string;
+  baseline_period?: { start_year: number; end_year: number };
+  coordinates?: { latitude: number; longitude: number };
+  summaries: PowerBaselineSummary[];
   source_products?: string[];
   source_request_url?: string;
   limitations?: string[];
@@ -121,6 +135,8 @@ export type FarmerProfile = {
   latitude: number;
   longitude: number;
   previous_crop: string | null;
+  previous_crops: string[];
+  intended_crop: string | null;
   water_source: "rainfed" | "irrigated" | "both" | "unknown";
   water_after_heavy_rain: "drains" | "stays" | "sometimes" | "unknown";
   soil_test: "yes" | "no" | "unknown";
@@ -128,13 +144,28 @@ export type FarmerProfile = {
   priority: "water" | "soil" | "production_stability";
 };
 
-export type PlanTask = { code: string; en: string; bn: string };
+export type PlanTask = {
+  code: string;
+  en: string;
+  bn: string;
+  category?: string;
+  reason?: string;
+  evidence?: string;
+};
+
 export type PlanMonth = {
   index: number;
   planning_month: string;
   month_name: { en: string; bn: string };
   phase: { en: string; bn: string };
   objective: { en: string; bn: string };
+  context?: {
+    region?: string;
+    baseline?: PowerBaselineSummary | null;
+    recent_rain_signal?: string;
+    farmer_priority?: string;
+    intended_crop?: string | null;
+  };
   tasks: PlanTask[];
 };
 
@@ -149,9 +180,34 @@ export type PlanBrief = {
   };
   farmer_context: FarmerProfile;
   planning_window: { start: string; end: string };
+  conditions?: {
+    rain_signal: string;
+    temperature_signal: string;
+    recent_daily_rain_mm: number | null;
+    baseline_daily_rain_mm: number | null;
+    recent_temperature_c: number | null;
+    baseline_temperature_c: number | null;
+  };
+  decision_advice?: {
+    status: string;
+    verdict: string;
+    reasons: string[];
+    better_next_step: string;
+    intended_crop: string | null;
+    intended_crop_label: string | null;
+    regional_calendar_match: boolean;
+    regional_options_to_investigate: Array<{
+      id?: string;
+      name?: string;
+      source_url?: string;
+      note: string;
+    }>;
+    boundary: string;
+  };
   months: PlanMonth[];
   recent_environment: RecentEnvironment | null;
   historical_baseline: PowerBaseline | null;
+  historical_baseline_window?: PowerBaselineWindow | null;
   rotation_explorer: {
     status: string;
     message_en: string;
