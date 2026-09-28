@@ -16,8 +16,12 @@ def summarize_power_payload(payload: dict) -> dict:
     properties = payload.get("properties", {})
     parameter = properties.get("parameter", {})
     t2m = parameter.get("T2M", {})
+    t2m_max = parameter.get("T2M_MAX", {})
+    t2m_min = parameter.get("T2M_MIN", {})
     rain = parameter.get("PRECTOTCORR", {})
-    dates = sorted(set(t2m) | set(rain))
+    humidity = parameter.get("RH2M", {})
+    wind = parameter.get("WS2M", {})
+    dates = sorted(set(t2m) | set(t2m_max) | set(t2m_min) | set(rain) | set(humidity) | set(wind))
 
     def valid(values: dict) -> list[float]:
         out: list[float] = []
@@ -28,13 +32,21 @@ def summarize_power_payload(payload: dict) -> dict:
         return out
 
     temperatures = valid(t2m)
+    max_temperatures = valid(t2m_max)
+    min_temperatures = valid(t2m_min)
     precipitation = valid(rain)
+    humidities = valid(humidity)
+    winds = valid(wind)
     return {
         "days_requested": len(dates),
         "temperature_valid_days": len(temperatures),
         "precipitation_valid_days": len(precipitation),
         "temperature_mean_c": round(sum(temperatures) / len(temperatures), 2) if temperatures else None,
+        "temperature_max_mean_c": round(sum(max_temperatures) / len(max_temperatures), 2) if max_temperatures else None,
+        "temperature_min_mean_c": round(sum(min_temperatures) / len(min_temperatures), 2) if min_temperatures else None,
         "precipitation_total_mm": round(sum(precipitation), 2) if precipitation and len(precipitation) == len(dates) else None,
+        "relative_humidity_mean_pct": round(sum(humidities) / len(humidities), 2) if humidities else None,
+        "wind_speed_mean_m_s": round(sum(winds) / len(winds), 2) if winds else None,
     }
 
 
@@ -42,7 +54,7 @@ def fetch_recent_power(lat: float, lon: float, days: int = 14, lag_days: int = 7
     end = date.today() - timedelta(days=lag_days)
     start = end - timedelta(days=days - 1)
     params = {
-        "parameters": "T2M,PRECTOTCORR",
+        "parameters": "T2M,T2M_MAX,T2M_MIN,PRECTOTCORR,RH2M,WS2M",
         "community": "AG",
         "latitude": f"{lat:.5f}",
         "longitude": f"{lon:.5f}",
@@ -80,7 +92,11 @@ def summarize_climatology_payload(payload: dict, month: int) -> dict:
     key = MONTH_KEYS[month]
     parameter = payload.get("properties", {}).get("parameter", {})
     t2m = parameter.get("T2M", {})
+    t2m_max = parameter.get("T2M_MAX", {})
+    t2m_min = parameter.get("T2M_MIN", {})
     rain = parameter.get("PRECTOTCORR", {})
+    humidity = parameter.get("RH2M", {})
+    wind = parameter.get("WS2M", {})
 
     def value(values: dict):
         raw = values.get(key)
@@ -92,7 +108,11 @@ def summarize_climatology_payload(payload: dict, month: int) -> dict:
         "calendar_month": month,
         "calendar_month_key": key,
         "temperature_mean_c": value(t2m),
+        "temperature_max_mean_c": value(t2m_max),
+        "temperature_min_mean_c": value(t2m_min),
         "precipitation_mean_daily_mm": value(rain),
+        "relative_humidity_mean_pct": value(humidity),
+        "wind_speed_mean_m_s": value(wind),
     }
 
 
@@ -105,7 +125,7 @@ def fetch_power_climatology(
     end_year: int = 2020,
 ) -> dict:
     params = {
-        "parameters": "T2M,PRECTOTCORR",
+        "parameters": "T2M,T2M_MAX,T2M_MIN,PRECTOTCORR,RH2M,WS2M",
         "community": "AG",
         "latitude": f"{lat:.5f}",
         "longitude": f"{lon:.5f}",
@@ -155,7 +175,7 @@ def fetch_power_climatology_window(
     end_year: int = 2020,
 ) -> dict:
     params = {
-        "parameters": "T2M,PRECTOTCORR",
+        "parameters": "T2M,T2M_MAX,T2M_MIN,PRECTOTCORR,RH2M,WS2M",
         "community": "AG",
         "latitude": f"{lat:.5f}",
         "longitude": f"{lon:.5f}",
