@@ -16,17 +16,30 @@ def test_unreviewed_country_falls_back_without_fake_government_adapter():
 
 
 
-def test_every_country_gets_a_transparent_government_portal_discovery_link():
+def test_verified_country_gets_direct_official_agriculture_route():
     registry = source_registry("jp", "Japan")
     discovery = registry["government_discovery"]
-    assert discovery["status"] == "discovery_link_not_verified"
-    assert "Japan" in discovery["name"]
-    assert "official" in discovery["source_url"].lower()
+    assert discovery["status"] == "verified_country_route"
+    assert discovery["source_url"].startswith("https://www.maff.go.jp/")
     assert registry["global_sources"]
 
 
-def test_verified_country_still_includes_portal_discovery_path():
+def test_unreviewed_country_gets_transparent_discovery_route():
+    registry = source_registry("zz", "Exampleland")
+    discovery = registry["government_discovery"]
+    assert discovery["status"] == "discovery_link_not_verified"
+    assert "Exampleland" in discovery["name"]
+    assert "google.com/search" in discovery["source_url"]
+
+
+def test_bangladesh_registry_includes_farmer_information_and_extension_sources():
+    registry = source_registry("bd", "Bangladesh")
+    ids = {item["id"] for item in registry["official_sources"]}
+    assert {"bd-moa", "bd-dae", "bd-ais", "bd-bamis", "bd-barc-zoning"} <= ids
+
+
+def test_verified_country_portal_route_is_not_a_search_engine():
     registry = source_registry("us", "United States")
     assert registry["coverage"] == "verified_country_adapter"
     assert registry["official_sources"]
-    assert registry["government_discovery"]["source_url"].startswith("https://www.google.com/search")
+    assert "google.com/search" not in registry["government_discovery"]["source_url"]
