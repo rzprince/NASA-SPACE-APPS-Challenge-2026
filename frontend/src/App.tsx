@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import LocationMap from "./LocationMap";
 import DecisionReport from "./DecisionReport";
 import FieldIcon, { type IconName } from "./FieldIcon";
@@ -463,7 +463,7 @@ export default function App() {
             </div>
 
             <div className="earth-pulse">
-              <div className="pulse-ring" style={{ "--score": readiness } as React.CSSProperties}>
+              <div className="pulse-ring" style={{ "--score": readiness } as CSSProperties}>
                 <span>{readiness}</span>
                 <small>READY</small>
               </div>
