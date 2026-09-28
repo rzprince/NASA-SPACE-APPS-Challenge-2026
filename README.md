@@ -4,54 +4,46 @@
 
 **Team EARTH.exe · Bangladesh · NASA Space Apps Challenge 2026 · Field Shift: Adapting Farms with NASA Data**
 
-BoponX is no longer designed as a scrolling information site. It is a full stack **Earth intelligence mission control for farm decisions**.
+BoponX is a full stack field decision support platform that connects one farm location with NASA Earth observations, agroclimate context, verified agricultural sources and farmer knowledge.
 
-The farmer selects one field anywhere on Earth. BoponX builds a single evidence stack for that location, combines NASA Earth observations and agroclimate context with verified local agricultural sources and farmer knowledge, then carries that evidence into a rotation sandbox and a printable 90 day action card.
+The core workflow is:
+
+**NASA Data → Farm Analysis → Crop Rotation Scenarios → Explainable Decision Support**
+
+A farmer or adviser selects a field anywhere on Earth. BoponX resolves the environmental context for that location, connects reviewed local agriculture sources where available, records the farmer's recent crop history and priorities, and carries the same evidence into rotation exploration and a printable 90 day field plan.
 
 > BoponX is an independent Team EARTH.exe project. NASA and NASA partners do not endorse this application.
 
-## Why the product was rebuilt
-
-The earlier prototype repeated the same information across several sections. NASA products appeared as separate cards rather than one decision pipeline. The new architecture is intentionally different:
-
-**Earth Twin → NASA Fusion Engine → Local Data Mesh → Farmer Context → Rotation Lab → Farmer Action Card**
-
-NASA evidence is resolved once, then reused by the decision engine. Local sources are shown once in the Local Data Mesh. The printable action card contains usable instructions and source names instead of depending on clickable links.
-
 ## Earth Twin
 
-The main interface is now a custom Three.js **realistic Earth from space** rather than a flat map styled as a globe.
+Earth Twin is the spatial entry point for the platform.
 
-The sphere uses NASA GIBS global imagery. It supports NASA Blue Marble, dated MODIS Terra true color imagery, GPM IMERG precipitation overlays, and SMAP surface soil moisture overlays. The farmer or adviser can rotate the planet, zoom from space, tap a location on the globe, search a place, or allow browser geolocation.
+It provides:
 
-The main interface is an interactive global Earth selector.
+- a realistic Three.js Earth from space
+- NASA Blue Marble as the complete global reference texture
+- slow automatic Earth rotation
+- drag to rotate and scroll to zoom
+- tap on the globe to choose a field
+- browser geolocation
+- global place search
+- NASA GIBS reference labels that become more visible as the camera moves closer
+- optional dated MODIS Terra true color overlay
+- optional GPM IMERG precipitation overlay
+- optional SMAP surface soil moisture overlay
+- a field marker and automatic camera move to the selected point
 
-A farmer or adviser can:
+The NASA Blue Marble reference remains visible even when a dated overlay is incomplete or unavailable.
 
-- allow browser location access
-- search any village, district, city or country
-- tap directly on the interactive globe
-- switch NASA spatial layers without leaving the selected field
-
-The selected coordinate drives the NASA POWER queries and the local source lookup.
-
-### Spatial NASA layers
-
-The Earth Twin currently exposes:
-
-- **NASA GIBS true color imagery**
-- **GPM IMERG Early V07B precipitation visualization**
-- **SMAP surface soil moisture visualization**
-
-The map always keeps a standard OpenStreetMap base available. A NASA imagery failure cannot prevent field selection.
+For Bangladesh, Earth Twin also includes a quick selector for all 8 divisions and all 64 districts.
 
 ## NASA Fusion Engine
 
-The right side of Earth Twin is a single evidence engine instead of several repeated NASA sections.
+NASA information is resolved once for the selected field and reused throughout the workflow.
 
 ### NASA POWER Daily
 
-BoponX requests the current selected location for:
+The selected coordinate is queried for recent:
 
 - mean 2 m air temperature
 - mean daily maximum temperature
@@ -60,178 +52,192 @@ BoponX requests the current selected location for:
 - 2 m relative humidity
 - 2 m wind speed
 
-These values are regional gridded agroclimate context, not measurements taken inside the farmer's field.
+POWER values are regional gridded agroclimate context. They are not measurements made inside the farmer's field.
 
 ### NASA POWER climatology
 
-BoponX also requests a three month 2001 to 2020 climatology window for the selected point.
+BoponX loads a three month 2001 to 2020 climatology window for the selected coordinate and planning month.
 
-The engine compares recent POWER rainfall and temperature context with the selected month historical reference. This produces transparent context such as:
+Recent conditions can be compared with the historical reference to describe context such as:
 
-- wetter than baseline
-- near baseline
-- drier than baseline
-- warmer than baseline
-- cooler than baseline
+- wetter than the selected month baseline
+- near the selected month baseline
+- drier than the selected month baseline
+- warmer than the selected month baseline
+- cooler than the selected month baseline
 
-These are contextual comparisons, not weather forecasts.
+These comparisons are decision context, not weather forecasts.
 
 ### GPM IMERG
 
-The map exposes IMERG V07B recent precipitation spatial evidence. NASA currently documents the Early Run at about 4 hour minimum latency and 0.1 degree, roughly 10 km, spatial resolution.
+GPM IMERG supplies recent precipitation spatial evidence.
 
-IMERG is never described as a future weather forecast or as a rain gauge inside the field.
+BoponX does not treat the IMERG layer as a future forecast or a field rain gauge.
 
 ### SMAP
 
-The map exposes regional surface soil moisture spatial context.
+SMAP supplies regional surface soil moisture context.
 
 BoponX never treats SMAP as:
 
 - soil pH
 - nutrient chemistry
 - a laboratory soil test
-- parcel scale truth
+- parcel scale soil truth
 
-The 2026 SMAP geolocation advisory remains documented in the evidence register.
+### NASA GIBS
 
-## Decision Readiness
-
-The Earth Twin shows a **Decision Readiness** value.
-
-This is not a crop suitability score.
-
-It only measures whether the decision workflow has enough evidence loaded, such as:
-
-- field coordinates
-- recent NASA context
-- historical baseline
-- country information
-- verified local source adapter
-- crop history
-- farmer intention
-- water and drainage observations
-
-This keeps the visual impact of a mission control interface without pretending that a UI score is agronomic science.
+NASA GIBS provides the spatial delivery layer used for dated Earth observation overlays and reference labels.
 
 ## Local Data Mesh
 
-There is no single reliable API containing every government's agricultural information.
+Environmental coverage can be global while agricultural authority remains country specific. BoponX keeps those two responsibilities separate.
 
-BoponX therefore uses a **verified adapter architecture** instead of inventing worldwide local data. Every selected country now receives a visible **government agriculture portal finder** so the user can reach the country's official agriculture ministry or data portal. This is labelled as a discovery route until the direct government domain has been manually reviewed.
+Reviewed national agriculture adapters currently include official sources for:
 
-Verified direct links remain visually distinct from discovery links.
+- Bangladesh
+- India
+- United States
+- Canada
+- Japan
+- Brazil
+- Philippines
+- Sri Lanka
+- Australia
+- United Kingdom
 
-Currently reviewed adapters include:
+For a country without a reviewed adapter, BoponX continues to provide NASA analysis and FAO references while exposing a country specific route to find the official agriculture authority. It does not label an unreviewed site as verified.
 
-- Bangladesh Department of Agricultural Extension / BAMIS
-- Bangladesh Agricultural Research Council crop zoning
-- India Meteorological Department Agromet Advisory Services
-- USDA Web Soil Survey
-- USDA Climate Hubs
-- Australian Department of Agriculture, Fisheries and Forestry soil and climate references
-- UK DEFRA agricultural climate reference
-- FAO Crop Calendar as the global intergovernmental fallback
+### Bangladesh agriculture layer
 
-Bangladesh remains the deepest local evidence implementation because BoponX has indexed regional BAMIS crop weather calendar presence.
+Bangladesh has the deepest local evidence connection in the current project:
 
-For a country without a reviewed national adapter, NASA analysis still works globally, but the interface clearly says that verified local agricultural evidence still needs to be connected.
+- Ministry of Agriculture
+- Department of Agricultural Extension
+- Agriculture Information Service
+- Bangladesh Agro Meteorological Information Service
+- Bangladesh Agricultural Research Council Crop Zoning
+- BAMIS crop weather calendar evidence
+- FAO Crop Calendar reference
 
-That behavior is deliberate. BoponX does not fabricate a government dataset simply to make the map look complete.
+BARC crop zoning provides upazila level crop suitability and zoning reference. AIS provides crop production technology, seasonal agriculture information and farmer information services. BAMIS provides agrometeorological and crop weather calendar information.
 
 ## Farmer Context
 
-The Rotation Lab asks only information the farmer is likely to know:
+Rotation Lab asks only information the farmer or adviser can reasonably know:
 
-- recent crops grown in the field
-- what crop the farmer is considering now
-- whether the field is mostly rainfed, irrigated, or both
-- whether water drains or remains after heavy rain
+- crops recently grown in the field
+- what crop is being considered now
+- whether the field is mainly rainfed, irrigated, or both
+- what happens after heavy rain
 - whether a real soil test report exists
-- current priority: water, soil, or production stability
+- the current priority: water, soil, or production stability
 
-A farmer can still choose **Not sure**.
+A farmer can choose **Not sure**.
 
-pH is only accepted when the farmer says a real soil test report exists.
+pH is accepted only when a real soil test report exists.
+
+## Farm Analysis
+
+The deterministic planning engine combines:
+
+- selected field coordinates
+- recent NASA POWER context
+- three monthly POWER climatology references
+- regional agricultural source coverage
+- recent crop history
+- current crop intention
+- water source
+- drainage observation
+- soil test availability
+- farmer priority
+
+The engine can identify evidence gaps, water or drainage risks, and whether an intended crop has a regional source that should be reviewed.
+
+BoponX does not invent a crop suitability score when reviewed crop requirements or sequence rules are missing.
 
 ## Rotation Lab
 
-The new Rotation Lab looks and behaves like a decision workspace rather than a questionnaire page.
+Rotation Lab carries forward the field evidence instead of repeating the NASA dashboard.
 
-It carries forward only decision-relevant Earth signals:
+Where enough regional crop evidence exists, it can display several exploration paths across three seasons. These paths remain clearly separated from final agronomic ranking.
 
-- field location
-- recent rainfall context
-- verified local source coverage
-- farmer crop intention
+Where the required local crop evidence is missing, BoponX shows an evidence gate instead of fabricating crop names or crop sequences.
 
-It displays multiple **exploration paths** so the user can reason across three seasons.
+## 90 Day Field Plan
 
-These paths are deliberately labelled as exploration, not ranked prescriptions.
-
-BoponX will not claim that one crop sequence is agronomically superior until reviewed local crop requirements, soil constraints and crop sequence rules are encoded.
-
-This scientific gate is more important than making a visually impressive but unsupported recommendation.
-
-## 90 day Farmer Action Card
-
-The final output was redesigned around an illiterate or low literacy farmer use case.
-
-The printed card no longer depends on clickable links.
+The field plan is designed to remain useful when printed.
 
 It contains:
 
-- the field name and coordinates
-- a plain language decision message
-- rainfall and temperature context
-- three visually separated months
-- a limited number of concrete actions per month
-- evidence source names
+- the selected field and coordinates
+- an explainable decision message
+- recent rainfall and temperature context
+- the reasons behind the advice
+- three visually separated monthly stages
+- a monthly NASA POWER historical reference
+- action icons and plain language tasks
+- local support information
+- NASA source names
+- local agriculture source names
 - scientific limitations
 
-Digital source links remain available in the application for advisers and judges, but the printed card is usable on its own.
+For Bangladesh, the printed plan also shows the Agriculture Call Center number **16123**, so the printed output does not depend on clicking a website link.
 
-## Global versus local capability
+## Global and local capability
 
 | Capability | Coverage |
 | --- | --- |
-| Global field selection | Global |
+| 3D field selection | Global |
+| Global place search | Global |
 | NASA POWER recent agroclimate | Global point query |
 | NASA POWER climatology | Global point query |
-| GPM IMERG visualization | Global except product limitations near poles |
-| SMAP soil moisture visualization | Global land product coverage |
-| NASA GIBS Earth imagery | Global |
-| FAO Crop Calendar reference | Multi-country global reference |
-| Verified government agriculture adapters | Country by country, only after review |
-| Bangladesh regional crop calendar index | Implemented |
-| Final agronomic crop rotation ranking | Still evidence gated |
+| GPM IMERG visualization | Global product coverage subject to product limits |
+| SMAP soil moisture visualization | Global land product coverage subject to product limits |
+| NASA Blue Marble reference Earth | Global |
+| NASA GIBS reference labels | Global |
+| FAO Crop Calendar reference | Multi country |
+| Reviewed national agriculture adapters | Country by country |
+| Bangladesh district selection | 64 districts |
+| Bangladesh regional crop weather evidence | Connected through BAMIS evidence hubs |
+| Final universal crop rotation ranking | Evidence gated |
+
+## Scientific boundaries
+
+BoponX does not claim that:
+
+- NASA data measure field pH or nutrients
+- a satellite grid cell is the same as a field sensor
+- historical climatology is a weather forecast
+- an official crop calendar automatically proves field suitability
+- an exploration path is a validated crop rotation
+- NASA endorses BoponX
+
+The final crop rotation ranking layer remains dependent on reviewed crop requirements, soil constraints and crop sequence rules.
 
 ## Technology
-
-BoponX intentionally uses a focused stack instead of adding languages only to increase code volume.
 
 ### Frontend
 
 - React
 - TypeScript
 - Vite
-- Three.js realistic Earth renderer
-- OrbitControls and globe ray casting for field selection
-- NASA GIBS WMS textures and overlays
-- custom mission control UI
-- responsive and print layouts
+- Three.js
+- OrbitControls and globe ray casting
+- NASA Earth imagery and GIBS overlays
+- responsive mission control interface
+- print optimized farmer field plan
 
 ### Backend
 
 - Python
 - FastAPI
-- deterministic planning logic
+- deterministic decision logic
 - NASA POWER service adapters
-- verified local source registry
-- source indexed Bangladesh agronomy evidence
+- global geocoding
+- verified national agriculture source registry
+- Bangladesh crop calendar evidence index
 - automated tests
-
-Adding Go, Node, Next.js, or another framework would not improve the scientific decision pipeline by itself. The architecture favors traceability, testability and demo reliability over unnecessary technology count.
 
 ## API
 
@@ -240,25 +246,25 @@ Adding Go, Node, Next.js, or another framework would not improve the scientific 
 | GET /api/v1/health | application readiness |
 | GET /api/v1/places/search?q= | global place search |
 | GET /api/v1/places/reverse?lat=&lon= | global reverse geocoding |
-| GET /api/v1/context?lat=&lon= | global NASA context and Bangladesh deep local evidence |
-| GET /api/v1/local-sources?country_code= | verified national agriculture source registry |
-| GET /api/v1/agronomy/calendars?region= | Bangladesh BAMIS regional calendar index |
+| GET /api/v1/context?lat=&lon= | NASA context and Bangladesh deep local evidence |
+| GET /api/v1/local-sources?country_code= | reviewed national agriculture source registry |
+| GET /api/v1/agronomy/calendars?region= | Bangladesh BAMIS regional crop calendar index |
 | GET /api/v1/environment/recent?lat=&lon= | recent selected location NASA POWER context |
-| GET /api/v1/environment/baseline-window?lat=&lon=&start_month= | three month POWER climatology window |
+| GET /api/v1/environment/baseline-window?lat=&lon=&start_month= | three month NASA POWER climatology window |
 | POST /api/v1/farms/validate | validate farmer known information |
-| POST /api/v1/plans/preview | deterministic 90 day decision support plan |
+| POST /api/v1/plans/preview | deterministic 90 day field decision plan |
 | POST /api/v1/rotations/compare | remains fail closed until agronomic sequence rules are approved |
 
 ## Run locally on Windows
 
-From repository root:
+From the repository root:
 
     py -m venv .venv
     .\.venv\Scripts\python.exe -m pip install -r .\backend\requirements-dev.txt
     .\.venv\Scripts\python.exe -m pytest -q backend\tests
     .\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 
-Second terminal:
+In a second terminal:
 
     cd frontend
     npm.cmd install
@@ -269,36 +275,19 @@ Open:
 
     http://localhost:5173
 
-## Demo acceptance checklist
-
-Before recording the competition video:
-
-- select a field on the globe
-- test current location permission
-- search a place outside Bangladesh
-- test Bangladesh place selection
-- switch true color, IMERG and SMAP layers
-- confirm recent POWER values load or show a truthful unavailable state
-- confirm three month climatology loads
-- confirm Bangladesh shows BAMIS / BARC in Local Data Mesh
-- confirm another reviewed country shows its official source adapter
-- confirm an unreviewed country shows global fallback rather than invented government data
-- enter crop history and farmer intention
-- open Rotation Lab
-- run the decision engine
-- print the Farmer Action Card
-- test the full path on the presentation laptop and phone
-
 ## Primary scientific and agricultural sources
 
 - Field Shift challenge  
   https://www.spaceappschallenge.org/2026/challenges/field-shift-adapting-farms-with-nasa-data/
 
+- NASA Blue Marble  
+  https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/
+
+- NASA GIBS  
+  https://nasa-gibs.github.io/gibs-api-docs/
+
 - GPM IMERG  
   https://gpm.nasa.gov/data/imerg
-
-- GPM precipitation data directory  
-  https://gpm.nasa.gov/data/directory
 
 - SMAP SPL3SMP_E Version 6  
   https://nsidc.org/data/spl3smp_e/versions/6
@@ -309,21 +298,21 @@ Before recording the competition video:
 - NASA POWER Climatology API  
   https://power.larc.nasa.gov/docs/services/api/temporal/climatology/
 
-- NASA Worldview / GIBS  
-  https://worldview.earthdata.nasa.gov/
+- Bangladesh Agriculture Information Service  
+  https://ais.gov.bd/
+
+- Bangladesh Agro Meteorological Information Service  
+  https://www.bamis.gov.bd/
+
+- Bangladesh Agricultural Research Council Crop Zoning  
+  https://apps.barc.gov.bd/cropzoning/
 
 - FAO Crop Calendar  
   https://cropcalendar.apps.fao.org/
 
-- Bangladesh Agro-Meteorological Information Service  
-  https://www.bamis.gov.bd/
-
-- BARC Crop Zoning  
-  https://apps.barc.gov.bd/cropzoning/
-
 ## Team
 
-**Rezwan Hossain Prince — Team Leader**
+**Rezwan Hossain Prince · Team Leader**
 
 MD. Khairul Islam  
 Md. Siam Rayhan  
