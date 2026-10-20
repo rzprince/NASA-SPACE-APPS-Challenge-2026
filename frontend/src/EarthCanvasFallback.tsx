@@ -31,6 +31,20 @@ function inverseOrthographic(x: number, y: number, center: Point): Point | null 
   return { latitude, longitude: wrapLongitude(longitude) };
 }
 
+function projectPoint(point: Point, center: Point): { x: number; y: number } | null {
+  const lat = point.latitude * DEG;
+  const lat0 = center.latitude * DEG;
+  const deltaLon = (point.longitude - center.longitude) * DEG;
+  const visibility = Math.sin(lat0) * Math.sin(lat) +
+    Math.cos(lat0) * Math.cos(lat) * Math.cos(deltaLon);
+  if (visibility < 0) return null;
+  return {
+    x: Math.cos(lat) * Math.sin(deltaLon),
+    y: Math.cos(lat0) * Math.sin(lat) -
+      Math.sin(lat0) * Math.cos(lat) * Math.cos(deltaLon),
+  };
+}
+
 export default function EarthCanvasFallback({ point, onPick }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const centerRef = useRef<Point>({ latitude: 12, longitude: 20 });
@@ -154,15 +168,18 @@ export default function EarthCanvasFallback({ point, onPick }: Props) {
       context.arc(cx, cy, radius, 0, Math.PI * 2);
       context.stroke();
 
-      if (pointRef.current) {
+      const selected = pointRef.current && projectPoint(pointRef.current, centerRef.current);
+      if (selected) {
+        const markerX = cx + selected.x * radius;
+        const markerY = cy - selected.y * radius;
         context.strokeStyle = "rgba(184,255,87,.7)";
         context.fillStyle = "#b8ff57";
         context.lineWidth = 2;
         context.beginPath();
-        context.arc(cx, cy, 14, 0, Math.PI * 2);
+        context.arc(markerX, markerY, 14, 0, Math.PI * 2);
         context.stroke();
         context.beginPath();
-        context.arc(cx, cy, 5, 0, Math.PI * 2);
+        context.arc(markerX, markerY, 5, 0, Math.PI * 2);
         context.fill();
       }
     }
