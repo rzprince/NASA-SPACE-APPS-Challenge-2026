@@ -1,0 +1,16 @@
+# One Vercel project, two independently built services.
+# FastAPI keeps its original /api/v1 paths and is deployed alongside Vite.
+[services.web]
+root = "frontend/"
+
+[services.api]
+root = "."
+entrypoint = "backend.app.main:app"
+
+[[rewrites]]
+source = "/api/(.*)"
+destination = { service = "api" }
+
+[[rewrites]]
+source = "/(.*)"
+destination = { service = "web" }
