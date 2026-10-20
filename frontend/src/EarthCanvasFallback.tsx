@@ -57,7 +57,8 @@ export default function EarthCanvasFallback({ point, onPick }: Props) {
     const canvas = canvasRef.current;
     const host = canvas?.parentElement;
     if (!canvas || !host) return;
-    const context = canvas.getContext("2d", { alpha: false });
+    const stageCanvas = canvas;
+    const context = stageCanvas.getContext("2d", { alpha: false });
     if (!context) {
       setImageStatus("Canvas unavailable. Search or enter a place to choose a field.");
       return;
@@ -74,18 +75,18 @@ export default function EarthCanvasFallback({ point, onPick }: Props) {
     const output = tileContext?.createImageData(tileSize, tileSize);
 
     const dimensions = () => {
-      const width = canvas.clientWidth || host.clientWidth;
-      const height = canvas.clientHeight || host.clientHeight;
+      const width = stageCanvas.clientWidth || host.clientWidth;
+      const height = stageCanvas.clientHeight || host.clientHeight;
       return { width, height, radius: Math.min(width * 0.42, height * 0.4, 335) * zoomRef.current };
     };
 
     function draw() {
       if (stopped || !context) return;
-      const width = Math.max(1, Math.floor(canvas.clientWidth));
-      const height = Math.max(1, Math.floor(canvas.clientHeight));
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
+      const width = Math.max(1, Math.floor(stageCanvas.clientWidth));
+      const height = Math.max(1, Math.floor(stageCanvas.clientHeight));
+      if (stageCanvas.width !== width || stageCanvas.height !== height) {
+        stageCanvas.width = width;
+        stageCanvas.height = height;
       }
       context.fillStyle = "#010705";
       context.fillRect(0, 0, width, height);
