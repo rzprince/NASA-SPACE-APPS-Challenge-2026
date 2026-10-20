@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import LocationMap from "./LocationMap";
+import AdminPanel from "./AdminPanel";
+import KnowledgeHub from "./KnowledgeHub";
 import DecisionReport from "./DecisionReport";
 import FieldIcon, { type IconName } from "./FieldIcon";
 import {
@@ -16,7 +18,7 @@ import {
 } from "./api";
 
 type Point = { latitude: number; longitude: number };
-type View = "earth" | "rotation" | "plan";
+type View = "earth" | "rotation" | "plan" | "knowledge" | "admin";
 type LayerKey = "trueColor" | "rain" | "soil";
 
 const cropOptions = [
@@ -390,6 +392,12 @@ export default function App() {
           <button className={view === "plan" ? "active" : ""} onClick={() => setView("plan")}>
             <span>03</span> Field Plan
           </button>
+          <button className={view === "knowledge" ? "active" : ""} onClick={() => setView("knowledge")}>
+            <span>04</span> Farmer Guide · কৃষি তথ্য
+          </button>
+          <button className={view === "admin" ? "active" : ""} onClick={() => setView("admin")}>
+            <span>05</span> Admin
+          </button>
         </nav>
 
         <div className="mission-status">
@@ -397,6 +405,9 @@ export default function App() {
           {point ? placeLabel(place, point) : "Awaiting field"}
         </div>
       </header>
+
+      {view === "knowledge" && <KnowledgeHub />}
+      {view === "admin" && <AdminPanel />}
 
       {view === "earth" && (
         <main className="earth-command">
