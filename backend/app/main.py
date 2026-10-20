@@ -14,6 +14,7 @@ from backend.app.compute.agronomy import calendar_evidence_for_region, supported
 from backend.app.compute.context import build_context, list_areas
 from backend.app.compute.monthly import aggregate_monthly
 from backend.app.compute.plan import make_90_day_plan
+from backend.app.services.knowledge import attach_reviewed_knowledge
 from backend.app.compute.local_sources import source_registry
 from backend.app.services.geocoder import reverse_place, search_places
 from backend.app.services.power_live import fetch_power_climatology, fetch_power_climatology_window, fetch_recent_power
@@ -316,7 +317,7 @@ def planning_preview(request: PlanRequest) -> dict:
                 "message": "Selected-month climate baseline is unavailable. No fallback number was fabricated.",
             }
     try:
-        return make_90_day_plan(
+        computed = make_90_day_plan(
             request.farm.model_dump(),
             context,
             start_year=request.start_year,
@@ -325,6 +326,7 @@ def planning_preview(request: PlanRequest) -> dict:
             baseline_environment=baseline,
             baseline_window=baseline_window,
         )
+        return attach_reviewed_knowledge(computed)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "INVALID_PLAN_WINDOW", "message": str(exc)}) from exc
 
