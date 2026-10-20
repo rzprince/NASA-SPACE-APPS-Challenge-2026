@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import EarthCanvasFallback from "./EarthCanvasFallback";
 
 type Point = { latitude: number; longitude: number };
 type LayerKey = "trueColor" | "rain" | "soil";
@@ -50,16 +51,17 @@ function latLonToVector(latitude: number, longitude: number, radius = EARTH_RADI
   const lat = THREE.MathUtils.degToRad(latitude);
   const lon = THREE.MathUtils.degToRad(longitude);
   return new THREE.Vector3(
-    -radius * Math.cos(lat) * Math.cos(lon),
+    radius * Math.cos(lat) * Math.cos(lon),
     radius * Math.sin(lat),
-    radius * Math.cos(lat) * Math.sin(lon),
+    -radius * Math.cos(lat) * Math.sin(lon),
   );
 }
 
 function vectorToLatLon(vector: THREE.Vector3): Point {
   const normal = vector.clone().normalize();
   const latitude = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(normal.y, -1, 1)));
-  const longitude = THREE.MathUtils.radToDeg(Math.atan2(normal.z, -normal.x));
+  // Three.js sphere UVs place the Greenwich meridian at +X and east at -Z.
+  const longitude = THREE.MathUtils.radToDeg(Math.atan2(-normal.z, normal.x));
   return {
     latitude: Number(latitude.toFixed(5)),
     longitude: Number(longitude.toFixed(5)),
@@ -137,6 +139,7 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
   const labelTextureRef = useRef<THREE.Texture | null>(null);
   const onPickRef = useRef(onPick);
   const [ready, setReady] = useState(false);
+  const [fallback, setFallback] = useState(false);
   const [message, setMessage] = useState("");
   const [textureStatus, setTextureStatus] = useState("Loading NASA Blue Marble");
 
@@ -169,6 +172,7 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
     let raf = 0;
     let pointerDown = { x: 0, y: 0 };
     let destroyed = false;
+    let provisionalRenderer: THREE.WebGLRenderer | null = null;
 
     try {
       THREE.Cache.enabled = true;
@@ -185,6 +189,7 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
         alpha: false,
         powerPreference: "default",
       });
+      provisionalRenderer = renderer;
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.3));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -391,8 +396,19 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
       renderer.domElement.addEventListener("pointerdown", handlePointerDown);
       renderer.domElement.addEventListener("pointerup", handlePointerUp);
 
-      const observer = new ResizeObserver(() => requestAnimationFrame(resize));
-      observer.observe(host);
+      const observer = typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => requestAnimationFrame(resize))
+        : null;
+      observer?.observe(host);
+      window.addEventListener("resize", resize);
+      const handleContextLost = (event: Event) => {
+        event.preventDefault();
+        setReady(false);
+        setFallback(true);
+        setTextureStatus("WebGL interrupted · interactive 2D Earth");
+        setMessage("3D graphics were interrupted. The globe remains selectable in 2D.");
+      };
+      renderer.domElement.addEventListener("webglcontextlost", handleContextLost);
       resize();
 
       sceneRef.current = {
@@ -409,7 +425,9 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
         desiredCamera: null,
         resumeTimer: null,
         cleanup: () => {
-          observer.disconnect();
+          observer?.disconnect();
+          window.removeEventListener("resize", resize);
+          renderer.domElement.removeEventListener("webglcontextlost", handleContextLost);
           renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
           renderer.domElement.removeEventListener("pointerup", handlePointerUp);
           controls.dispose();
@@ -512,9 +530,19 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
       };
       animate();
       setReady(true);
-    } catch {
-      setMessage("The 3D Earth view could not start. Place search and current location are still available.");
+    } catch (error) {
+      console.error("Earth Twin 3D initialization failed; switching to 2D Earth.", error);
+      if (sceneRef.current) {
+        sceneRef.current.cleanup();
+        sceneRef.current = null;
+      } else {
+        provisionalRenderer?.dispose();
+        host.replaceChildren();
+      }
+      setTextureStatus("WebGL unavailable · interactive 2D Earth");
+      setMessage("This device could not start 3D graphics. Use the interactive 2D NASA Earth instead.");
       setReady(false);
+      setFallback(true);
     }
 
     return () => {
@@ -616,11 +644,12 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
 
     state.controls.autoRotate = false;
     state.desiredCamera = normal.clone().multiplyScalar(4.95);
-  }, [point]);
+  }, [point, ready]);
 
   return (
     <div className="earth-globe-stage realistic-earth">
       <div ref={rootRef} className="earth-globe-map" aria-label="Interactive realistic 3D NASA Earth field selector" />
+      {fallback && <EarthCanvasFallback point={point} onPick={onPick} />}
 
       <div className="globe-hud">
         <span className="hud-label">EARTH TWIN</span>
@@ -644,7 +673,7 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
             key={key}
             className={activeLayer === key ? "active" : ""}
             onClick={() => onLayerChange(activeLayer === key ? null : key)}
-            disabled={!ready}
+            disabled={!ready || fallback}
           >
             <i />
             {label}
@@ -654,7 +683,7 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
 
       <div className="globe-layer-detail">
         <span>{activeLayer ? layerMeta[activeLayer].label : "NASA BLUE MARBLE"}</span>
-        <small>{activeLayer ? layerMeta[activeLayer].detail : "complete global NASA reference imagery"}</small>
+        <small>{fallback ? "Real geographic selection works in 2D; NASA overlays need WebGL." : activeLayer ? layerMeta[activeLayer].detail : "complete global NASA reference imagery"}</small>
       </div>
 
       <div className="globe-date">
@@ -662,7 +691,7 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
         <strong>{activeLayer ? mapDate : "Blue Marble"}</strong>
       </div>
 
-      <div className="globe-interaction-tip">DRAG TO ROTATE · SCROLL TO ZOOM · TAP TO SELECT · LABELS APPEAR CLOSER</div>
+      <div className="globe-interaction-tip">DRAG TO ROTATE · SCROLL TO ZOOM · TAP TO SELECT{fallback ? " · 2D COMPATIBILITY MODE" : " · LABELS APPEAR CLOSER"}</div>
       {message && <div className="globe-message compact">{message}</div>}
     </div>
   );
