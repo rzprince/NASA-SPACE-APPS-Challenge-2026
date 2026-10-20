@@ -38,6 +38,7 @@ export default function EarthCanvasFallback({ point, onPick }: Props) {
   const imageRef = useRef<ImageData | null>(null);
   const drawRef = useRef<() => void>(() => undefined);
   const onPickRef = useRef(onPick);
+  const pointRef = useRef(point);
   const [imageStatus, setImageStatus] = useState("Loading NASA Blue Marble imagery…");
 
   useEffect(() => {
@@ -45,6 +46,7 @@ export default function EarthCanvasFallback({ point, onPick }: Props) {
   }, [onPick]);
 
   useEffect(() => {
+    pointRef.current = point;
     if (point && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)) {
       centerRef.current = { latitude: clamp(point.latitude, -90, 90), longitude: wrapLongitude(point.longitude) };
       drawRef.current();
@@ -151,7 +153,7 @@ export default function EarthCanvasFallback({ point, onPick }: Props) {
       context.arc(cx, cy, radius, 0, Math.PI * 2);
       context.stroke();
 
-      if (point) {
+      if (pointRef.current) {
         context.strokeStyle = "rgba(184,255,87,.7)";
         context.fillStyle = "#b8ff57";
         context.lineWidth = 2;
