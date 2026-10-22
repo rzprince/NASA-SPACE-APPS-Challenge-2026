@@ -123,8 +123,6 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [gpsBusy, setGpsBusy] = useState(false);
-  const [gpsError, setGpsError] = useState("");
-  const [manualCoordinates, setManualCoordinates] = useState("");
   const [adminBusy, setAdminBusy] = useState(false);
   const [context, setContext] = useState<LocationContext | null>(null);
   const [localSources, setLocalSources] = useState<LocalSourceRegistry | null>(null);
@@ -271,62 +269,29 @@ export default function App() {
       longitude: Number(next.longitude.toFixed(5)),
     });
     if (selected) setPlace(selected);
-    setGpsError("");
   }
 
   function locateMe() {
     setError("");
-    setGpsError("");
-    // Chromium/Safari/Firefox forbid GPS on LAN HTTP origins even when the page loads.
-    // localhost is a special secure-context exception; phones need HTTPS hosting.
-    if (!window.isSecureContext) {
-      setGpsError("GPS requires HTTPS on phones. This HTTP network address is not a secure context. Open BoponX through HTTPS, or select a place or enter coordinates below.");
-      return;
-    }
     if (!navigator.geolocation) {
-      setGpsError("This browser has no geolocation API. Try a supported browser, or enter your coordinates below.");
+      setError("Location access is unavailable in this browser. Search for a place or tap the globe.");
       return;
     }
     setGpsBusy(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setGpsBusy(false);
-        if (!Number.isFinite(position.coords.latitude) || !Number.isFinite(position.coords.longitude)) {
-          setGpsError("Your device returned invalid coordinates. Search for a place or enter coordinates.");
-          return;
-        }
         choosePoint({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         });
       },
-      (reason) => {
+      () => {
         setGpsBusy(false);
-        const messages: Record<number, string> = {
-          1: "Location permission is denied or blocked by the browser/site settings. Allow location for this HTTPS site, then try again.",
-          2: "The device could not determine a location. Turn on device location services or enter coordinates.",
-          3: "Location lookup timed out. Try again with a clearer sky/network connection, or enter coordinates.",
-        };
-        setGpsError(messages[reason.code] ?? "Location failed. Try searching for a place or enter coordinates.");
+        setError("Location permission was not granted. Search for a place or tap the globe.");
       },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
     );
-  }
-
-  function chooseCoordinates(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const values = manualCoordinates.trim().split(/[;,\s]+/).map(Number);
-    if (
-      values.length !== 2 ||
-      values.some((value) => !Number.isFinite(value)) ||
-      Math.abs(values[0]) > 90 ||
-      Math.abs(values[1]) > 180
-    ) {
-      setGpsError("Enter valid latitude and longitude, for example 23.8103, 90.4125.");
-      return;
-    }
-    choosePoint({ latitude: values[0], longitude: values[1] });
-    setManualCoordinates("");
   }
 
   async function chooseBangladeshArea(name: string) {
@@ -448,23 +413,6 @@ export default function App() {
                 <small>Browser permission only</small>
               </span>
             </button>
-            {gpsError && <div className="gps-feedback" role="alert">{gpsError}</div>}
-            <form className="manual-location" onSubmit={chooseCoordinates}>
-              <label htmlFor="coordinate-entry">MANUAL FIELD COORDINATES</label>
-              <div>
-                <input
-                  id="coordinate-entry"
-                  type="text"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  value={manualCoordinates}
-                  onChange={(event) => setManualCoordinates(event.target.value)}
-                  placeholder="23.8103, 90.4125"
-                  aria-label="Latitude, longitude"
-                />
-                <button type="submit">Set field</button>
-              </div>
-            </form>
 
             <div className="global-search">
               <input
