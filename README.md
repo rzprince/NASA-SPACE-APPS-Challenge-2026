@@ -1,320 +1,81 @@
-# BoponX
-
-### From Space to Soil
-
-**Team EARTH.exe · Bangladesh · NASA Space Apps Challenge 2026 · Field Shift: Adapting Farms with NASA Data**
-
-BoponX is a full stack field decision support platform that connects one farm location with NASA Earth observations, agroclimate context, verified agricultural sources and farmer knowledge.
-
-The core workflow is:
-
-**NASA Data → Farm Analysis → Crop Rotation Scenarios → Explainable Decision Support**
-
-A farmer or adviser selects a field anywhere on Earth. BoponX resolves the environmental context for that location, connects reviewed local agriculture sources where available, records the farmer's recent crop history and priorities, and carries the same evidence into rotation exploration and a printable 90 day field plan.
-
-> BoponX is an independent Team EARTH.exe project. NASA and NASA partners do not endorse this application.
-
-## Earth Twin
-
-Earth Twin is the spatial entry point for the platform.
-
-It provides:
-
-- a realistic Three.js Earth from space
-- NASA Blue Marble as the complete global reference texture
-- slow automatic Earth rotation
-- drag to rotate and scroll to zoom
-- tap on the globe to choose a field
-- browser geolocation
-- global place search
-- NASA GIBS reference labels that become more visible as the camera moves closer
-- optional dated MODIS Terra true color overlay
-- optional GPM IMERG precipitation overlay
-- optional SMAP surface soil moisture overlay
-- a field marker and automatic camera move to the selected point
-
-The NASA Blue Marble reference remains visible even when a dated overlay is incomplete or unavailable.
-
-For Bangladesh, Earth Twin also includes a quick selector for all 8 divisions and all 64 districts.
-
-## NASA Fusion Engine
-
-NASA information is resolved once for the selected field and reused throughout the workflow.
-
-### NASA POWER Daily
-
-The selected coordinate is queried for recent:
-
-- mean 2 m air temperature
-- mean daily maximum temperature
-- mean daily minimum temperature
-- precipitation
-- 2 m relative humidity
-- 2 m wind speed
-
-POWER values are regional gridded agroclimate context. They are not measurements made inside the farmer's field.
-
-### NASA POWER climatology
-
-BoponX loads a three month 2001 to 2020 climatology window for the selected coordinate and planning month.
-
-Recent conditions can be compared with the historical reference to describe context such as:
-
-- wetter than the selected month baseline
-- near the selected month baseline
-- drier than the selected month baseline
-- warmer than the selected month baseline
-- cooler than the selected month baseline
-
-These comparisons are decision context, not weather forecasts.
-
-### GPM IMERG
-
-GPM IMERG supplies recent precipitation spatial evidence.
-
-BoponX does not treat the IMERG layer as a future forecast or a field rain gauge.
-
-### SMAP
-
-SMAP supplies regional surface soil moisture context.
-
-BoponX never treats SMAP as:
-
-- soil pH
-- nutrient chemistry
-- a laboratory soil test
-- parcel scale soil truth
-
-### NASA GIBS
-
-NASA GIBS provides the spatial delivery layer used for dated Earth observation overlays and reference labels.
-
-## Local Data Mesh
-
-Environmental coverage can be global while agricultural authority remains country specific. BoponX keeps those two responsibilities separate.
-
-Reviewed national agriculture adapters currently include official sources for:
-
-- Bangladesh
-- India
-- United States
-- Canada
-- Japan
-- Brazil
-- Philippines
-- Sri Lanka
-- Australia
-- United Kingdom
-
-For a country without a reviewed adapter, BoponX continues to provide NASA analysis and FAO references while exposing a country specific route to find the official agriculture authority. It does not label an unreviewed site as verified.
-
-### Bangladesh agriculture layer
-
-Bangladesh has the deepest local evidence connection in the current project:
-
-- Ministry of Agriculture
-- Department of Agricultural Extension
-- Agriculture Information Service
-- Bangladesh Agro Meteorological Information Service
-- Bangladesh Agricultural Research Council Crop Zoning
-- BAMIS crop weather calendar evidence
-- FAO Crop Calendar reference
-
-BARC crop zoning provides upazila level crop suitability and zoning reference. AIS provides crop production technology, seasonal agriculture information and farmer information services. BAMIS provides agrometeorological and crop weather calendar information.
-
-## Farmer Context
-
-Rotation Lab asks only information the farmer or adviser can reasonably know:
-
-- crops recently grown in the field
-- what crop is being considered now
-- whether the field is mainly rainfed, irrigated, or both
-- what happens after heavy rain
-- whether a real soil test report exists
-- the current priority: water, soil, or production stability
-
-A farmer can choose **Not sure**.
-
-pH is accepted only when a real soil test report exists.
-
-## Farm Analysis
-
-The deterministic planning engine combines:
-
-- selected field coordinates
-- recent NASA POWER context
-- three monthly POWER climatology references
-- regional agricultural source coverage
-- recent crop history
-- current crop intention
-- water source
-- drainage observation
-- soil test availability
-- farmer priority
-
-The engine can identify evidence gaps, water or drainage risks, and whether an intended crop has a regional source that should be reviewed.
-
-BoponX does not invent a crop suitability score when reviewed crop requirements or sequence rules are missing.
-
-## Rotation Lab
-
-Rotation Lab carries forward the field evidence instead of repeating the NASA dashboard.
-
-Where enough regional crop evidence exists, it can display several exploration paths across three seasons. These paths remain clearly separated from final agronomic ranking.
-
-Where the required local crop evidence is missing, BoponX shows an evidence gate instead of fabricating crop names or crop sequences.
-
-## 90 Day Field Plan
-
-The field plan is designed to remain useful when printed.
-
-It contains:
-
-- the selected field and coordinates
-- an explainable decision message
-- recent rainfall and temperature context
-- the reasons behind the advice
-- three visually separated monthly stages
-- a monthly NASA POWER historical reference
-- action icons and plain language tasks
-- local support information
-- NASA source names
-- local agriculture source names
-- scientific limitations
-
-For Bangladesh, the printed plan also shows the Agriculture Call Center number **16123**, so the printed output does not depend on clicking a website link.
-
-## Global and local capability
-
-| Capability | Coverage |
-| --- | --- |
-| 3D field selection | Global |
-| Global place search | Global |
-| NASA POWER recent agroclimate | Global point query |
-| NASA POWER climatology | Global point query |
-| GPM IMERG visualization | Global product coverage subject to product limits |
-| SMAP soil moisture visualization | Global land product coverage subject to product limits |
-| NASA Blue Marble reference Earth | Global |
-| NASA GIBS reference labels | Global |
-| FAO Crop Calendar reference | Multi country |
-| Reviewed national agriculture adapters | Country by country |
-| Bangladesh district selection | 64 districts |
-| Bangladesh regional crop weather evidence | Connected through BAMIS evidence hubs |
-| Final universal crop rotation ranking | Evidence gated |
-
-## Scientific boundaries
-
-BoponX does not claim that:
-
-- NASA data measure field pH or nutrients
-- a satellite grid cell is the same as a field sensor
-- historical climatology is a weather forecast
-- an official crop calendar automatically proves field suitability
-- an exploration path is a validated crop rotation
-- NASA endorses BoponX
-
-The final crop rotation ranking layer remains dependent on reviewed crop requirements, soil constraints and crop sequence rules.
-
-## Technology
-
-### Frontend
-
-- React
-- TypeScript
-- Vite
-- Three.js
-- OrbitControls and globe ray casting
-- NASA Earth imagery and GIBS overlays
-- responsive mission control interface
-- print optimized farmer field plan
-
-### Backend
-
-- Python
-- FastAPI
-- deterministic decision logic
-- NASA POWER service adapters
-- global geocoding
-- verified national agriculture source registry
-- Bangladesh crop calendar evidence index
-- automated tests
-
-## API
-
-| Endpoint | Purpose |
-| --- | --- |
-| GET /api/v1/health | application readiness |
-| GET /api/v1/places/search?q= | global place search |
-| GET /api/v1/places/reverse?lat=&lon= | global reverse geocoding |
-| GET /api/v1/context?lat=&lon= | NASA context and Bangladesh deep local evidence |
-| GET /api/v1/local-sources?country_code= | reviewed national agriculture source registry |
-| GET /api/v1/agronomy/calendars?region= | Bangladesh BAMIS regional crop calendar index |
-| GET /api/v1/environment/recent?lat=&lon= | recent selected location NASA POWER context |
-| GET /api/v1/environment/baseline-window?lat=&lon=&start_month= | three month NASA POWER climatology window |
-| POST /api/v1/farms/validate | validate farmer known information |
-| POST /api/v1/plans/preview | deterministic 90 day field decision plan |
-| POST /api/v1/rotations/compare | remains fail closed until agronomic sequence rules are approved |
-
-## Run locally on Windows
-
-From the repository root:
-
-    py -m venv .venv
-    .\.venv\Scripts\python.exe -m pip install -r .\backend\requirements-dev.txt
-    .\.venv\Scripts\python.exe -m pytest -q backend\tests
-    .\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
-
-In a second terminal:
-
-    cd frontend
-    npm.cmd install
-    npm.cmd run build
-    npm.cmd run dev
-
-Open:
-
-    http://localhost:5173
-
-## Primary scientific and agricultural sources
-
-- Field Shift challenge  
-  https://www.spaceappschallenge.org/2026/challenges/field-shift-adapting-farms-with-nasa-data/
-
-- NASA Blue Marble  
-  https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/
-
-- NASA GIBS  
-  https://nasa-gibs.github.io/gibs-api-docs/
-
-- GPM IMERG  
-  https://gpm.nasa.gov/data/imerg
-
-- SMAP SPL3SMP_E Version 6  
-  https://nsidc.org/data/spl3smp_e/versions/6
-
-- NASA POWER Daily API  
-  https://power.larc.nasa.gov/docs/services/api/temporal/daily/
-
-- NASA POWER Climatology API  
-  https://power.larc.nasa.gov/docs/services/api/temporal/climatology/
-
-- Bangladesh Agriculture Information Service  
-  https://ais.gov.bd/
-
-- Bangladesh Agro Meteorological Information Service  
-  https://www.bamis.gov.bd/
-
-- Bangladesh Agricultural Research Council Crop Zoning  
-  https://apps.barc.gov.bd/cropzoning/
-
-- FAO Crop Calendar  
-  https://cropcalendar.apps.fao.org/
-
-## Team
-
-**Rezwan Hossain Prince · Team Leader**
-
-MD. Khairul Islam  
-Md. Siam Rayhan  
-Iftekhar Azad Ether  
-Tulip Mondal
+# BoponX — From Space to Soil (`Team EARTH.exe`)
+
+**2026 NASA International Space Apps Challenge · Challenge 07: [Field Shift: Adapting Farms with NASA Data](https://www.spaceappschallenge.org/2026/challenges/adapting-farms-with-nasa-data/)**  
+**License:** [Apache-2.0](./LICENSE)
+
+BoponX is a bilingual (**English + বাংলা**), location-aware agricultural decision-support system that translates multi-resolution NASA Earth observations and local Bangladesh agro-ecological intelligence into:
+1. **A 25-Year Planting-Window Shift & `<160-Character` SMS Advisory (`2001–2012` vs. `2013–2025`)** with a stated monsoon/usable-rain onset definition (`rain_onset`), `±5 mm` threshold sensitivity check (`15 mm / 20 mm / 25 mm`), Mann-Whitney U test, and crop-specific Growing Degree Days (`GDD`).
+2. **A 3-Strategy Crop Rotation Workbench (`02 Rotation Lab`)** comparing the farmer's existing baseline rotation (**Strategy A**), a nitrogen-fixing pulse/oilseed bridge (**Strategy B**), and district landform opportunities (**Strategy C**) with interactive **"What-If" Rainfall & Heat Sliders**.
+3. **A Printable 2-Page A4 90-Day Field Action Dossier (`03 Field Plan`)** tailored to the farmer's crop history, target crop, water source, post-rain drainage, lab soil test/pH, equipment access, and market/forage goal.
+
+---
+
+## 1. NASA & Local Agricultural Datasets Used (With Official URLs)
+
+| Dataset / System | Spatial & Temporal Scale | Role in BoponX | Official Source URL |
+| :--- | :--- | :--- | :--- |
+| **NASA POWER Agroclimatology API** (`Daily & 2001–2020 Climatology`) | `0.5° × 0.625°` (~50 km) · Daily & Monthly | Provides `PRECTOTCORR` (rainfall), `T2M` / `T2M_MAX` / `T2M_MIN` (temperature & GDD), `T2MDEW` (dew/frost/fog-blight risk), `RH2M` (VPD), `WS2M`, `ALLSKY_SFC_SW_DWN` (solar radiation), `GWETTOP` (`0–5 cm` topsoil wetness), `GWETROOT` (`0–100 cm` root-zone wetness), and FAO-56 `ET₀`. | https://power.larc.nasa.gov/docs/services/api/temporal/daily/ |
+| **NASA GPM IMERG Early V07B** | `0.1°` (~10 km) · Near-real-time (~4h latency) | Spatial precipitation distribution & extreme downpour visualization on the 3D/2D globe. | https://gpm.nasa.gov/data/directory |
+| **NASA SMAP L3 / L2 Soil Moisture** (`SPL3SMP_E V6`) | `9 km EASE-Grid` · Daily multi-date | Top-5 cm surface soil moisture context for seedbed workability (`jo` condition). Never used to infer parcel `pH` or `NPK`. | https://nsidc.org/data/spl3smp_e/versions/6 |
+| **NASA MODIS Terra Reflectance, NDVI & Land Surface Temp** | `250 m – 1 km` · Daily & 8-day composite | Canopy greenness (`MODIS_Terra_NDVI_8Day`), bare-field window detection, and daytime thermal heat stress (`MODIS_Terra_Land_Surface_Temp_Day`). | https://worldview.earthdata.nasa.gov/ |
+| **NASA SRTM Digital Elevation Model** (`SRTM_Color_Index`) | `30 m – 90 m DEM` · Static relief | Topographic elevation, slope erosion context, and lowland/haor vs. terrace drainage relief. | https://worldview.earthdata.nasa.gov/ |
+| **NASA EONET v3 Natural Event Tracker** | Event coordinates + radius (`km`) · Real-time | Tracks active cyclones/severe storms, floods, droughts, wildfires, and landslides near the selected farm coordinate. | https://eonet.gsfc.nasa.gov/docs/v3 |
+| **Bangladesh Agro-Meteorological Information Systems (BAMIS)** | Regional hubs across Bangladesh · Seasonal | Official crop-weather calendars (`Aman`, `Boro`, `Aus`, `Wheat`, `Maize`, `Mustard`, `Lentil`, `Green Gram`, `Jute`). | https://www.bamis.gov.bd/ |
+| **BARC Crop Zoning, SRDI, AIS & DAE (`16123`)** | 64 Districts / >490 Upazilas | Local landform, soil verification requirements, national import-substitution context, and human-in-the-loop extension verification. | https://apps.barc.gov.bd/cropzoning/ · https://srdi.gov.bd/ · https://dae.gov.bd/ |
+
+---
+
+## 2. Stated Monsoon / Usable-Rain Onset Definition & Scientific Boundaries
+
+- **Stated Onset Definition (`backend/app/compute/agro.py`):**
+  > *"First day of a 7-day window with 20 mm or more of cumulative rainfall that is not followed by a dry spell longer than 7 days (at least one day > 1.0 mm in the next 7 days)."*
+- **`±5 mm` Threshold Sensitivity Check:** Every `/advisory` response evaluates the onset shift across `15 mm (-5 mm)`, `20 mm (base)`, and `25 mm (+5 mm)` 7-day thresholds alongside a two-sided **Mann-Whitney U test** (`2001–2012` vs. `2013–2025`).
+- **Strict Fail-Closed Boundaries:**
+  - Satellite soil moisture (`SMAP`, `GWETTOP`, `GWETROOT`) measures physical moisture saturation, **never** laboratory soil `pH`, salinity (`EC`), or `NPK` nutrients.
+  - 20-year monthly climatology (`2001–2020`) is a historical benchmark, **never** a daily weather forecast.
+  - Prescriptive crop suitability ranking (`POST /api/v1/rotations/compare`) remains fail-closed (`HTTP 409 AGRONOMIC_RULES_NOT_APPROVED`) until local agronomic rules are formally approved by extension authorities.
+
+---
+
+## 3. Running Locally (Online & `OFFLINE=1` Venue Mode)
+
+### Terminal 1 — FastAPI Backend (Port `8000`)
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r .\backend\requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q backend\tests
+
+# Standard mode (live NASA APIs + automatic cache/fallback):
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+
+# Optional OFFLINE=1 mode (forces instant local cache reads for hackathon venue demos):
+$env:OFFLINE="1"; .\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+### Terminal 2 — React + TypeScript Frontend (Port `5173`)
+```powershell
+cd frontend
+npm.cmd install
+npm.cmd run build
+npm.cmd run dev
+```
+
+### Key API Endpoints
+- `GET /advisory?district=Rajshahi&crop=rice` (also `GET /api/v1/advisory?district=&crop=`): Returns the 25-year onset shift in whole days, `2001–2012` vs. `2013–2025` distributions, Mann-Whitney U statistic & p-value, `±5 mm` sensitivity check, GDD summary, bilingual advisory sentence, and `<160-character` SMS advisory.
+- `GET /api/v1/context?lat=24.3745&lon=88.6042`: Resolves 64-district Bangladesh profile, BAMIS calendars, multi-resolution harmonization, scientific glossary, functional crop roles, and SI methods.
+- `GET /api/v1/environment/recent`, `GET /api/v1/environment/baseline-window`, `GET /api/v1/environment/hazards`: Live NASA POWER & EONET v3 diagnostics.
+- `POST /api/v1/rotations/explore` & `POST /api/v1/plans/preview`: Generates the 3 rotation exploration strategies and the tailored 90-day field plan.
+
+---
+
+## 4. Mandatory Use of AI & Human Contribution Disclosure
+
+In accordance with the **2026 NASA International Space Apps Challenge Rules**:
+- **Human Engineering, Domain Research & Creative Design (`Team EARTH.exe`):**
+  - Formulated the **BoponX ("From Space to Soil")** system architecture, fail-closed scientific integrity gates, and 3-stage farmer workflow (`01 Earth Twin` → `02 Rotation Lab` → `03 Field Plan`).
+  - Compiled and structured the 64-district Bangladesh agro-ecological dataset (`bpx.pdf`), including landform classifications, climate analogs, established/opportunity crops, national edible-oil/pulse import-substitution context, and SRDI/BARC/Plant Quarantine verification rules.
+  - Designed the official **BoponX** visual identity, 2-page A4 printable field dossier layout, and bilingual (`English + বাংলা`) farmer communication strategy.
+- **AI Tools Used & Prompts / Data Worked On:**
+  - **Tool:** Google Gemini (Coding & Research Assistant).
+  - **Prompts & Tasks:** Assisted in pair-programming FastAPI endpoints (`agro.py`, `power_live.py`, `eonet_live.py`, `bangladesh_districts.py`, `plan.py`), writing React/TypeScript UI components (`LocationMap.tsx`, `App.tsx`, `DecisionReport.tsx`), implementing FAO-56 `ET₀`, `rain_onset`, and Mann-Whitney U statistical calculations, and writing automated unit tests (`backend/tests/`).
+  - **Data Worked On:** Public NASA API documentation (`NASA POWER`, `GIBS WMS`, `EONET v3`), official `BAMIS` calendar metadata, and Team EARTH.exe's curated 64-district Bangladesh research notes. No proprietary or copyrighted third-party content was used.

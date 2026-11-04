@@ -76,3 +76,15 @@ The deterministic decision layer must preserve:
 - historical versus recent meaning
 - source role
 - known limitations
+
+
+## 64-District Bangladesh Agro-Ecological & Crop Opportunity Dataset (`bpx.pdf`, 27 October 2026)
+
+BoponX integrates a 64-district agro-ecological profile dataset across all 8 divisions of Bangladesh (`backend/app/compute/bangladesh_districts.py`), recording:
+- District soil and landform characteristics (`landform_en`, `landform_bn`)
+- Agro-climatically analogous regions (`analog_regions_en`, `analog_regions_bn`)
+- Established baseline crops (`established_crops_en`, `established_crops_bn`)
+- Preliminary diversification opportunities (`opportunity_crops_en`, `opportunity_crops_bn`)
+- Published online trial/production evidence (Dragon fruit & Katimon off-season mango in Rajshahi/Naogaon from *The Daily Star*; PKSF-PACE Avocado & Robusta Coffee demo in Naogaon; BARI Lebukhali exotic red mango trial in Patuakhali from UNB/*Dhaka Tribune*; national edible-oil and pulse deficit statistics from *The Daily Star* and USDA)
+
+**Decision boundary:** District profiles are preliminary estimates. Similarity percentages and profit figures are not verified, and soil properties vary across >490 upazilas within the 64 districts. All field decisions must be verified against SRDI soil data, BMD weather records, BARC Crop Zoning, WorldClim, and SoilGrids, and any new seed/sapling introduction requires Plant Quarantine and National Seed Board clearance.

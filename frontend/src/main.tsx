@@ -4,13 +4,16 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import App from "./App";
 import "./app.css";
 
-type BoundaryState = { failed: boolean };
+type BoundaryState = { failed: boolean; errorMessage: string };
 
 class DemoErrorBoundary extends Component<{ children: ReactNode }, BoundaryState> {
-  state: BoundaryState = { failed: false };
+  state: BoundaryState = { failed: false, errorMessage: "" };
 
-  static getDerivedStateFromError(): BoundaryState {
-    return { failed: true };
+  static getDerivedStateFromError(error: Error): BoundaryState {
+    return {
+      failed: true,
+      errorMessage: error instanceof Error ? error.message : String(error ?? "Unknown error"),
+    };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -25,7 +28,26 @@ class DemoErrorBoundary extends Component<{ children: ReactNode }, BoundaryState
             <span className="app-recovery-mark">BoponX</span>
             <h1>The interface needs a quick refresh.</h1>
             <p>Your farm information was not stored. Reload the page and continue from the field location.</p>
-            <button type="button" onClick={() => window.location.reload()}>Reload BoponX</button>
+            {this.state.errorMessage && (
+              <p style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#9eb2a8", marginTop: "8px" }}>
+                Diagnostic: {this.state.errorMessage}
+              </p>
+            )}
+            <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+              <button
+                type="button"
+                onClick={() => this.setState({ failed: false, errorMessage: "" })}
+              >
+                Continue BoponX
+              </button>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                style={{ background: "transparent", color: "#eef5f1", border: "1px solid rgba(255,255,255,0.24)" }}
+              >
+                Reload Page
+              </button>
+            </div>
           </div>
         </main>
       );
@@ -38,9 +60,7 @@ const root = document.getElementById("root");
 if (!root) throw new Error("BoponX root element is missing");
 
 createRoot(root).render(
-  <React.StrictMode>
-    <DemoErrorBoundary>
-      <App />
-    </DemoErrorBoundary>
-  </React.StrictMode>,
+  <DemoErrorBoundary>
+    <App />
+  </DemoErrorBoundary>,
 );

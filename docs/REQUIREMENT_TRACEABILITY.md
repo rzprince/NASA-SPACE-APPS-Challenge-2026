@@ -41,3 +41,20 @@
 | Make each month different | Implemented and tested | Each month has a separate objective, task codes and monthly climate reference |
 | Use weather context without pretending to forecast | Implemented | Recent NASA POWER is compared with historical monthly climatology; future months use climatology only |
 | Improve tiny frontend text | Implemented | Farmer controls, evidence details, plan tasks and source text received a readability pass |
+
+
+## 30 October 2026 — Official 28 October NASA Challenge Brief Traceability
+
+**Reviewed:** 30 October 2026
+
+| 28 Oct Challenge Brief Requirement | Current State | Implementation Evidence |
+| --- | --- | --- |
+| Combine NASA Earth observations with local agricultural information | Implemented & Tested | `backend/app/compute/context.py`, `backend/app/compute/bangladesh_districts.py`, `backend/app/compute/local_sources.py` |
+| Explore patterns in temperature, rainfall, soil moisture, heat shift, and water balance | Implemented & Tested | `backend/app/services/power_live.py`, `backend/app/compute/plan.py`, `frontend/src/App.tsx` |
+| Highlight bare-field periods & vulnerable seasons | Implemented & Tested | `bare_field_risk_en` / `bare_field_risk_bn` across all 64 districts + `bare-field-banner` in Rotation Lab |
+| Compare at least 3 rotation strategies, including the existing rotation | Implemented & Tested | `POST /api/v1/rotations/explore` & `Rotation Lab` compare (A) Existing Baseline, (B) Soil-Health & Pulse/Oilseed Bridge, and (C) Climate-Adaptive & District Opportunity with *Why Suggested*, *Evidence*, *Benefits*, *Gaps*, and *Local Review Risks* |
+| Clarify satellite vs. ground measurements & multi-resolution grid harmonization | Implemented & Tested | `MULTI_RESOLUTION_HARMONIZATION` in `context.py` + `Grid Harmonization` tab in `App.tsx` |
+| Explain scientific terms (evapotranspiration, soil moisture anomalies, NDVI, heat/frost risk, water balance) | Implemented & Tested | `SCIENTIFIC_GLOSSARY` in `context.py` + `Scientific Terms` tab in `App.tsx` (English & Bangla) |
+| Connect 64-district Bangladesh soil, analog, established crop & new opportunity dataset (`bpx.pdf`) | Implemented & Tested | `backend/app/compute/bangladesh_districts.py` + `/api/v1/bangladesh/districts` + `/api/v1/bangladesh/resolve` |
+| WebGL fallback (`EarthCanvasFallback`), manual coordinate recovery, and bilingual (`EN / বাংলা`) support | Implemented & Tested | `frontend/src/LocationMap.tsx`, `frontend/src/App.tsx`, `frontend/src/DecisionReport.tsx` |
+| Keep final prescriptive rotation ranking fail-closed until formal agronomic sign-off | Enforced & Tested | `POST /api/v1/rotations/compare` returns `HTTP 409 AGRONOMIC_RULES_NOT_APPROVED` |

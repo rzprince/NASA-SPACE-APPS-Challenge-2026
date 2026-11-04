@@ -1,37 +1,44 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import LocationMap from "./LocationMap";
+import LocationMap, { type LayerKey } from "./LocationMap";
 import DecisionReport from "./DecisionReport";
 import FieldIcon, { type IconName } from "./FieldIcon";
 import {
   ApiError,
   apiGet,
   apiPost,
+  type EonetHazardsResponse,
   type FarmerProfile,
   type LocalSourceRegistry,
   type LocationContext,
   type PlaceResult,
   type PlanBrief,
+  type PlantingWindowAdvisory,
   type PowerBaselineWindow,
   type RecentEnvironment,
+  type RotationScenario,
 } from "./api";
 
 type Point = { latitude: number; longitude: number };
 type View = "earth" | "rotation" | "plan";
-type LayerKey = "trueColor" | "rain" | "soil";
+type Lang = "en" | "bn";
 
 const cropOptions = [
-  ["rice", "Rice", "rice"],
-  ["wheat", "Wheat", "wheat"],
-  ["maize", "Maize", "maize"],
-  ["pulse", "Pulse", "pulse"],
-  ["mustard", "Mustard", "mustard"],
-  ["vegetables", "Vegetables", "vegetables"],
-  ["jute", "Jute", "jute"],
-  ["other", "Other", "other"],
+  ["rice", "Rice", "ধান", "rice"],
+  ["wheat", "Wheat", "গম", "wheat"],
+  ["maize", "Maize", "ভুট্টা", "maize"],
+  ["pulse", "Pulse", "ডাল", "pulse"],
+  ["mustard", "Mustard", "সরিষা", "mustard"],
+  ["vegetables", "Vegetables", "সবজি", "vegetables"],
+  ["jute", "Jute", "পাট", "jute"],
+  ["other", "Other", "অন্যান্য", "other"],
 ] as const;
 
 const cropLabels: Record<string, string> = Object.fromEntries(
   cropOptions.map(([id, label]) => [id, label]),
+);
+
+const cropLabelsBn: Record<string, string> = Object.fromEntries(
+  cropOptions.map(([id, , labelBn]) => [id, labelBn]),
 );
 
 const bangladeshDivisions = [
@@ -50,6 +57,15 @@ const bangladeshDistricts = [
   "Sherpur", "Sirajganj", "Sunamganj", "Sylhet", "Tangail", "Thakurgaon",
 ] as const;
 
+const quickPilotZones = [
+  { label: "Rajshahi (Barind)", name: "Rajshahi" },
+  { label: "Naogaon (Terrace)", name: "Naogaon" },
+  { label: "Patuakhali (Coastal)", name: "Patuakhali" },
+  { label: "Sunamganj (Haor)", name: "Sunamganj" },
+  { label: "Dhaka", name: "Dhaka" },
+] as const;
+
+const monthShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function dateMinus(days: number) {
   return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
@@ -60,12 +76,17 @@ function metric(value: number | null | undefined, suffix = "") {
   return `${new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(value)}${suffix}`;
 }
 
-function placeLabel(place: PlaceResult | null, point: Point | null) {
-  if (place?.address.village) return place.address.village;
-  if (place?.address.town) return place.address.town;
-  if (place?.address.district) return place.address.district;
+function placeLabel(place: PlaceResult | null, point: Point | null, context?: LocationContext | null) {
+  if (place?.address?.village) return place.address.village;
+  if (place?.address?.town) return place.address.town;
+  if (place?.address?.district) return place.address.district;
   if (place?.name) return place.name;
-  if (point) return `${point.latitude.toFixed(3)}°, ${point.longitude.toFixed(3)}°`;
+  if (context?.district_profile?.name_en) {
+    return `${context.district_profile.name_en} (${context.district_profile.name_bn ?? context.district_profile.name_en})`;
+  }
+  if (point && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)) {
+    return `${point.latitude.toFixed(3)}°, ${point.longitude.toFixed(3)}°`;
+  }
   return "No field selected";
 }
 
@@ -73,84 +94,257 @@ function buildStrategies(
   context: LocationContext | null,
   intendedCrop: string,
   previousCrops: string[],
-) {
-  const names = (context?.calendar_evidence ?? []).map((item) => item.name_en);
-  const unique = Array.from(new Set(names));
-  const intentLabel = intendedCrop ? cropLabels[intendedCrop] ?? intendedCrop : null;
-  const previousLabel = previousCrops[0] ? cropLabels[previousCrops[0]] ?? previousCrops[0] : null;
-  const source = Array.from(new Set(
-    [intentLabel, ...unique].filter((value): value is string => Boolean(value)),
-  ));
+  priority: FarmerProfile["priority"],
+  waterSource: FarmerProfile["water_source"],
+  drainage: FarmerProfile["water_after_heavy_rain"],
+  soilTest: FarmerProfile["soil_test"],
+  soilPh: string,
+  rainSignal: string,
+  equipmentAccess: NonNullable<FarmerProfile["equipment_access"]>,
+  marketPreference: NonNullable<FarmerProfile["market_preference"]>,
+): RotationScenario[] {
+  const district = context?.district_profile ?? null;
+  const calEn = (context?.calendar_evidence ?? []).map((item) => item.name_en);
+  const calBn = (context?.calendar_evidence ?? []).map((item) => item.name_bn || item.name_en);
+  const estEn = district?.established_crops_en ?? [];
+  const estBn = district?.established_crops_bn ?? [];
+  const oppEn = district?.opportunity_crops_en ?? [];
+  const oppBn = district?.opportunity_crops_bn ?? [];
 
-  if (source.length < 3) {
+  const historyEn = previousCrops.map((c) => cropLabels[c] ?? c);
+  const historyBn = previousCrops.map((c) => cropLabelsBn[c] ?? c);
+  const intentEn = intendedCrop ? cropLabels[intendedCrop] ?? intendedCrop : null;
+  const intentBn = intendedCrop ? cropLabelsBn[intendedCrop] ?? intendedCrop : null;
+
+  if (calEn.length === 0 && estEn.length === 0 && historyEn.length === 0) {
     return [
       {
         id: "A",
-        title: "Rotation evidence gate",
-        crops: ["Regional crop evidence", "Crop sequence rules", "Soil constraints"],
-        note: "BoponX withholds a crop sequence here because three evidence backed crop options are not available for this selected location.",
+        kind: "evidence_gate",
+        title_en: "Rotation evidence gate (Select a field or connect local calendar)",
+        title_bn: "ফসল পর্যায় প্রমাণ গেট (মাঠ নির্বাচন বা স্থানীয় পঞ্জিকা প্রয়োজন)",
+        crops_en: ["Regional crop evidence", "Crop sequence rules", "Soil constraints"],
+        crops_bn: ["আঞ্চলিক ফসল প্রমাণ", "ফসল-পর্যায় নিয়ম", "মাটির সীমাবদ্ধতা"],
+        why_suggested_en: "BoponX withholds synthetic crop sequences here because reviewed regional crop calendars are not available for the selected location.",
+        why_suggested_bn: "নির্বাচিত স্থানের জন্য যাচাইকৃত ফসল পঞ্জিকা না থাকায় BoponX কোনো কাল্পনিক ফসলক্রম তৈরি করে না।",
+        supporting_evidence: [
+          "Global NASA POWER, GPM IMERG & SMAP layers remain active",
+          "FAO Crop Calendar global reference route available",
+        ],
+        potential_benefits: [
+          "Prevents false confidence from unverified crop guesses",
+          "Keeps farmer history and priorities visible for local extension review",
+        ],
+        information_gaps: [
+          "No reviewed regional crop-weather calendar adapter connected for this location",
+          "Laboratory soil test required for parcel pH and nutrient decisions",
+        ],
+        local_review_risks: [
+          "Consult local agricultural extension authorities to verify planting windows, frost/heat limits, and market demand.",
+        ],
+        water_demand_badge: "Gated",
+        nitrogen_badge: "Gated",
+        pest_break_badge: "Gated",
       },
     ];
   }
 
+  const base1En = historyEn[0] ?? estEn[0] ?? calEn[0] ?? "Rice Aman";
+  const base2En = historyEn[1] ?? intentEn ?? estEn[1] ?? calEn[2] ?? "Rice Boro / Rabi Crop";
+  const base3En = (intentEn && historyEn.length >= 2) ? intentEn : (estEn[2] ?? "Fallow / Kharif-1 Transition");
+
+  const base1Bn = historyBn[0] ?? estBn[0] ?? calBn[0] ?? "আমন ধান";
+  const base2Bn = historyBn[1] ?? intentBn ?? estBn[1] ?? calBn[2] ?? "বোরো ধান / রবি ফসল";
+  const base3Bn = (intentBn && historyBn.length >= 2) ? intentBn : (estBn[2] ?? "পতিত / খরিফ-১ অন্তর্বর্তী মৌসুম");
+
+  const legumeRabiEn = calEn.some((c) => c.includes("Mustard") || c.includes("Lentil"))
+    ? "Mustard / Lentil (Pulse)"
+    : (oppEn[0] ?? "Short-duration Pulse");
+  const legumeRabiBn = calEn.some((c) => c.includes("Mustard") || c.includes("Lentil"))
+    ? "সরিষা / মসুর ডাল"
+    : (oppBn[0] ?? "স্বল্পমেয়াদি ডাল ফসল");
+
+  const kharif1En = calEn.some((c) => c.includes("Green Gram") || c.includes("Aus"))
+    ? "Green Gram (Mungbean) / Aus"
+    : "Legume Cover / Jute";
+  const kharif1Bn = calEn.some((c) => c.includes("Green Gram") || c.includes("Aus"))
+    ? "মুগ ডাল (খরিফ-১) / আউশ"
+    : "ডাল আচ্ছাদন / পাট";
+
+  const opp1En =
+    marketPreference === "forage_livestock"
+      ? "Dual-Purpose Maize (Grain + Silage Forage)"
+      : (oppEn[0] ?? intentEn ?? calEn[1] ?? "Maize");
+  const opp2En =
+    marketPreference === "forage_livestock"
+      ? "Cowpea / Blackgram Forage & Nitrogen Bridge"
+      : (oppEn[1] ?? oppEn[0] ?? "Pulse / Oilseed");
+  const opp1Bn =
+    marketPreference === "forage_livestock"
+      ? "দ্বৈত-উদ্দেশ্য ভুট্টা (দানা ও সাইলেজ গোখাদ্য)"
+      : (oppBn[0] ?? intentBn ?? calBn[1] ?? "ভুট্টা");
+  const opp2Bn =
+    marketPreference === "forage_livestock"
+      ? "ফেলন / মাসকলাই (গোখাদ্য ও নাইট্রোজেন সংবন্ধন)"
+      : (oppBn[1] ?? oppBn[0] ?? "ডাল / তেলবীজ");
+
+  const districtLabelEn = district
+    ? `${district.name_en} District (${district.landform_en})`
+    : (context?.nearest_supported_region?.name_en ?? "Selected region");
+  const districtLabelBn = district
+    ? `${district.name_bn} জেলা (${district.landform_bn})`
+    : (context?.nearest_supported_region?.name_bn ?? "নির্বাচিত অঞ্চল");
+
+  const gaps: string[] = [];
+  if (soilTest !== "yes") {
+    gaps.push("No laboratory soil-test report entered; soil pH, salinity (EC), and NPK nutrients cannot be inferred from SMAP or NASA POWER.");
+  } else if (soilPh) {
+    gaps.push(`Report pH (${soilPh}) recorded; nitrogen, phosphorus, potassium, and organic matter still require full lab sheet review.`);
+  }
+  if (district) {
+    gaps.push(`District profile for ${district.name_en} is a preliminary estimate; soil varies by upazila and requires SRDI, BMD, BARC, WorldClim & SoilGrids verification.`);
+  }
+
+  const equipMarketNote =
+    equipmentAccess !== "unknown" || marketPreference !== "unknown"
+      ? `Equipment fit: ${equipmentAccess.replace(/_/g, " ")} · Market/Forage focus: ${marketPreference.replace(/_/g, " ")}`
+      : "Equipment & market constraints can be refined with local extension before seed purchase";
+
   return [
     {
       id: "A",
-      title: "Water cautious exploration",
-      crops: [source[0], source[1], source[2]],
-      note: "Exploration only. Water access, drainage, local calendars and soil evidence still need to support the sequence.",
+      kind: "existing_baseline",
+      title_en: "Existing / Baseline Rotation Benchmark",
+      title_bn: "বিদ্যমান / প্রচলিত ফসল পর্যায় (তুলনামূলক ভিত্তি)",
+      crops_en: [base1En, base2En, base3En],
+      crops_bn: [base1Bn, base2Bn, base3Bn],
+      why_suggested_en: `Documents the farmer's existing sequence and established crops in ${districtLabelEn} as the baseline benchmark required to compare any rotation shift.`,
+      why_suggested_bn: `কৃষকের বর্তমান ফসল ধারা ও ${districtLabelBn}-এর প্রতিষ্ঠিত ফসলের ওপর ভিত্তি করে এটি তুলনার ভিত্তি হিসেবে দেখানো হয়েছে।`,
+      supporting_evidence: [
+        `Farmer history: ${historyEn.length ? historyEn.join(" → ") : "Regional staple baseline"}${intentEn ? ` (Intention: ${intentEn})` : ""}`,
+        `Established district crops: ${estEn.length ? estEn.join(", ") : "BAMIS regional calendar staple index"}`,
+        `${context?.calendar_evidence?.length ?? 0} official BAMIS crop-weather calendars indexed`,
+        equipMarketNote,
+      ],
+      potential_benefits: [
+        "Familiar seed, management, and established local market buyers",
+        "Provides a clear benchmark for comparing water demand, bare-soil exposure, and pest cycles",
+      ],
+      information_gaps: gaps,
+      local_review_risks: [
+        "Repeating the same crop family across seasons can increase pest/disease carryover and nutrient depletion.",
+        `Check field water source (${waterSource}) and post-rain drainage (${drainage}) against recent rainfall (${rainSignal}).`,
+      ],
+      water_demand_badge: "High / Baseline Irrigation",
+      nitrogen_badge: "Neutral / N-Depleting",
+      pest_break_badge: "Standard / Repeat Host Risk",
     },
     {
       id: "B",
-      title: "Alternative regional exploration",
-      crops: [source[1], source[2], source[0]],
-      note: "Uses only crops with regional calendar evidence. Sequence ranking remains locked until reviewed crop sequence rules are connected.",
+      kind: "soil_and_nitrogen",
+      title_en: "Soil-Health & Pulse/Oilseed Bridge Exploration",
+      title_bn: "মাটির স্বাস্থ্য ও ডাল/তেলবীজ সংযোজন অনুসন্ধান",
+      crops_en: [base1En, legumeRabiEn, kharif1En],
+      crops_bn: [base1Bn, legumeRabiBn, kharif1Bn],
+      why_suggested_en: "Explores inserting a short-duration nitrogen-fixing pulse or oilseed during the seasonal bare-field transition to build organic matter, interrupt pest cycles, and reduce irrigation water demand.",
+      why_suggested_bn: "জমি খালি থাকার সময়ে স্বল্পমেয়াদি ডাল বা তেলবীজ যুক্ত করে মাটিতে নাইট্রোজেন সংবন্ধন, রোগ-পোকার চক্র ভাঙা এবং সেচের পানি সাশ্রয়ের সম্ভাব্য পথ।",
+      supporting_evidence: [
+        `BAMIS calendar presence for pulses/oilseeds in ${context?.nearest_supported_region?.name_en ?? "this hub"}`,
+        district ? `Bare-field window: ${district.bare_field_risk_en}` : "Covers bare soil between main cereal harvests",
+        "National import-substitution priority: ~90% edible oil imported; 12.36 lakh tonne projected pulse deficit by 2030 (The Daily Star, USDA)",
+      ],
+      potential_benefits: [
+        "Biological nitrogen fixation (+30–50 kg N/ha) and crop residue improve soil structure and water infiltration",
+        "Reduces bare-soil evaporation, erosion, and dry-season capillary salinity rise",
+        "Requires ~60–75% less Rabi water than continuous Boro rice while adding domestic-market income",
+      ],
+      information_gaps: gaps,
+      local_review_risks: [
+        "Pulses and mustard are sensitive to standing water; if heavy rain stays on the field, verify surface drainage first.",
+        "Confirm short-duration variety maturity with DAE (16123) so the main monsoon crop is not delayed.",
+      ],
+      water_demand_badge: "Low Water (180–280 mm)",
+      nitrogen_badge: "+N Fixation & Residue",
+      pest_break_badge: "Strong Cereal Pest Break",
     },
     {
       id: "C",
-      title: "Farmer intent exploration",
-      crops: [previousLabel ?? source[2], intentLabel ?? source[0], source[1]],
-      note: "Keeps the farmer intention visible while the local agronomic evidence gate remains explicit.",
+      kind: "water_and_local_opportunity",
+      title_en: `Climate-Adaptive & ${district ? district.name_en : "Regional"} Opportunity Exploration`,
+      title_bn: `জলবায়ু-সহনশীল ও ${district ? district.name_bn : "আঞ্চলিক"} নতুন ফসলের সুযোগ অনুসন্ধান`,
+      crops_en: [intentEn ?? base1En, opp1En, opp2En],
+      crops_bn: [intentBn ?? base1Bn, opp1Bn, opp2Bn],
+      why_suggested_en: `Aligns farmer priority (${priority.replace("_", " ")}) and recent NASA agroclimate signals with preliminary crop opportunities identified for ${districtLabelEn}${district ? ` (climate analogs: ${district.analog_regions_en})` : ""}.`,
+      why_suggested_bn: `কৃষকের অগ্রাধিকার ও নাসা জলবায়ু সংকেতের সাথে ${districtLabelBn}-এর সম্ভাব্য নতুন ফসলের সুযোগ${district ? ` (মিল থাকা এলাকা: ${district.analog_regions_bn})` : ""} মিলিয়ে অনুসন্ধানমূলক বিকল্প।`,
+      supporting_evidence: [
+        district
+          ? `64-district profile (${district.name_en}): opportunities ${oppEn.join(", ")}; analogs ${district.analog_regions_en}`
+          : `Regional BAMIS calendar index (${context?.calendar_evidence?.length ?? 0} crops)`,
+        ...(district?.online_evidence?.length
+          ? district.online_evidence.map((ev) => `Published report: ${ev.title_en} — ${ev.detail_en}`)
+          : ["Requires local DAE/BARC trial verification before field adoption"]),
+        equipMarketNote,
+      ],
+      potential_benefits: [
+        "Explores higher-value, forage, or stress-adapted crops suited to local landform (Barind, char, coastal, haor, or hill terrace)",
+        "Helps diversify farm income when seasonal temperature or rainfall patterns shift",
+      ],
+      information_gaps: gaps,
+      local_review_risks: [
+        "New or exotic seeds/saplings require Plant Quarantine approval and National Seed Board registration.",
+        "Distant climate-analog regions may differ in day length (photoperiod), rainfall timing, pest pressure, and local buyer access.",
+      ],
+      water_demand_badge: "Landform-Matched",
+      nitrogen_badge: "Diversified Root Zone",
+      pest_break_badge: "Multi-Family Diversification",
     },
   ];
 }
 
 export default function App() {
   const [view, setView] = useState<View>("earth");
-  const [point, setPoint] = useState<Point | null>(null);
+  const [lang, setLang] = useState<Lang>("en");
+  // Default to Rajshahi Pilot Field on startup so real NASA & 64-district data load immediately
+  const [point, setPoint] = useState<Point | null>({ latitude: 24.3745, longitude: 88.6042 });
   const [place, setPlace] = useState<PlaceResult | null>(null);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [gpsBusy, setGpsBusy] = useState(false);
-  const [gpsError, setGpsError] = useState("");
-  const [manualCoordinates, setManualCoordinates] = useState("");
   const [adminBusy, setAdminBusy] = useState(false);
+  const [manualLat, setManualLat] = useState("24.37450");
+  const [manualLon, setManualLon] = useState("88.60420");
+  const [scienceTab, setScienceTab] = useState<"harmonization" | "glossary" | "si" | null>("harmonization");
   const [context, setContext] = useState<LocationContext | null>(null);
   const [localSources, setLocalSources] = useState<LocalSourceRegistry | null>(null);
   const [recent, setRecent] = useState<RecentEnvironment | null>(null);
   const [baselineWindow, setBaselineWindow] = useState<PowerBaselineWindow | null>(null);
+  const [hazards, setHazards] = useState<EonetHazardsResponse | null>(null);
+  const [advisory, setAdvisory] = useState<PlantingWindowAdvisory | null>(null);
+  const [smsCopied, setSmsCopied] = useState(false);
   const [dataBusy, setDataBusy] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerKey | null>(null);
+  const [mapDate, setMapDate] = useState(() => dateMinus(2));
   const [error, setError] = useState("");
 
-  const [previousCrops, setPreviousCrops] = useState<string[]>([]);
-  const [intendedCrop, setIntendedCrop] = useState("");
-  const [waterSource, setWaterSource] = useState<FarmerProfile["water_source"]>("unknown");
-  const [drainage, setDrainage] = useState<FarmerProfile["water_after_heavy_rain"]>("unknown");
+  const [previousCrops, setPreviousCrops] = useState<string[]>(["rice"]);
+  const [intendedCrop, setIntendedCrop] = useState("mustard");
+  const [waterSource, setWaterSource] = useState<FarmerProfile["water_source"]>("both");
+  const [drainage, setDrainage] = useState<FarmerProfile["water_after_heavy_rain"]>("drains");
   const [soilTest, setSoilTest] = useState<FarmerProfile["soil_test"]>("unknown");
   const [soilPh, setSoilPh] = useState("");
-  const [priority, setPriority] = useState<FarmerProfile["priority"]>("production_stability");
+  const [priority, setPriority] = useState<FarmerProfile["priority"]>("water");
+  const [equipmentAccess, setEquipmentAccess] = useState<NonNullable<FarmerProfile["equipment_access"]>>("power_tiller_machinery");
+  const [marketPreference, setMarketPreference] = useState<NonNullable<FarmerProfile["market_preference"]>>("local_cash_market");
   const [startMonth, setStartMonth] = useState(() => new Date().getMonth() + 1);
   const [startYear, setStartYear] = useState(() => Math.max(2026, new Date().getFullYear()));
   const [plan, setPlan] = useState<PlanBrief | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
+  const [selectedStrategyId, setSelectedStrategyId] = useState<string>("B");
 
-  const mapDate = useMemo(() => dateMinus(2), []);
-  const strategies = useMemo(
-    () => buildStrategies(context, intendedCrop, previousCrops),
-    [context, intendedCrop, previousCrops],
-  );
+  // Interactive "What-If" Climate Scenario Sliders in Rotation Lab
+  const [scenarioRainShiftPct, setScenarioRainShiftPct] = useState<number>(0);
+  const [scenarioTempShiftC, setScenarioTempShiftC] = useState<number>(0);
 
   useEffect(() => {
     const query = search.trim();
@@ -181,6 +375,8 @@ export default function App() {
     setDataBusy(true);
     setError("");
     setPlan(null);
+    setManualLat(point.latitude.toFixed(5));
+    setManualLon(point.longitude.toFixed(5));
 
     Promise.allSettled([
       apiGet<LocationContext>(
@@ -199,11 +395,15 @@ export default function App() {
         `/api/v1/places/reverse?lat=${point.latitude}&lon=${point.longitude}`,
         controller.signal,
       ),
-    ]).then(async ([contextResult, recentResult, baselineResult, placeResult]) => {
+      apiGet<EonetHazardsResponse>(
+        `/api/v1/environment/hazards?lat=${point.latitude}&lon=${point.longitude}&radius_km=1200`,
+        controller.signal,
+      ),
+    ]).then(async ([contextResult, recentResult, baselineResult, placeResult, hazardsResult]) => {
       if (controller.signal.aborted) return;
 
-      if (contextResult.status === "fulfilled") setContext(contextResult.value);
-      else setContext(null);
+      const resolvedContext = contextResult.status === "fulfilled" ? contextResult.value : null;
+      setContext(resolvedContext);
 
       if (recentResult.status === "fulfilled") setRecent(recentResult.value);
       else setRecent(null);
@@ -211,14 +411,25 @@ export default function App() {
       if (baselineResult.status === "fulfilled") setBaselineWindow(baselineResult.value);
       else setBaselineWindow(null);
 
-      const resolvedPlace = placeResult.status === "fulfilled" ? placeResult.value.place : null;
-      setPlace(resolvedPlace);
+      if (hazardsResult.status === "fulfilled") setHazards(hazardsResult.value);
+      else setHazards(null);
 
-      const countryCode = resolvedPlace?.address.country_code;
+      const resolvedPlace = placeResult.status === "fulfilled" ? placeResult.value.place : null;
+      if (resolvedPlace) {
+        setPlace(resolvedPlace);
+      }
+
+      const countryCode =
+        resolvedPlace?.address?.country_code ||
+        (resolvedContext?.within_bangladesh ? "bd" : "");
+      const countryName =
+        resolvedPlace?.address?.country ||
+        (resolvedContext?.within_bangladesh ? "Bangladesh" : "");
+
       if (countryCode) {
         try {
           const registry = await apiGet<LocalSourceRegistry>(
-            `/api/v1/local-sources?country_code=${encodeURIComponent(countryCode)}&country_name=${encodeURIComponent(resolvedPlace?.address.country ?? "")}`,
+            `/api/v1/local-sources?country_code=${encodeURIComponent(countryCode)}&country_name=${encodeURIComponent(countryName)}`,
             controller.signal,
           );
           if (!controller.signal.aborted) setLocalSources(registry);
@@ -235,12 +446,32 @@ export default function App() {
     return () => controller.abort();
   }, [point, startMonth]);
 
+
+  useEffect(() => {
+    if (!point) return;
+    const controller = new AbortController();
+    const districtParam = context?.district_profile?.name_en ?? "";
+    const cropParam = intendedCrop || "rice";
+    apiGet<PlantingWindowAdvisory>(
+      `/api/v1/advisory?district=${encodeURIComponent(districtParam)}&crop=${encodeURIComponent(cropParam)}&lat=${point.latitude}&lon=${point.longitude}`,
+      controller.signal,
+    )
+      .then((res) => {
+        if (!controller.signal.aborted) setAdvisory(res);
+      })
+      .catch(() => {
+        // Keep UI operational even if advisory endpoint is loading or unreachable
+      });
+    return () => controller.abort();
+  }, [point, context?.district_profile?.name_en, intendedCrop]);
+
   const recentSummary = recent?.status === "available" ? recent.summary : undefined;
   const firstBaseline = baselineWindow?.status === "available" ? baselineWindow.summaries?.[0] : undefined;
   const recentDailyRain =
-    recentSummary?.precipitation_total_mm != null && recentSummary.precipitation_valid_days
+    recentSummary?.precipitation_mean_daily_mm ??
+    (recentSummary?.precipitation_total_mm != null && recentSummary.precipitation_valid_days
       ? recentSummary.precipitation_total_mm / recentSummary.precipitation_valid_days
-      : null;
+      : null);
   const rainAnomaly =
     recentDailyRain != null && firstBaseline?.precipitation_mean_daily_mm
       ? ((recentDailyRain - firstBaseline.precipitation_mean_daily_mm) /
@@ -252,13 +483,138 @@ export default function App() {
       ? recentSummary.temperature_mean_c - firstBaseline.temperature_mean_c
       : null;
 
+  const et0Daily = recentSummary?.et0_mean_daily_mm ?? firstBaseline?.et0_mean_daily_mm ?? null;
+  const waterBalanceDaily =
+    recentSummary?.water_balance_daily_mm ??
+    (recentDailyRain != null && et0Daily != null ? recentDailyRain - et0Daily : firstBaseline?.water_balance_daily_mm ?? null);
+
+  const surfaceWetnessPct = recentSummary?.surface_soil_wetness_pct ?? firstBaseline?.surface_soil_wetness_pct ?? null;
+  const rootWetnessPct = recentSummary?.root_zone_soil_wetness_pct ?? firstBaseline?.root_zone_soil_wetness_pct ?? null;
+
+  const rainSignalLabel =
+    rainAnomaly == null
+      ? "pending"
+      : rainAnomaly > 30
+        ? "wetter than baseline"
+        : rainAnomaly < -30
+          ? "drier than baseline"
+          : "near baseline";
+
+  // Simulated "What-If" scenario calculations in Rotation Lab
+  const baseRainForSim = recentDailyRain ?? firstBaseline?.precipitation_mean_daily_mm ?? 3.2;
+  const baseEt0ForSim = et0Daily ?? 4.1;
+  const simulatedRainDaily = baseRainForSim * (1 + scenarioRainShiftPct / 100);
+  const simulatedEt0Daily = baseEt0ForSim * (1 + scenarioTempShiftC * 0.065);
+  const simulatedWaterBalance = simulatedRainDaily - simulatedEt0Daily;
+
+  function scenarioImpactForStrategy(strategyId: string) {
+    if (scenarioRainShiftPct === 0 && scenarioTempShiftC === 0) {
+      return {
+        tone: "neutral",
+        label: lang === "bn" ? "বর্তমান নাসা ভিত্তি (০% পরিবর্তন)" : "Current NASA Baseline (0% shift)",
+      };
+    }
+    if (strategyId === "A") {
+      if (simulatedWaterBalance < -2.2 || scenarioTempShiftC >= 2.0) {
+        return {
+          tone: "high-risk",
+          label:
+            lang === "bn"
+              ? `উচ্চ সেচ ও তাপ ঝুঁকি (P−ET₀: ${simulatedWaterBalance.toFixed(1)} মিমি/দিন)`
+              : `High Irrigation & Heat Vulnerability (P−ET₀: ${simulatedWaterBalance.toFixed(1)} mm/d)`,
+        };
+      }
+      if (scenarioRainShiftPct >= 25 && drainage === "stays") {
+        return {
+          tone: "high-risk",
+          label:
+            lang === "bn"
+              ? "জলাবদ্ধতা ও রোগের উচ্চ ঝুঁকি (+বৃষ্টিপাত)"
+              : "High Waterlogging & Pest Carryover Risk (+Rain)",
+        };
+      }
+      return {
+        tone: "moderate",
+        label:
+          lang === "bn"
+            ? `মাঝারি সহনশীলতা (P−ET₀: ${simulatedWaterBalance.toFixed(1)} মিমি/দিন)`
+            : `Moderate Baseline Stress (P−ET₀: ${simulatedWaterBalance.toFixed(1)} mm/d)`,
+      };
+    }
+    if (strategyId === "B") {
+      if (scenarioRainShiftPct >= 30 && drainage === "stays") {
+        return {
+          tone: "moderate",
+          label:
+            lang === "bn"
+              ? "ডাল/সরিষায় উঁচু বেড ও নিকাশ নালা আবশ্যক (+৩০% বৃষ্টি)"
+              : "Raised Beds Required for Pulses/Mustard (+Rain Spike)",
+        };
+      }
+      return {
+        tone: "resilient",
+        label:
+          lang === "bn"
+            ? `উচ্চ খরা ও পানি-ঘাটতি সহনশীল (~৬০% কম পানি; P−ET₀: ${simulatedWaterBalance.toFixed(1)})`
+            : `Strong Drought & Water-Deficit Resilience (~60% less water; P−ET₀: ${simulatedWaterBalance.toFixed(1)})`,
+      };
+    }
+    // Strategy C
+    if (scenarioTempShiftC >= 2.5) {
+      return {
+        tone: "resilient",
+        label:
+          lang === "bn"
+            ? `তাপ-সহনশীল ও ভূমিরূপ-উপযোগী বিকল্প (+${scenarioTempShiftC.toFixed(1)}°C তাপমাত্রা)`
+            : `Heat-Adaptive Landform Match (+${scenarioTempShiftC.toFixed(1)}°C shift buffered)`,
+      };
+    }
+    return {
+      tone: "resilient",
+      label:
+        lang === "bn"
+          ? `জলবায়ু-সহনশীল বহুমুখী পর্যায় (P−ET₀: ${simulatedWaterBalance.toFixed(1)} মিমি/দিন)`
+          : `Climate-Adaptive Diversification (P−ET₀: ${simulatedWaterBalance.toFixed(1)} mm/d)`,
+    };
+  }
+
+  const strategies = useMemo(
+    () =>
+      buildStrategies(
+        context,
+        intendedCrop,
+        previousCrops,
+        priority,
+        waterSource,
+        drainage,
+        soilTest,
+        soilPh,
+        rainSignalLabel,
+        equipmentAccess,
+        marketPreference,
+      ),
+    [
+      context,
+      intendedCrop,
+      previousCrops,
+      priority,
+      waterSource,
+      drainage,
+      soilTest,
+      soilPh,
+      rainSignalLabel,
+      equipmentAccess,
+      marketPreference,
+    ],
+  );
+
   const readiness = Math.min(
     100,
     (point ? 20 : 0) +
       (recent?.status === "available" ? 20 : 0) +
       (baselineWindow?.status === "available" ? 15 : 0) +
-      (place?.address.country_code ? 10 : 0) +
-      (localSources?.official_sources.length ? 10 : 0) +
+      (place?.address?.country_code || context?.within_bangladesh ? 10 : 0) +
+      (localSources?.official_sources?.length || context?.agricultural_sources?.length ? 10 : 0) +
       (previousCrops.length ? 10 : 0) +
       (intendedCrop ? 10 : 0) +
       (waterSource !== "unknown" && drainage !== "unknown" ? 5 : 0),
@@ -266,67 +622,57 @@ export default function App() {
 
   function choosePoint(next: Point, selected: PlaceResult | null = null) {
     if (!Number.isFinite(next.latitude) || !Number.isFinite(next.longitude)) return;
+    if (next.latitude < -90 || next.latitude > 90 || next.longitude < -180 || next.longitude > 180) {
+      setError("Coordinates must be between -90..90 latitude and -180..180 longitude.");
+      return;
+    }
     setPoint({
       latitude: Number(next.latitude.toFixed(5)),
       longitude: Number(next.longitude.toFixed(5)),
     });
     if (selected) setPlace(selected);
-    setGpsError("");
+  }
+
+  function applyManualCoordinates(event: FormEvent) {
+    event.preventDefault();
+    const lat = Number(manualLat);
+    const lon = Number(manualLon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      setError("Enter valid coordinates: Latitude (-90 to 90) and Longitude (-180 to 180).");
+      return;
+    }
+    setError("");
+    choosePoint({ latitude: lat, longitude: lon });
   }
 
   function locateMe() {
     setError("");
-    setGpsError("");
-    // Chromium/Safari/Firefox forbid GPS on LAN HTTP origins even when the page loads.
-    // localhost is a special secure-context exception; phones need HTTPS hosting.
-    if (!window.isSecureContext) {
-      setGpsError("GPS requires HTTPS on phones. This HTTP network address is not a secure context. Open BoponX through HTTPS, or select a place or enter coordinates below.");
-      return;
-    }
     if (!navigator.geolocation) {
-      setGpsError("This browser has no geolocation API. Try a supported browser, or enter your coordinates below.");
+      setError("Location access is unavailable in this browser. Use Bangladesh Quick Select, search, or manual coordinates.");
       return;
     }
     setGpsBusy(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setGpsBusy(false);
-        if (!Number.isFinite(position.coords.latitude) || !Number.isFinite(position.coords.longitude)) {
-          setGpsError("Your device returned invalid coordinates. Search for a place or enter coordinates.");
-          return;
-        }
         choosePoint({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         });
       },
-      (reason) => {
+      (geoError) => {
         setGpsBusy(false);
-        const messages: Record<number, string> = {
-          1: "Location permission is denied or blocked by the browser/site settings. Allow location for this HTTPS site, then try again.",
-          2: "The device could not determine a location. Turn on device location services or enter coordinates.",
-          3: "Location lookup timed out. Try again with a clearer sky/network connection, or enter coordinates.",
-        };
-        setGpsError(messages[reason.code] ?? "Location failed. Try searching for a place or enter coordinates.");
+        const insecureOrigin = typeof window !== "undefined" && window.isSecureContext === false;
+        if (insecureOrigin) {
+          setError("Browser GPS requires HTTPS or localhost. On a LAN IP, choose your district in Bangladesh Quick Select or enter coordinates below.");
+        } else if (geoError.code === 1) {
+          setError("Location permission was denied. Choose your district in Bangladesh Quick Select, search, or tap the map.");
+        } else {
+          setError("Could not acquire GPS signal in time. Choose your district in Bangladesh Quick Select, search, or tap the map.");
+        }
       },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 120000 },
     );
-  }
-
-  function chooseCoordinates(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const values = manualCoordinates.trim().split(/[;,\s]+/).map(Number);
-    if (
-      values.length !== 2 ||
-      values.some((value) => !Number.isFinite(value)) ||
-      Math.abs(values[0]) > 90 ||
-      Math.abs(values[1]) > 180
-    ) {
-      setGpsError("Enter valid latitude and longitude, for example 23.8103, 90.4125.");
-      return;
-    }
-    choosePoint({ latitude: values[0], longitude: values[1] });
-    setManualCoordinates("");
   }
 
   async function chooseBangladeshArea(name: string) {
@@ -334,21 +680,38 @@ export default function App() {
     setAdminBusy(true);
     setError("");
     try {
+      const resolved = await apiGet<{ place: PlaceResult }>(
+        `/api/v1/bangladesh/resolve?q=${encodeURIComponent(name)}`,
+      );
+      if (resolved.place) {
+        choosePoint(
+          { latitude: resolved.place.latitude, longitude: resolved.place.longitude },
+          resolved.place,
+        );
+        setSearch("");
+        setSearchResults([]);
+        setAdminBusy(false);
+        return;
+      }
+    } catch {
+      // Fall back to global search if resolve endpoint is unreachable
+    }
+    try {
       const payload = await apiGet<{ results: PlaceResult[] }>(
         `/api/v1/places/search?q=${encodeURIComponent(`${name}, Bangladesh`)}`,
       );
       const match =
-        payload.results.find((result) => result.address.country_code === "bd") ??
+        payload.results.find((result) => result.address?.country_code === "bd") ??
         payload.results[0];
       if (!match) {
-        setError(`Could not resolve ${name}. Use the global search instead.`);
+        setError(`Could not resolve ${name}. Use the global search or manual coordinates instead.`);
         return;
       }
       choosePoint({ latitude: match.latitude, longitude: match.longitude }, match);
       setSearch("");
       setSearchResults([]);
     } catch {
-      setError(`Could not resolve ${name}. Use the global search instead.`);
+      setError(`Could not resolve ${name}. Use the global search or manual coordinates instead.`);
     } finally {
       setAdminBusy(false);
     }
@@ -381,20 +744,40 @@ export default function App() {
       soil_test: soilTest,
       soil_ph: soilTest === "yes" && soilPh ? Number(soilPh) : null,
       priority,
+      equipment_access: equipmentAccess,
+      market_preference: marketPreference,
     };
 
     setPlanBusy(true);
     setError("");
     try {
-      const payload = await apiPost<PlanBrief>("/api/v1/plans/preview", {
-        farm,
-        start_year: startYear,
-        start_month: startMonth,
-        include_recent_power: false,
-        include_climate_baseline: false,
-        recent_environment: recent,
-        baseline_window: baselineWindow,
-      });
+      let payload: PlanBrief;
+      try {
+        payload = await apiPost<PlanBrief>("/api/v1/plans/preview", {
+          farm,
+          start_year: startYear,
+          start_month: startMonth,
+          include_recent_power: false,
+          include_climate_baseline: false,
+          recent_environment: recent,
+          baseline_window: baselineWindow,
+        });
+      } catch (firstErr) {
+        if (firstErr instanceof ApiError && firstErr.status === 422 && (soilTest !== "yes" || soilPh)) {
+          const { equipment_access, market_preference, ...legacyFarm } = farm;
+          payload = await apiPost<PlanBrief>("/api/v1/plans/preview", {
+            farm: legacyFarm,
+            start_year: startYear,
+            start_month: startMonth,
+            include_recent_power: false,
+            include_climate_baseline: false,
+            recent_environment: recent,
+            baseline_window: baselineWindow,
+          });
+        } else {
+          throw firstErr;
+        }
+      }
       setPlan(payload);
       setView("plan");
     } catch (runError) {
@@ -403,6 +786,13 @@ export default function App() {
       setPlanBusy(false);
     }
   }
+
+  const districtProfile = context?.district_profile ?? null;
+  const plannedMonths = [
+    startMonth,
+    ((startMonth) % 12) + 1,
+    ((startMonth + 1) % 12) + 1,
+  ];
 
   return (
     <div className="mission-app">
@@ -417,19 +807,37 @@ export default function App() {
 
         <nav className="mission-nav">
           <button className={view === "earth" ? "active" : ""} onClick={() => setView("earth")}>
-            <span>01</span> Earth Twin
+            <span>01</span> {lang === "bn" ? "আর্থ টুইন ও ম্যাপ" : "Earth Twin"}
           </button>
           <button className={view === "rotation" ? "active" : ""} onClick={() => setView("rotation")}>
-            <span>02</span> Rotation Lab
+            <span>02</span> {lang === "bn" ? "রোটেশন ল্যাব" : "Rotation Lab"}
           </button>
           <button className={view === "plan" ? "active" : ""} onClick={() => setView("plan")}>
-            <span>03</span> Field Plan
+            <span>03</span> {lang === "bn" ? "৯০ দিনের পরিকল্পনা" : "Field Plan"}
           </button>
         </nav>
 
-        <div className="mission-status">
-          <span className={dataBusy ? "pulse loading" : "pulse"} />
-          {point ? placeLabel(place, point) : "Awaiting field"}
+        <div className="mission-status-group">
+          <div className="lang-switch" role="group" aria-label="Interface language">
+            <button
+              type="button"
+              className={lang === "en" ? "active" : ""}
+              onClick={() => setLang("en")}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              className={lang === "bn" ? "active" : ""}
+              onClick={() => setLang("bn")}
+            >
+              বাংলা
+            </button>
+          </div>
+          <div className="mission-status">
+            <span className={dataBusy ? "pulse loading" : "pulse"} />
+            {point ? placeLabel(place, point, context) : (lang === "bn" ? "মাঠ নির্বাচন করুন" : "Awaiting field")}
+          </div>
         </div>
       </header>
 
@@ -437,40 +845,43 @@ export default function App() {
         <main className="earth-command">
           <aside className="control-rail left-rail">
             <div className="rail-title">
-              <span>FIELD CONTROL</span>
-              <strong>Choose one field on Earth</strong>
+              <span>01 · FIELD LOCATOR</span>
+              <strong>{lang === "bn" ? "আপনার খামার বা জেলা নির্বাচন করুন" : "Select your farm or district"}</strong>
             </div>
 
             <button className="locate-command" onClick={locateMe} disabled={gpsBusy}>
               <FieldIcon name="stability" />
               <span>
-                <strong>{gpsBusy ? "Locating…" : "Use current location"}</strong>
-                <small>Browser permission only</small>
+                <strong>
+                  {gpsBusy
+                    ? (lang === "bn" ? "অবস্থান নির্ণয় হচ্ছে…" : "Locating GPS…")
+                    : (lang === "bn" ? "আমার বর্তমান অবস্থান (Use Current GPS)" : "Use current GPS location")}
+                </strong>
+                <small>{lang === "bn" ? "সরাসরি আপনার খামারে জুম করবে ও জেলার মাটির তথ্য আনবে" : "Zooms directly to your plot & resolves 64-district data"}</small>
               </span>
             </button>
-            {gpsError && <div className="gps-feedback" role="alert">{gpsError}</div>}
-            <form className="manual-location" onSubmit={chooseCoordinates}>
-              <label htmlFor="coordinate-entry">MANUAL FIELD COORDINATES</label>
-              <div>
-                <input
-                  id="coordinate-entry"
-                  type="text"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  value={manualCoordinates}
-                  onChange={(event) => setManualCoordinates(event.target.value)}
-                  placeholder="23.8103, 90.4125"
-                  aria-label="Latitude, longitude"
-                />
-                <button type="submit">Set field</button>
+
+            <div className="pilot-zone-pills">
+              <span>{lang === "bn" ? "দ্রুত পাইলট অঞ্চল:" : "QUICK AGRO-ZONES:"}</span>
+              <div className="pilot-pill-row">
+                {quickPilotZones.map((zone) => (
+                  <button
+                    type="button"
+                    key={zone.name}
+                    className={districtProfile?.name_en === zone.name ? "active" : ""}
+                    onClick={() => void chooseBangladeshArea(zone.name)}
+                  >
+                    {zone.label}
+                  </button>
+                ))}
               </div>
-            </form>
+            </div>
 
             <div className="global-search">
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search any village, district, city or country"
+                placeholder={lang === "bn" ? "যেকোনো গ্রাম, উপজেলা, জেলা বা দেশ খুঁজুন…" : "Search any village, upazila, district or country…"}
               />
               <span>{searchBusy ? "…" : "⌕"}</span>
               {searchResults.length > 0 && (
@@ -486,7 +897,7 @@ export default function App() {
                     >
                       <strong>{result.name}</strong>
                       <small>
-                        {[result.address.district, result.address.division, result.address.country]
+                        {[result.address?.district, result.address?.division, result.address?.country]
                           .filter(Boolean)
                           .join(" · ")}
                       </small>
@@ -498,69 +909,153 @@ export default function App() {
 
             <div className="bangladesh-admin-select">
               <label htmlFor="bd-area-select">
-                <span>BANGLADESH QUICK SELECT</span>
-                <small>All 8 divisions and 64 districts</small>
+                <span>BANGLADESH 64-DISTRICT SELECTOR</span>
+                <small>{lang === "bn" ? "৮ বিভাগ · ৬৪ জেলা" : "8 divisions · 64 districts"}</small>
               </label>
               <select
                 id="bd-area-select"
-                defaultValue=""
+                value={districtProfile?.name_en ?? ""}
                 disabled={adminBusy}
                 onChange={(event) => {
                   const value = event.target.value;
                   if (value) void chooseBangladeshArea(value);
-                  event.currentTarget.value = "";
                 }}
               >
-                <option value="">{adminBusy ? "Resolving area…" : "Choose a division or district"}</option>
-                <optgroup label="Divisions">
-                  {bangladeshDivisions.map((name) => <option value={name} key={`division-${name}`}>{name} Division</option>)}
+                <option value="">{adminBusy ? "Resolving area…" : (lang === "bn" ? "বিভাগ বা জেলা বেছে নিন…" : "Choose any division or district…")}</option>
+                <optgroup label="Divisions (8)">
+                  {bangladeshDivisions.map((name) => <option value={`${name} Division`} key={`division-${name}`}>{name} Division</option>)}
                 </optgroup>
-                <optgroup label="Districts">
+                <optgroup label="All 64 Districts">
                   {bangladeshDistricts.map((name) => <option value={name} key={`district-${name}`}>{name} District</option>)}
                 </optgroup>
               </select>
             </div>
 
+            <form className="manual-coord-box" onSubmit={applyManualCoordinates}>
+              <div className="manual-coord-head">
+                <span>EXACT FIELD COORDINATES</span>
+                <small>{lang === "bn" ? "অক্ষাংশ / দ্রাঘিমাংশ" : "Lat / Lon"}</small>
+              </div>
+              <div className="manual-coord-inputs">
+                <input
+                  type="number"
+                  step="any"
+                  min="-90"
+                  max="90"
+                  placeholder="Lat"
+                  value={manualLat}
+                  onChange={(e) => setManualLat(e.target.value)}
+                  aria-label="Latitude"
+                />
+                <input
+                  type="number"
+                  step="any"
+                  min="-180"
+                  max="180"
+                  placeholder="Lon"
+                  value={manualLon}
+                  onChange={(e) => setManualLon(e.target.value)}
+                  aria-label="Longitude"
+                />
+                <button type="submit">{lang === "bn" ? "যান" : "Lock"}</button>
+              </div>
+            </form>
+
             <section className="selected-field-card">
-              <span className="micro-label">SELECTED FIELD</span>
-              <h2>{placeLabel(place, point)}</h2>
-              <p>{place?.address.country ?? "Select a point anywhere on Earth"}</p>
-              {point && <code>{point.latitude.toFixed(5)} / {point.longitude.toFixed(5)}</code>}
+              <div className="field-card-top">
+                <span className="micro-label">LOCKED FIELD LOCATION</span>
+                {context?.within_bangladesh && <b className="bd-badge">BANGLADESH</b>}
+              </div>
+              <h2>{placeLabel(place, point, context)}</h2>
+              <p>
+                {districtProfile
+                  ? `${districtProfile.name_en} District, ${districtProfile.division_en} Division`
+                  : (place?.address?.country ?? "Global coordinates selected")}
+              </p>
+              {point && <code>{point.latitude.toFixed(5)}° N, {point.longitude.toFixed(5)}° E</code>}
             </section>
+
+            {districtProfile && (
+              <section className="district-intel-card">
+                <div className="rail-section-head">
+                  <span>LOCAL AGRO-ECOLOGICAL PROFILE</span>
+                  <b>{(districtProfile.division_en ?? "").toUpperCase()}</b>
+                </div>
+                <div className="district-intel-title">
+                  <strong>
+                    {lang === "bn"
+                      ? `${districtProfile.name_bn} জেলা (${districtProfile.name_en})`
+                      : `${districtProfile.name_en} District (${districtProfile.name_bn})`}
+                  </strong>
+                  <small>
+                    {lang === "bn" ? districtProfile.landform_bn : districtProfile.landform_en}
+                  </small>
+                </div>
+
+                <div className="district-meta-grid">
+                  <div>
+                    <span>{lang === "bn" ? "মিল থাকা অঞ্চল (CLIMATE ANALOGS)" : "CLIMATE-ANALOG REGIONS"}</span>
+                    <p>{lang === "bn" ? districtProfile.analog_regions_bn : districtProfile.analog_regions_en}</p>
+                  </div>
+                  <div>
+                    <span>{lang === "bn" ? "প্রতিষ্ঠিত ফসল (ESTABLISHED CROPS)" : "ESTABLISHED CROPS"}</span>
+                    <div className="chip-row">
+                      {((lang === "bn" ? districtProfile.established_crops_bn : districtProfile.established_crops_en) ?? []).map((crop) => (
+                        <em key={crop} className="crop-chip established">{crop}</em>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <span>{lang === "bn" ? "নতুন ফসলের সুযোগ (NEW OPPORTUNITIES)" : "NEW CROP OPPORTUNITIES"}</span>
+                    <div className="chip-row">
+                      {((lang === "bn" ? districtProfile.opportunity_crops_bn : districtProfile.opportunity_crops_en) ?? []).map((crop) => (
+                        <em key={crop} className="crop-chip opportunity">{crop}</em>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <span>{lang === "bn" ? "খালি জমি ও মৌসুমি ঝুঁকি (BARE-FIELD RISK)" : "BARE-FIELD & SEASONAL VULNERABILITY"}</span>
+                    <p>{lang === "bn" ? districtProfile.bare_field_risk_bn : districtProfile.bare_field_risk_en}</p>
+                  </div>
+                </div>
+
+                {(districtProfile.online_evidence?.length ?? 0) > 0 && (
+                  <div className="district-online-evidence">
+                    <span>{lang === "bn" ? "অনলাইন সূত্রে প্রমাণিত প্রতিবেদন" : "PUBLISHED PILOT / TRIAL EVIDENCE"}</span>
+                    {(districtProfile.online_evidence ?? []).map((ev) => (
+                      <a key={ev.id} href={ev.source_url} target="_blank" rel="noreferrer">
+                        <strong>{lang === "bn" ? ev.title_bn : ev.title_en} ↗</strong>
+                        <small>{lang === "bn" ? ev.detail_bn : ev.detail_en}</small>
+                      </a>
+                    ))}
+                  </div>
+                )}
+
+                <div className="district-caution-note">
+                  <small>{lang === "bn" ? districtProfile.caution_bn : districtProfile.caution_en}</small>
+                </div>
+              </section>
+            )}
 
             <section className="local-mesh">
               <div className="rail-section-head">
-                <span>LOCAL DATA MESH</span>
-                <b>{localSources?.coverage === "verified_country_adapter" ? "VERIFIED" : "GLOBAL FALLBACK"}</b>
+                <span>VERIFIED AUTHORITY LINKS</span>
+                <b>{localSources?.coverage === "verified_country_adapter" ? "VERIFIED" : "GLOBAL"}</b>
               </div>
               {(localSources?.official_sources ?? []).map((source) => (
                 <a className="official-source" key={source.id ?? source.name} href={source.source_url} target="_blank" rel="noreferrer">
-                  <span className="source-status verified">OFFICIAL AGRICULTURE SOURCE</span>
+                  <span className="source-status verified">OFFICIAL SOURCE</span>
                   <strong>{source.name}</strong>
                   <small>{source.scope}</small>
-                  <em>Open official source ↗</em>
+                  <em>Open portal ↗</em>
                 </a>
               ))}
-              {localSources?.official_sources.length === 0 && (
+              {localSources?.official_sources?.length === 0 && (
                 <div className="source-gap">
                   <strong>No reviewed direct government adapter is connected yet.</strong>
-                  <p>NASA analysis still works globally. Use the portal finder below to reach the selected country's official agriculture site, then verify the government domain before treating it as evidence.</p>
+                  <p>NASA analysis works globally. Use the portal finder below to reach the selected country's official agriculture authority.</p>
                 </div>
               )}
-              {localSources?.government_discovery && (
-                <a className="government-discovery" href={localSources.government_discovery.source_url} target="_blank" rel="noreferrer">
-                  <span className="source-status discover">OFFICIAL PORTAL ROUTE</span>
-                  <strong>{localSources.government_discovery.name}</strong>
-                  <small>{localSources.government_discovery.note}</small>
-                  <em>Open country agriculture route ↗</em>
-                </a>
-              )}
-              {(localSources?.global_sources ?? []).map((source) => (
-                <a className="global-source" key={source.id ?? source.name} href={source.source_url} target="_blank" rel="noreferrer">
-                  <strong>{source.name}</strong>
-                  <small>International crop calendar reference</small>
-                </a>
-              ))}
             </section>
           </aside>
 
@@ -569,6 +1064,7 @@ export default function App() {
               point={point}
               onPick={(next) => choosePoint(next)}
               mapDate={mapDate}
+              onMapDateChange={setMapDate}
               activeLayer={activeLayer}
               onLayerChange={setActiveLayer}
             />
@@ -576,86 +1072,261 @@ export default function App() {
             <div className="fusion-strip">
               <div>
                 <span>RAIN ANOMALY</span>
-                <strong>{rainAnomaly == null ? "—" : `${rainAnomaly >= 0 ? "+" : ""}${rainAnomaly.toFixed(0)}%`}</strong>
-                <small>recent POWER vs climatology</small>
+                <strong className={rainAnomaly != null && rainAnomaly < -25 ? "amber-val" : "lime-val"}>
+                  {rainAnomaly == null ? "—" : `${rainAnomaly >= 0 ? "+" : ""}${rainAnomaly.toFixed(0)}%`}
+                </strong>
+                <small>recent POWER vs 20yr baseline</small>
               </div>
               <div>
-                <span>HEAT SHIFT</span>
-                <strong>{tempDelta == null ? "—" : `${tempDelta >= 0 ? "+" : ""}${tempDelta.toFixed(1)}°C`}</strong>
-                <small>recent mean vs monthly baseline</small>
+                <span>WATER BALANCE (P − ET₀)</span>
+                <strong className={waterBalanceDaily != null && waterBalanceDaily < 0 ? "amber-val" : "cyan-val"}>
+                  {waterBalanceDaily == null ? "—" : `${waterBalanceDaily >= 0 ? "+" : ""}${waterBalanceDaily.toFixed(1)} mm/d`}
+                </strong>
+                <small>rain minus FAO-56 evaporation</small>
               </div>
               <div>
-                <span>SOIL MOISTURE</span>
-                <strong>SMAP</strong>
-                <small>spatial layer | 9 km context</small>
+                <span>ROOT-ZONE WETNESS</span>
+                <strong className="cyan-val">
+                  {rootWetnessPct != null ? `${rootWetnessPct.toFixed(0)}%` : (tempDelta == null ? "—" : `${tempDelta >= 0 ? "+" : ""}${tempDelta.toFixed(1)}°C`)}
+                </strong>
+                <small>
+                  {surfaceWetnessPct != null
+                    ? `0–100cm (Top 0–5cm: ${surfaceWetnessPct.toFixed(0)}%)`
+                    : "NASA POWER GWETROOT"}
+                </small>
               </div>
               <div>
-                <span>DECISION READINESS</span>
-                <strong>{readiness}%</strong>
-                <small>evidence completeness, not suitability</small>
+                <span>EVIDENCE READINESS</span>
+                <strong className="lime-val">{readiness}%</strong>
+                <small>stack completeness score</small>
               </div>
             </div>
           </section>
 
           <aside className="control-rail right-rail">
             <div className="rail-title">
-              <span>NASA FUSION ENGINE</span>
-              <strong>One field. One evidence stack.</strong>
+              <span>02 · NASA FUSION ENGINE</span>
+              <strong>{lang === "bn" ? "উপগ্রহ ও কৃষি-আবহাওয়া বিশ্লেষণ" : "Agroclimate, Soil Wetness & Hazard Diagnostics"}</strong>
             </div>
 
             <div className="earth-pulse">
               <div className="pulse-ring" style={{ "--score": readiness } as CSSProperties}>
-                <span>{readiness}</span>
+                <span>{readiness}%</span>
                 <small>READY</small>
               </div>
               <div className="pulse-copy">
-                <strong>{dataBusy ? "Resolving Earth signals…" : "Earth Pulse"}</strong>
-                <small>NASA climate and Earth observation signals are resolved for this field, then reused by the farm analysis.</small>
+                <strong>{dataBusy ? "Syncing NASA POWER & EONET…" : "Field Evidence Stack"}</strong>
+                <small>
+                  {lang === "bn"
+                    ? "NASA POWER, GPM IMERG, SMAP ও EONET থেকে বাষ্পীভবন চাহিদা (ET₀), শিকড় অঞ্চলের আর্দ্রতা ও প্রাকৃতিক দুর্যোগ সংকেত বিশ্লেষণ করা হয়েছে।"
+                    : "Fuses FAO-56 Evapotranspiration (ET₀), Topsoil vs. Root-Zone Wetness (GWETTOP/GWETROOT), Dew-Point Fog/Frost Risk, and live EONET natural hazards."}
+                </small>
               </div>
             </div>
 
             <div className="signal-grid">
               <article>
-                <span>PRECIPITATION</span>
+                <span>RECENT RAIN (14d)</span>
                 <strong>{metric(recentSummary?.precipitation_total_mm, " mm")}</strong>
-                <small>NASA POWER recent period</small>
-              </article>
-              <article>
-                <span>MEAN TEMP</span>
-                <strong>{metric(recentSummary?.temperature_mean_c, "°C")}</strong>
-                <small>NASA POWER</small>
-              </article>
-              <article>
-                <span>MAX TEMP</span>
-                <strong>{metric(recentSummary?.temperature_max_mean_c, "°C")}</strong>
-                <small>period mean of daily max</small>
-              </article>
-              <article>
-                <span>HUMIDITY</span>
-                <strong>{metric(recentSummary?.relative_humidity_mean_pct, "%")}</strong>
-                <small>2 m relative humidity</small>
-              </article>
-              <article>
-                <span>WIND</span>
-                <strong>{metric(recentSummary?.wind_speed_mean_m_s, " m/s")}</strong>
-                <small>2 m wind speed</small>
+                <small>
+                  {recentDailyRain != null ? `${recentDailyRain.toFixed(1)} mm/day avg` : "NASA POWER"}
+                </small>
               </article>
               <article>
                 <span>BASELINE RAIN</span>
                 <strong>{metric(firstBaseline?.precipitation_mean_daily_mm, " mm/d")}</strong>
-                <small>POWER 2001 to 2020</small>
+                <small>2001–2020 monthly norm</small>
+              </article>
+              <article>
+                <span>MEAN / MAX TEMP</span>
+                <strong>
+                  {metric(recentSummary?.temperature_mean_c, "°")} / {metric(recentSummary?.temperature_max_mean_c, "°C")}
+                </strong>
+                <small>
+                  {recentSummary?.heat_stress_days
+                    ? `${recentSummary.heat_stress_days} heat-stress days (≥35°C)`
+                    : "0 days ≥35°C in last 14d"}
+                </small>
+              </article>
+              <article>
+                <span>EVAPOTRANSPIRATION (ET₀)</span>
+                <strong>{metric(et0Daily, " mm/d")}</strong>
+                <small>FAO-56 atmospheric draw</small>
+              </article>
+              <article>
+                <span>TOPSOIL vs ROOT WETNESS</span>
+                <strong>
+                  {surfaceWetnessPct != null ? `${surfaceWetnessPct.toFixed(0)}%` : "—"} / {rootWetnessPct != null ? `${rootWetnessPct.toFixed(0)}%` : "—"}
+                </strong>
+                <small>GWETTOP (0–5cm) · GWETROOT (1m)</small>
+              </article>
+              <article>
+                <span>FROST & FOG-BLIGHT RISK</span>
+                <strong>
+                  {recentSummary?.frost_risk_days ?? 0}d / {recentSummary?.fog_blight_risk_days ?? 0}d
+                </strong>
+                <small>
+                  {recentSummary?.dew_point_mean_c != null
+                    ? `Dew point ${recentSummary.dew_point_mean_c.toFixed(1)}°C · RH ${metric(recentSummary?.relative_humidity_mean_pct, "%")}`
+                    : `RH ${metric(recentSummary?.relative_humidity_mean_pct, "%")} · VPD ${recentSummary?.vpd_mean_kpa ?? "—"} kPa`}
+                </small>
               </article>
             </div>
 
-            <div className="source-stack">
-              <div><i className="green" /><span>GPM IMERG V07</span><small>recent precipitation spatial evidence</small></div>
-              <div><i className="blue" /><span>SMAP SPL3SMP E V6</span><small>surface soil moisture context</small></div>
-              <div><i className="amber" /><span>NASA POWER</span><small>agroclimate + baseline</small></div>
-              <div><i className="white" /><span>NASA GIBS</span><small>spatial evidence delivery</small></div>
+            {/* Live NASA EONET v3 Natural Hazard & Severe Event Monitor */}
+            <div className="eonet-hazard-card">
+              <div className="rail-section-head">
+                <span>LIVE NASA EONET NATURAL HAZARD MONITOR</span>
+                <b className={(hazards?.active_count ?? hazards?.regional_events_count ?? 0) > 0 ? "amber-badge" : "ok-badge"}>
+                  {hazards?.status === "available"
+                    ? `${hazards?.active_count ?? hazards?.regional_events_count ?? 0} ACTIVE IN ${hazards?.radius_km ?? hazards?.search_radius_km ?? 1200} KM`
+                    : "SYNCING / OFFLINE"}
+                </b>
+              </div>
+              {hazards?.status === "available" &&
+              (hazards?.events ?? hazards?.regional_events ?? hazards?.nearest_global_events ?? []).length > 0 ? (
+                <div className="eonet-event-list">
+                  {(hazards?.events ?? hazards?.regional_events ?? hazards?.nearest_global_events ?? []).slice(0, 3).map((ev) => {
+                    const isNearby = ev.within_alert_radius ?? (ev.distance_km <= (hazards?.radius_km ?? hazards?.search_radius_km ?? 1200));
+                    const catLabel = ev.category_title ?? ev.categories?.[0] ?? "Natural Event";
+                    return (
+                      <a
+                        key={ev.id}
+                        href={ev.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`eonet-event-item ${isNearby ? "nearby" : ""}`}
+                      >
+                        <div>
+                          <strong>{ev.title} ↗</strong>
+                          <small>
+                            {catLabel} · {ev.distance_km} km from field
+                            {ev.date ? ` · ${String(ev.date).slice(0, 10)}` : ""}
+                          </small>
+                        </div>
+                        <span className={isNearby ? "alert-tag" : "dist-tag"}>
+                          {isNearby ? "ALERT RADIUS" : `${ev.distance_km} km`}
+                        </span>
+                      </a>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="eonet-empty-copy">
+                  {lang === "bn"
+                    ? "NASA EONET v3-এ এই মুহূর্তে নিকটবর্তী কোনো সক্রিয় ঘূর্ণিঝড় বা বন্যা ইভেন্ট নেই। সর্বদা BMD ও FFWC পূর্বাভাস যাচাই করুন।"
+                    : "No active cyclone, flood, or severe storm event detected within the alert radius by NASA EONET v3. Always verify local BMD/FFWC advisories."}
+                </p>
+              )}
+            </div>
+
+            {(baselineWindow?.summaries?.length ?? 0) > 0 && (
+              <div className="baseline-window-card">
+                <div className="rail-section-head">
+                  <span>90-DAY CLIMATOLOGY OUTLOOK (2001–2020)</span>
+                  <b>NASA POWER</b>
+                </div>
+                <table className="clim-mini-table">
+                  <thead>
+                    <tr>
+                      <th>Month</th>
+                      <th>Mean Temp</th>
+                      <th>Rain/day</th>
+                      <th>ET₀/day</th>
+                      <th>Net (P−ET₀)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(baselineWindow?.summaries ?? []).map((row) => {
+                      const wb = row.water_balance_daily_mm;
+                      return (
+                        <tr key={row.calendar_month}>
+                          <td><strong>{monthShort[(row.calendar_month - 1) % 12]}</strong></td>
+                          <td>{metric(row.temperature_mean_c, "°C")}</td>
+                          <td>{metric(row.precipitation_mean_daily_mm, " mm")}</td>
+                          <td>{metric(row.et0_mean_daily_mm, " mm")}</td>
+                          <td className={wb != null && wb < 0 ? "deficit-cell" : "surplus-cell"}>
+                            {wb == null ? "—" : `${wb >= 0 ? "+" : ""}${wb.toFixed(1)}`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="science-explainer-panel">
+              <div className="science-tab-bar">
+                <button
+                  type="button"
+                  className={scienceTab === "harmonization" ? "active" : ""}
+                  onClick={() => setScienceTab(scienceTab === "harmonization" ? null : "harmonization")}
+                >
+                  {lang === "bn" ? "রেজোলিউশন সমন্বয়" : "Grid Harmonization"}
+                </button>
+                <button
+                  type="button"
+                  className={scienceTab === "glossary" ? "active" : ""}
+                  onClick={() => setScienceTab(scienceTab === "glossary" ? null : "glossary")}
+                >
+                  {lang === "bn" ? "বৈজ্ঞানিক শব্দকোষ" : "Scientific Terms"}
+                </button>
+                <button
+                  type="button"
+                  className={scienceTab === "si" ? "active" : ""}
+                  onClick={() => setScienceTab(scienceTab === "si" ? null : "si")}
+                >
+                  {lang === "bn" ? "SI ও অনিশ্চয়তা" : "SI & Uncertainty"}
+                </button>
+              </div>
+
+              {scienceTab === "harmonization" && (
+                <div className="science-tab-body">
+                  <p>
+                    {lang === "bn"
+                      ? (context?.multi_resolution_harmonization?.summary_bn ??
+                        "BoponX ০.৫°×০.৬২৫° POWER, ~১০ কিমি IMERG, ৯ কিমি SMAP এবং স্থানীয় ৬৪ জেলার মাটির তথ্য সমন্বয় করে, কিন্তু উপগ্রহ ডেটাকে মাঠের মাটি পরীক্ষার বিকল্প ধরে না।")
+                      : (context?.multi_resolution_harmonization?.summary_en ??
+                        "BoponX aligns 0.5°×0.625° POWER, 0.1° (~10 km) IMERG, 9 km SMAP EASE-Grid, and MODIS imagery to the field coordinate without treating satellite grids as parcel soil sensors.")}
+                  </p>
+                  <div className="harmonization-list">
+                    {(context?.multi_resolution_harmonization?.layers ?? []).map((item) => (
+                      <div key={item.layer} className="harmonization-item">
+                        <strong>{item.layer}</strong>
+                        <span>{item.spatial_scale} · {item.temporal_scale}</span>
+                        <small>{item.role}</small>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {scienceTab === "glossary" && (
+                <div className="science-tab-body">
+                  {(context?.scientific_glossary ?? []).map((term) => (
+                    <div key={term.term_id} className="glossary-item">
+                      <strong>{lang === "bn" ? term.term_bn : term.term_en}</strong>
+                      <small>{lang === "bn" ? term.explanation_bn : term.explanation_en}</small>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {scienceTab === "si" && (
+                <div className="science-tab-body">
+                  {(context?.si_modeling_methods ?? []).map((m) => (
+                    <div key={m.method_id} className="glossary-item">
+                      <strong>{lang === "bn" ? (m.title_bn ?? m.name_bn) : (m.title_en ?? m.name_en)}</strong>
+                      <small>{lang === "bn" ? m.detail_bn : m.detail_en}</small>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <button className="next-command" onClick={() => setView("rotation")}>
-              Open Rotation Lab <b>→</b>
+              {lang === "bn" ? "রোটেশন ল্যাবে ফসল তুলনা করুন" : "Compare Crop Rotations in Lab"} <b>→</b>
             </button>
 
             {error && <div className="command-error">{error}</div>}
@@ -667,14 +1338,14 @@ export default function App() {
         <main className="rotation-lab">
           <aside className="profile-panel">
             <div className="rail-title">
-              <span>FARMER INPUT</span>
-              <strong>Only ask what the farmer knows.</strong>
+              <span>FARMER FIELD INPUTS</span>
+              <strong>{lang === "bn" ? "মাঠের ইতিহাস, যন্ত্রপাতি ও বাজার" : "Field History, Water, Soil & Market"}</strong>
             </div>
 
             <label className="profile-group">
-              <span>RECENT CROPS</span>
+              <span>{lang === "bn" ? "পূর্বে চাষ করা ফসল (সর্বোচ্চ ৪টি, ক্রমানুসারে)" : "RECENT CROPS GROWN (UP TO 4 IN ORDER)"}</span>
               <div className="crop-mini-grid">
-                {cropOptions.map(([id, label, icon]) => (
+                {cropOptions.map(([id, labelEn, labelBn, icon]) => (
                   <button
                     type="button"
                     className={previousCrops.includes(id) ? "active" : ""}
@@ -682,7 +1353,7 @@ export default function App() {
                     onClick={() => toggleHistory(id)}
                   >
                     <FieldIcon name={icon as IconName} />
-                    {label}
+                    <span>{lang === "bn" ? labelBn : labelEn}</span>
                     {previousCrops.includes(id) && <b>{previousCrops.indexOf(id) + 1}</b>}
                   </button>
                 ))}
@@ -690,58 +1361,87 @@ export default function App() {
             </label>
 
             <label className="profile-group">
-              <span>WHAT DO YOU WANT TO GROW NOW?</span>
+              <span>{lang === "bn" ? "পরবর্তী মৌসুমে কোন ফসল বিবেচনা করছেন?" : "INTENDED NEXT CROP"}</span>
               <select value={intendedCrop} onChange={(event) => setIntendedCrop(event.target.value)}>
-                <option value="">Not decided</option>
-                {cropOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                <option value="">{lang === "bn" ? "সিদ্ধান্ত হয়নি" : "Not decided"}</option>
+                {cropOptions.map(([id, labelEn, labelBn]) => (
+                  <option key={id} value={id}>{lang === "bn" ? `${labelBn} (${labelEn})` : labelEn}</option>
+                ))}
               </select>
             </label>
 
             <div className="two-control">
               <label>
-                <span>WATER SOURCE</span>
+                <span>{lang === "bn" ? "পানির উৎস" : "WATER SOURCE"}</span>
                 <select value={waterSource} onChange={(event) => setWaterSource(event.target.value as FarmerProfile["water_source"])}>
-                  <option value="unknown">Not sure</option>
-                  <option value="rainfed">Mostly rain</option>
-                  <option value="irrigated">Mostly irrigation</option>
-                  <option value="both">Rain and irrigation</option>
+                  <option value="unknown">{lang === "bn" ? "নিশ্চিত নয়" : "Not sure"}</option>
+                  <option value="rainfed">{lang === "bn" ? "মূলত বৃষ্টিনির্ভর" : "Mostly rain"}</option>
+                  <option value="irrigated">{lang === "bn" ? "মূলত সেচনির্ভর" : "Mostly irrigation"}</option>
+                  <option value="both">{lang === "bn" ? "বৃষ্টি ও সেচ উভয়ই" : "Rain and irrigation"}</option>
                 </select>
               </label>
               <label>
-                <span>AFTER HEAVY RAIN</span>
+                <span>{lang === "bn" ? "ভারী বৃষ্টির পর" : "AFTER HEAVY RAIN"}</span>
                 <select value={drainage} onChange={(event) => setDrainage(event.target.value as FarmerProfile["water_after_heavy_rain"])}>
-                  <option value="unknown">Not sure</option>
-                  <option value="drains">Drains quickly</option>
-                  <option value="stays">Water stays</option>
-                  <option value="sometimes">Changes</option>
+                  <option value="unknown">{lang === "bn" ? "নিশ্চিত নয়" : "Not sure"}</option>
+                  <option value="drains">{lang === "bn" ? "দ্রুত নেমে যায়" : "Drains quickly"}</option>
+                  <option value="stays">{lang === "bn" ? "পানি জমে থাকে" : "Water stays"}</option>
+                  <option value="sometimes">{lang === "bn" ? "মাঝে মাঝে জমে" : "Changes"}</option>
                 </select>
               </label>
             </div>
 
             <div className="two-control">
               <label>
-                <span>SOIL TEST</span>
+                <span>{lang === "bn" ? "চাষের যন্ত্রপাতি (EQUIPMENT)" : "EQUIPMENT ACCESS"}</span>
+                <select
+                  value={equipmentAccess}
+                  onChange={(event) => setEquipmentAccess(event.target.value as NonNullable<FarmerProfile["equipment_access"]>)}
+                >
+                  <option value="power_tiller_machinery">{lang === "bn" ? "পাওয়ার টিলার / ট্রাক্টর" : "Power Tiller / Tractor"}</option>
+                  <option value="conservation_zero_till">{lang === "bn" ? "জিরো-টিল / বেড প্ল্যান্টার" : "Zero-Till / Bed Planter"}</option>
+                  <option value="manual_traditional">{lang === "bn" ? "সনাতন / কায়িক শ্রম" : "Manual / Traditional"}</option>
+                  <option value="unknown">{lang === "bn" ? "উল্লেখ নেই" : "Not sure"}</option>
+                </select>
+              </label>
+              <label>
+                <span>{lang === "bn" ? "বাজার ও গোখাদ্য লক্ষ্য" : "MARKET / FORAGE GOAL"}</span>
+                <select
+                  value={marketPreference}
+                  onChange={(event) => setMarketPreference(event.target.value as NonNullable<FarmerProfile["market_preference"]>)}
+                >
+                  <option value="local_cash_market">{lang === "bn" ? "স্থানীয় বাজার (তেল/ডাল/শস্য)" : "Local Cash / Oilseed / Pulse"}</option>
+                  <option value="household_subsistence">{lang === "bn" ? "পারিবারিক খাদ্য নিরাপত্তা" : "Household Food Security"}</option>
+                  <option value="high_value_commercial">{lang === "bn" ? "উচ্চমূল্যের বাণিজ্যিক বাজার" : "High-Value Commercial"}</option>
+                  <option value="forage_livestock">{lang === "bn" ? "দানা + গবাদিপশুর গোখাদ্য" : "Dual Grain + Livestock Forage"}</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="two-control">
+              <label>
+                <span>{lang === "bn" ? "মাটি পরীক্ষা রিপোর্ট" : "LAB SOIL TEST"}</span>
                 <select value={soilTest} onChange={(event) => setSoilTest(event.target.value as FarmerProfile["soil_test"])}>
-                  <option value="unknown">Not sure</option>
-                  <option value="no">No report</option>
-                  <option value="yes">Yes</option>
+                  <option value="unknown">{lang === "bn" ? "নিশ্চিত নয়" : "Not sure"}</option>
+                  <option value="no">{lang === "bn" ? "রিপোর্ট নেই" : "No report"}</option>
+                  <option value="yes">{lang === "bn" ? "হ্যাঁ, রিপোর্ট আছে" : "Yes, have report"}</option>
                 </select>
               </label>
               {soilTest === "yes" && (
                 <label>
-                  <span>pH FROM REPORT</span>
+                  <span>{lang === "bn" ? "রিপোর্টের pH মান" : "pH FROM REPORT"}</span>
                   <input type="number" min="0" max="14" step="0.1" value={soilPh} onChange={(event) => setSoilPh(event.target.value)} />
                 </label>
               )}
             </div>
 
             <label className="profile-group">
-              <span>PRIMARY PRIORITY</span>
+              <span>{lang === "bn" ? "কৃষকের প্রধান অগ্রাধিকার" : "FARMER PRIORITY"}</span>
               <div className="priority-toggle">
                 {[
-                  ["water", "Water"],
-                  ["soil", "Soil"],
-                  ["production_stability", "Stability"],
+                  ["water", lang === "bn" ? "পানি সাশ্রয়" : "Water Saving"],
+                  ["soil", lang === "bn" ? "মাটির স্বাস্থ্য" : "Soil Health"],
+                  ["production_stability", lang === "bn" ? "স্থিতিশীল ফলন" : "Stability"],
                 ].map(([id, label]) => (
                   <button
                     type="button"
@@ -757,15 +1457,17 @@ export default function App() {
 
             <div className="two-control">
               <label>
-                <span>START MONTH</span>
+                <span>{lang === "bn" ? "পরিকল্পনা শুরুর মাস" : "PLAN START MONTH"}</span>
                 <select value={startMonth} onChange={(event) => setStartMonth(Number(event.target.value))}>
                   {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
-                    <option value={month} key={month}>{String(month).padStart(2, "0")}</option>
+                    <option value={month} key={month}>
+                      {String(month).padStart(2, "0")} — {monthShort[month - 1]}
+                    </option>
                   ))}
                 </select>
               </label>
               <label>
-                <span>YEAR</span>
+                <span>{lang === "bn" ? "বছর" : "YEAR"}</span>
                 <select value={startYear} onChange={(event) => setStartYear(Number(event.target.value))}>
                   {Array.from({ length: 10 }, (_, index) => 2026 + index).map((year) => (
                     <option value={year} key={year}>{year}</option>
@@ -775,61 +1477,456 @@ export default function App() {
             </div>
 
             <button className="run-engine" onClick={() => runDecisionEngine()} disabled={planBusy}>
-              <span>{planBusy ? "RUNNING…" : "RUN DECISION ENGINE"}</span><b>→</b>
+              <span>{planBusy ? "BUILDING PLAN…" : (lang === "bn" ? "৯০ দিনের মাঠ পরিকল্পনা তৈরি করুন" : "GENERATE 90-DAY FIELD PLAN")}</span><b>→</b>
             </button>
+            {error && <div className="command-error">{error}</div>}
           </aside>
 
           <section className="strategy-stage">
             <div className="strategy-heading">
               <div>
-                <span>ROTATION SANDBOX</span>
-                <h1>Explore futures before choosing one.</h1>
+                <span>ROTATION WORKBENCH · 3-STRATEGY EVIDENCE COMPARISON</span>
+                <h1>{lang === "bn" ? "বিদ্যমান ফসল ধারা ও বিকল্প পর্যায়গুলোর তুলনামূলক বিশ্লেষণ" : "Compare Rotation Strategies Before Committing"}</h1>
               </div>
               <p>
-                BoponX does not repeat the raw NASA cards here. It carries forward the Earth Pulse as decision context and shows only what changes the rotation discussion.
+                {lang === "bn"
+                  ? "নাসা জলবায়ু সংকেত (বৃষ্টিপাত, বাষ্পীভবন ET₀, তাপমাত্রা), BAMIS ফসল পঞ্জিকা এবং স্থানীয় ৬৪ জেলার মাটির ধরনের ভিত্তিতে অন্তত ৩টি ফসল পর্যায় তুলনা করা হয়েছে।"
+                  : "Combines NASA agroclimate water balance (P − ET₀), BAMIS seasonal calendars, and 64-district landform context to compare your existing rotation against soil-building and climate-adaptive alternatives."}
               </p>
             </div>
 
             <div className="strategy-context-row">
-              <div><span>FIELD</span><strong>{placeLabel(place, point)}</strong></div>
-              <div><span>RAIN SIGNAL</span><strong>{rainAnomaly == null ? "pending" : rainAnomaly > 30 ? "wetter" : rainAnomaly < -30 ? "drier" : "near baseline"}</strong></div>
-              <div><span>LOCAL SOURCES</span><strong>{localSources?.official_sources.length ?? 0} verified</strong></div>
-              <div><span>FARMER INTENT</span><strong>{intendedCrop ? cropLabels[intendedCrop] : "not decided"}</strong></div>
+              <div><span>LOCKED FIELD</span><strong>{placeLabel(place, point, context)}</strong></div>
+              <div><span>NET WATER BALANCE</span><strong>{waterBalanceDaily == null ? rainSignalLabel : `${waterBalanceDaily >= 0 ? "+" : ""}${waterBalanceDaily.toFixed(1)} mm/d (${rainSignalLabel})`}</strong></div>
+              <div><span>DISTRICT LANDFORM</span><strong>{districtProfile ? (lang === "bn" ? districtProfile.landform_bn : districtProfile.landform_en) : `${localSources?.official_sources?.length ?? 0} verified sources`}</strong></div>
+              <div><span>TARGET NEXT CROP</span><strong>{intendedCrop ? (lang === "bn" ? cropLabelsBn[intendedCrop] : cropLabels[intendedCrop]) : "Not decided"}</strong></div>
             </div>
 
-            <div className="strategy-cards">
-              {strategies.map((strategy) => (
-                <article key={strategy.id}>
-                  <header>
-                    <span>PATH {strategy.id}</span>
-                    <strong>{strategy.title}</strong>
-                  </header>
-                  <div className="season-flow">
-                    {strategy.crops.map((crop, index) => (
-                      <div key={`${crop}-${index}`}>
-                        <small>SEASON {index + 1}</small>
-                        <strong>{crop}</strong>
-                        {index < 2 && <i>→</i>}
-                      </div>
-                    ))}
+
+            {/* 25-Year Planting-Window Shift, Mann-Whitney & <160-Char SMS Advisory Card */}
+            {advisory && (
+              <div className="onset-advisory-card">
+                <div className="onset-advisory-top">
+                  <div>
+                    <span>25-YEAR PLANTING-WINDOW SHIFT ADVISORY (2001–2012 vs. 2013–2025) · MANN-WHITNEY & GDD</span>
+                    <strong className="onset-headline-sentence">
+                      {lang === "bn"
+                        ? (advisory.advisory_sentence?.bn ?? advisory.advisory_sentence?.en)
+                        : (advisory.advisory_sentence?.en ?? "")}
+                    </strong>
                   </div>
-                  <footer>
-                    <p>{strategy.note}</p>
-                    <span>{context?.calendar_evidence.length ?? 0} local crop calendar records available</span>
-                  </footer>
-                </article>
-              ))}
+                  <div className="onset-shift-badge">
+                    <small>{lang === "bn" ? "মৌসুম পরিবর্তন" : "WINDOW SHIFT"}</small>
+                    <b>{(advisory.shift_days ?? 0) >= 0 ? `+${advisory.shift_days ?? 0}` : (advisory.shift_days ?? 0)} {lang === "bn" ? "দিন" : "Days"}</b>
+                    <span>{lang === "bn" ? (advisory.recommended_window?.bn ?? "") : (advisory.recommended_window?.en ?? "")}</span>
+                  </div>
+                </div>
+
+                {/* SMS-Length Farmer Advisory (<160 characters) */}
+                {advisory.sms_advisory && (
+                  <div className="sms-advisory-bar">
+                    <div className="sms-advisory-copy">
+                      <span>
+                        {lang === "bn"
+                          ? `কৃষকের মোবাইল SMS বার্তা (${advisory.sms_advisory.char_count_bn ?? 0}/${advisory.sms_advisory.max_chars ?? 160} অক্ষর)`
+                          : `FARMER MOBILE SMS ADVISORY (${advisory.sms_advisory.char_count_en ?? 0}/${advisory.sms_advisory.max_chars ?? 160} CHARS)`}
+                      </span>
+                      <code>{lang === "bn" ? advisory.sms_advisory.bn : advisory.sms_advisory.en}</code>
+                    </div>
+                    <button
+                      type="button"
+                      className="sms-copy-btn"
+                      onClick={() => {
+                        const txt = lang === "bn" ? (advisory.sms_advisory?.bn ?? "") : (advisory.sms_advisory?.en ?? "");
+                        if (navigator.clipboard && txt) {
+                          void navigator.clipboard.writeText(txt);
+                          setSmsCopied(true);
+                          window.setTimeout(() => setSmsCopied(false), 1800);
+                        }
+                      }}
+                    >
+                      {smsCopied ? (lang === "bn" ? "কপি হয়েছে ✓" : "Copied ✓") : (lang === "bn" ? "SMS কপি করুন" : "Copy SMS")}
+                    </button>
+                  </div>
+                )}
+
+                <div className="onset-distribution-grid">
+                  <div className="onset-dist-col">
+                    <span>
+                      {lang === "bn"
+                        ? `২০০১–২০১২ বনাম ২০১৩–২০২৫ বৃষ্টির শুরু (Mann-Whitney U = ${advisory.mann_whitney_test?.u_statistic ?? "—"}, p = ${advisory.mann_whitney_test?.p_value ?? "—"})`
+                        : `ONSET DISTRIBUTION COMPARISON (Mann-Whitney U = ${advisory.mann_whitney_test?.u_statistic ?? "—"}, p = ${advisory.mann_whitney_test?.p_value ?? "—"})`}
+                    </span>
+                    <div className="dist-bars-wrap">
+                      <div className="dist-period-row">
+                        <b>2001–2012</b>
+                        <div className="dist-dot-track">
+                          {(advisory?.distributions?.period_2001_2012?.onset_doy_values ?? []).map((doy, i) => (
+                            <i
+                              key={`e-${i}`}
+                              className="dist-dot early"
+                              style={{ left: `${Math.min(96, Math.max(4, ((doy - 148) / 35) * 100))}%` }}
+                              title={`Year ${2001 + i}: DOY ${doy}`}
+                            />
+                          ))}
+                        </div>
+                        <strong>
+                          {lang === "bn"
+                            ? advisory?.distributions?.period_2001_2012?.mean_onset_label_bn
+                            : advisory?.distributions?.period_2001_2012?.mean_onset_label_en}
+                        </strong>
+                      </div>
+                      <div className="dist-period-row">
+                        <b>2013–2025</b>
+                        <div className="dist-dot-track">
+                          {(advisory?.distributions?.period_2013_2025?.onset_doy_values ?? []).map((doy, i) => (
+                            <i
+                              key={`l-${i}`}
+                              className="dist-dot late"
+                              style={{ left: `${Math.min(96, Math.max(4, ((doy - 148) / 35) * 100))}%` }}
+                              title={`Year ${2013 + i}: DOY ${doy}`}
+                            />
+                          ))}
+                        </div>
+                        <strong className="amber-val">
+                          {lang === "bn"
+                            ? advisory?.distributions?.period_2013_2025?.mean_onset_label_bn
+                            : advisory?.distributions?.period_2013_2025?.mean_onset_label_en}
+                        </strong>
+                      </div>
+                    </div>
+                    <small>
+                      {lang === "bn"
+                        ? (advisory.gdd_summary?.note_bn ?? "")
+                        : (advisory.gdd_summary?.note_en ?? "")}
+                    </small>
+                  </div>
+
+                  <div className="onset-dist-col">
+                    <span>
+                      {lang === "bn"
+                        ? "সংজ্ঞা ও ±৫ মিমি সংবেদনশীলতা পরীক্ষা (ONSET DEFINITION & ±5 MM SENSITIVITY)"
+                        : "STATED ONSET DEFINITION & ±5 MM THRESHOLD SENSITIVITY CHECK"}
+                    </span>
+                    <p className="onset-def-text">
+                      {lang === "bn"
+                        ? (advisory.assumptions?.onset_definition_bn ?? "")
+                        : (advisory.assumptions?.onset_definition_en ?? "")}
+                    </p>
+                    <div className="sensitivity-pills">
+                      {(advisory.sensitivity_check?.thresholds ?? []).map((item) => (
+                        <div key={item.key} className="sens-pill">
+                          <span>{item.threshold_mm} mm / 7d</span>
+                          <strong>{item.shift_days >= 0 ? `+${item.shift_days}d` : `${item.shift_days}d`}</strong>
+                        </div>
+                      ))}
+                      <div className="sens-pill valid">
+                        <span>{lang === "bn" ? "স্থিতিশীলতা" : "STABILITY"}</span>
+                        <strong>{advisory.sensitivity_check?.is_stable ? "20/20 VALID" : "REVIEW"}</strong>
+                      </div>
+                    </div>
+                    <small>
+                      {lang === "bn"
+                        ? (advisory.sensitivity_check?.stability_note_bn ?? "")
+                        : (advisory.sensitivity_check?.stability_note_en ?? "")}
+                    </small>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Interactive "What-If" Climate Scenario Stress-Test Simulator */}
+            <div className="what-if-simulator-card">
+              <div className="what-if-head">
+                <div>
+                  <span>INTERACTIVE "WHAT-IF" CLIMATE SCENARIO STRESS-TEST</span>
+                  <strong>
+                    {lang === "bn"
+                      ? "খরা, অতিবৃষ্টি বা তাপপ্রবাহ হলে কোন ফসল পর্যায়টি টিকে থাকবে তা পরীক্ষা করুন"
+                      : "Simulate drier/wetter rainfall or heat spikes to test how Strategies A, B & C respond"}
+                  </strong>
+                </div>
+                <button
+                  type="button"
+                  className="what-if-reset"
+                  onClick={() => {
+                    setScenarioRainShiftPct(0);
+                    setScenarioTempShiftC(0);
+                  }}
+                >
+                  {lang === "bn" ? "রিসেট করুন" : "Reset (0%)"}
+                </button>
+              </div>
+              <div className="what-if-controls">
+                <label className="what-if-slider">
+                  <div>
+                    <span>{lang === "bn" ? "বৃষ্টিপাত পরিবর্তন (RAINFALL SHIFT)" : "RAINFALL SHIFT SCENARIO"}</span>
+                    <b>{scenarioRainShiftPct >= 0 ? `+${scenarioRainShiftPct}%` : `${scenarioRainShiftPct}%`}</b>
+                  </div>
+                  <input
+                    type="range"
+                    min="-50"
+                    max="50"
+                    step="5"
+                    value={scenarioRainShiftPct}
+                    onChange={(e) => setScenarioRainShiftPct(Number(e.target.value))}
+                  />
+                  <small>Simulated rain: {simulatedRainDaily.toFixed(1)} mm/day</small>
+                </label>
+
+                <label className="what-if-slider">
+                  <div>
+                    <span>{lang === "bn" ? "তাপমাত্রা বৃদ্ধি (HEAT SHIFT)" : "TEMPERATURE SHIFT SCENARIO"}</span>
+                    <b>+{scenarioTempShiftC.toFixed(1)}°C</b>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="4"
+                    step="0.5"
+                    value={scenarioTempShiftC}
+                    onChange={(e) => setScenarioTempShiftC(Number(e.target.value))}
+                  />
+                  <small>Simulated ET₀ draw: {simulatedEt0Daily.toFixed(1)} mm/day</small>
+                </label>
+
+                <div className="what-if-readout">
+                  <span>SIMULATED WATER BALANCE (P − ET₀)</span>
+                  <strong className={simulatedWaterBalance < -1.5 ? "amber-val" : "lime-val"}>
+                    {simulatedWaterBalance >= 0 ? "+" : ""}{simulatedWaterBalance.toFixed(1)} mm/day
+                  </strong>
+                  <small>
+                    {simulatedWaterBalance < -2.0
+                      ? "Severe moisture deficit — favors low-water Pulse/Oilseed Bridge (Strategy B)"
+                      : simulatedWaterBalance > 2.5
+                        ? "High moisture surplus — check field drainage before legumes"
+                        : "Within manageable seasonal water balance"}
+                  </small>
+                </div>
+              </div>
             </div>
+
+            {districtProfile && (
+              <div className="bare-field-banner">
+                <div>
+                  <span>{lang === "bn" ? "খালি জমি ও মৌসুমি ঝুঁকি (BARE-FIELD & VULNERABILITY WINDOW)" : "BARE-FIELD & SEASONAL VULNERABILITY WINDOW"}</span>
+                  <strong>{lang === "bn" ? districtProfile.bare_field_risk_bn : districtProfile.bare_field_risk_en}</strong>
+                </div>
+                <div className="analog-tag">
+                  <span>{lang === "bn" ? "মিল থাকা কৃষি-জলবায়ু অঞ্চল" : "CLIMATE-ANALOG REGIONS"}</span>
+                  <b>{lang === "bn" ? districtProfile.analog_regions_bn : districtProfile.analog_regions_en}</b>
+                </div>
+              </div>
+            )}
+
+            {/* 12-Month Regional Crop Calendar Timeline */}
+            {(context?.calendar_evidence?.length ?? 0) > 0 && (
+              <div className="bamis-timeline-card">
+                <div className="bamis-timeline-head">
+                  <div>
+                    <span>OFFICIAL REGIONAL CROP-WEATHER CALENDAR TIMELINE (BAMIS)</span>
+                    <strong>
+                      {lang === "bn"
+                        ? `${context?.nearest_supported_region?.name_bn} হাব — ১২ মাসের ফসল চক্র ও ৯০ দিনের পরিকল্পনা জানালা`
+                        : `${context?.nearest_supported_region?.name_en} Hub — 12-Month Crop Windows & Active 90-Day Planning Span`}
+                    </strong>
+                  </div>
+                  <small>Highlighted columns = your selected 3-month planning window</small>
+                </div>
+                <div className="bamis-timeline-table-wrap">
+                  <table className="bamis-timeline-table">
+                    <thead>
+                      <tr>
+                        <th>Crop (BAMIS Source)</th>
+                        <th>Water Need & Soil Role</th>
+                        {monthShort.map((m, idx) => (
+                          <th
+                            key={m}
+                            className={plannedMonths.includes(idx + 1) ? "active-plan-month" : ""}
+                          >
+                            {m}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(context?.calendar_evidence ?? []).map((cal) => {
+                        const activeMonths = cal.months ?? [];
+                        return (
+                          <tr key={cal.id}>
+                            <td>
+                              <a href={cal.source_url} target="_blank" rel="noreferrer">
+                                <strong>{lang === "bn" ? cal.name_bn : cal.name_en} ↗</strong>
+                              </a>
+                              <small>{lang === "bn" ? cal.window_bn : cal.window_en}</small>
+                            </td>
+                            <td>
+                              <span className={`water-pill ${cal.water_need_class ?? "moderate"}`}>
+                                {lang === "bn" ? cal.water_need_note_bn : cal.water_need_note_en}
+                              </span>
+                              <small>{lang === "bn" ? cal.soil_role_bn : cal.soil_role_en}</small>
+                            </td>
+                            {monthShort.map((m, idx) => {
+                              const monthNum = idx + 1;
+                              const isCropActive = activeMonths.includes(monthNum);
+                              const isPlanWindow = plannedMonths.includes(monthNum);
+                              return (
+                                <td
+                                  key={`${cal.id}-${m}`}
+                                  className={`${isCropActive ? "crop-on" : "crop-off"} ${isPlanWindow ? "in-window" : ""}`}
+                                  title={`${cal.name_en} — ${m}`}
+                                >
+                                  {isCropActive ? <i /> : null}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="strategy-cards">
+              {strategies.map((strategy) => {
+                const crops = lang === "bn" ? strategy.crops_bn : strategy.crops_en;
+                const simImpact = scenarioImpactForStrategy(strategy.id);
+                return (
+                  <article key={strategy.id} className="strategy-card-detailed">
+                    <header>
+                      <div className="strategy-card-top">
+                        <span>STRATEGY {strategy.id} · {strategy.kind.replace(/_/g, " ").toUpperCase()}</span>
+                      </div>
+                      <strong>{lang === "bn" ? strategy.title_bn : strategy.title_en}</strong>
+                      <div className="strategy-badges">
+                        {strategy.water_demand_badge && <em className="badge-water">{strategy.water_demand_badge}</em>}
+                        {strategy.nitrogen_badge && <em className="badge-soil">{strategy.nitrogen_badge}</em>}
+                        {strategy.pest_break_badge && <em className="badge-pest">{strategy.pest_break_badge}</em>}
+                      </div>
+                      <div className={`scenario-impact-pill ${simImpact.tone}`}>
+                        <span>WHAT-IF STRESS IMPACT:</span>
+                        <b>{simImpact.label}</b>
+                      </div>
+                    </header>
+                    <div className="season-flow">
+                      {crops.map((crop, index) => (
+                        <div key={`${crop}-${index}`}>
+                          <small>
+                            {index === 0
+                              ? (lang === "bn" ? "মৌসুম ১ (খরিফ-২ / আমন)" : "SEASON 1 (KHARIF-2 / AMAN)")
+                              : index === 1
+                                ? (lang === "bn" ? "মৌসুম ২ (রবি / বোরো)" : "SEASON 2 (RABI / WINTER)")
+                                : (lang === "bn" ? "মৌসুম ৩ (খরিফ-১ / আউশ)" : "SEASON 3 (KHARIF-1 / PRE-MONSOON)")}
+                          </small>
+                          <strong>{crop}</strong>
+                          {index < 2 && <i>→</i>}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="strategy-explain-body">
+                      <div className="explain-block">
+                        <span>{lang === "bn" ? "কেন এটি প্রস্তাবিত (WHY SUGGESTED)" : "WHY SUGGESTED"}</span>
+                        <p>{lang === "bn" ? strategy.why_suggested_bn : strategy.why_suggested_en}</p>
+                      </div>
+                      <div className="explain-block">
+                        <span>{lang === "bn" ? "সমর্থনকারী প্রমাণ (SUPPORTING EVIDENCE)" : "SUPPORTING EVIDENCE"}</span>
+                        <ul>
+                          {strategy.supporting_evidence.map((item, idx) => <li key={idx}>{item}</li>)}
+                        </ul>
+                      </div>
+                      <div className="explain-block">
+                        <span>{lang === "bn" ? "সম্ভাব্য সুফল (SOIL, WATER & INCOME BENEFITS)" : "SOIL, WATER & INCOME BENEFITS"}</span>
+                        <ul>
+                          {strategy.potential_benefits.map((item, idx) => <li key={idx}>{item}</li>)}
+                        </ul>
+                      </div>
+                      <div className="explain-block warn">
+                        <span>{lang === "bn" ? "তথ্যের ঘাটতি ও স্থানীয় যাচাই ঝুঁকি (GAPS & LOCAL REVIEW RISKS)" : "INFORMATION GAPS & LOCAL REVIEW RISKS"}</span>
+                        <ul>
+                          {strategy.information_gaps.slice(0, 1).map((item, idx) => <li key={`gap-${idx}`}>{item}</li>)}
+                          {strategy.local_review_risks.map((item, idx) => <li key={`risk-${idx}`}>{item}</li>)}
+                        </ul>
+                      </div>
+                    </div>
+                    <footer className="strategy-card-footer">
+                      <span>{context?.calendar_evidence?.length ?? 0} BAMIS records · {districtProfile ? `${districtProfile.name_en} profile` : "Global"}</span>
+                      <button
+                        type="button"
+                        className={selectedStrategyId === strategy.id ? "strategy-pick-btn active" : "strategy-pick-btn"}
+                        onClick={() => {
+                          setSelectedStrategyId(strategy.id);
+                          void runDecisionEngine();
+                        }}
+                      >
+                        {lang === "bn" ? `কৌশল ${strategy.id} দিয়ে ৯০ দিনের প্ল্যান →` : `Build 90-Day Plan with Strategy ${strategy.id} →`}
+                      </button>
+                    </footer>
+                  </article>
+                );
+              })}
+            </div>
+
+            {/* Functional Soil-Health Crop Roles (NASA Challenge Consideration) */}
+            {(context?.functional_crop_roles?.length ?? 0) > 0 && (
+              <div className="functional-roles-section">
+                <div className="functional-roles-head">
+                  <span>SOIL-HEALTH FUNCTIONAL CROP ROLES · HOW DIFFERENT CROPS RESTORE THE FIELD</span>
+                  <strong>
+                    {lang === "bn"
+                      ? "নাইট্রোজেন সংবন্ধনকারী, আচ্ছাদন ফসল, গভীর মূলী ও খরা/লবণ-সহনশীল ফসলের ভূমিকা"
+                      : "How Nitrogen-Fixing, Cover, Deep-Rooting & Drought-Tolerant Crops Support Long-Term Resilience"}
+                  </strong>
+                </div>
+                <div className="functional-roles-grid">
+                  {(context?.functional_crop_roles ?? []).map((role) => (
+                    <article key={role.role_id} className="functional-role-card">
+                      <span>{lang === "bn" ? role.title_bn : role.title_en}</span>
+                      <strong>{lang === "bn" ? role.examples_bn : role.examples_en}</strong>
+                      <p>{lang === "bn" ? (role.benefit_bn ?? role.mechanism_bn) : (role.benefit_en ?? role.mechanism_en)}</p>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {districtProfile && (
+              <div className="national-evidence-board">
+                <div className="national-board-col">
+                  <span>{lang === "bn" ? "আমদানি-নির্ভর ফসল ও জাতীয় প্রেক্ষাপট" : "NATIONAL IMPORT-SUBSTITUTION CONTEXT"}</span>
+                  <strong>
+                    {lang === "bn"
+                      ? (districtProfile.national_import_context?.summary_bn ??
+                        "ভোজ্যতেলের প্রায় ৯০% আমদানি হয়; দেশের সয়াবিন চাহিদার মাত্র ৭% মেটায়; ২০৩০ সালে ডালের ঘাটতি ১২.৩৬ লাখ টন হতে পারে (The Daily Star, USDA)।")
+                      : (districtProfile.national_import_context?.summary_en ??
+                        "Bangladesh imports ~90% of edible oil and meets only ~7% of soybean demand locally; pulse deficit may reach 12.36 lakh tonnes by 2030 (The Daily Star, USDA).")}
+                  </strong>
+                </div>
+                <div className="national-board-col">
+                  <span>{lang === "bn" ? "উপজেলা যাচাই ও সংগনিরোধ শর্তাবলি (SRDI / BMD / QUARANTINE)" : "MANDATORY UPAZILA VERIFICATION & SEED QUARANTINE"}</span>
+                  <ul>
+                    {(districtProfile.verification_requirements ?? []).map((req) => (
+                      <li key={req.id}>{lang === "bn" ? req.bn : req.en}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
 
             <div className="evidence-gate">
               <div className="gate-icon">!</div>
               <div>
-                <strong>Evidence gate</strong>
+                <strong>{lang === "bn" ? "বৈজ্ঞানিক প্রমাণ গেট (অনুসন্ধানমূলক তুলনা)" : "Evidence gate (Supportive tool, not a replacement for farmer judgment)"}</strong>
                 <p>
-                  These are exploration paths, not agronomic rankings. A winning decision engine should refuse to invent crop suitability when reviewed local crop requirements, soil constraints or sequence rules are missing.
+                  {lang === "bn"
+                    ? "এই ৩টি পথ অনুসন্ধানমূলক তুলনা, চূড়ান্ত র‍্যাঙ্কিং নয়। মাটির ধরন, মিল থাকা এলাকা ও নতুন ফসলের সুযোগ প্রাথমিক অনুমান—উপজেলা পর্যায়ে SRDI, BMD, BARC, WorldClim ও SoilGrids ডেটা এবং উদ্ভিদ সংগনিরোধ/জাতীয় বীজ বোর্ডের অনুমোদন যাচাই করে চূড়ান্ত সিদ্ধান্ত নিন।"
+                    : "These paths are unranked exploration scenarios, not prescriptive rankings. District soil/crop estimates require upazila-level verification with SRDI, BMD, BARC Crop Zoning, WorldClim, and SoilGrids, plus Plant Quarantine and National Seed Board clearance for new seeds."}
                 </p>
               </div>
-              <button onClick={() => runDecisionEngine()} disabled={planBusy}>Generate evidence based field plan</button>
+              <button onClick={() => runDecisionEngine()} disabled={planBusy}>
+                {lang === "bn" ? "প্রমাণভিত্তিক ৯০ দিনের পরিকল্পনা তৈরি করুন" : "Generate evidence based field plan"}
+              </button>
             </div>
           </section>
         </main>
@@ -840,14 +1937,18 @@ export default function App() {
           {!plan ? (
             <div className="empty-plan">
               <span>03 | FIELD PLAN</span>
-              <h1>Turn Earth evidence into actions a farmer can use.</h1>
+              <h1>{lang === "bn" ? "নাসা ও স্থানীয় প্রমাণকে কৃষকের ব্যবহারযোগ্য পদক্ষেপে রূপান্তর করুন।" : "Turn Earth evidence into actions a farmer can use."}</h1>
               <p>
-                The printed card is designed to stand alone. It does not depend on clickable links. Source names remain traceable for advisers and judges.
+                {lang === "bn"
+                  ? "প্রিন্ট করা অ্যাকশন কার্ডটি ইন্টারনেট বা লিংক ছাড়াই কাজ করে। এতে নাসা এবং স্থানীয় কৃষি উৎসের নাম ও কৃষি কল সেন্টার ১৬১২৩ উল্লেখ থাকে।"
+                  : "The printed card is designed to stand alone. It does not depend on clickable links. Source names remain traceable for advisers and judges."}
               </p>
-              <button onClick={() => setView("rotation")}>Complete farmer context →</button>
+              <button onClick={() => void runDecisionEngine()}>
+                {lang === "bn" ? "এখনই ৯০ দিনের পরিকল্পনা তৈরি করুন →" : "Generate 90-day field plan now →"}
+              </button>
             </div>
           ) : (
-            <DecisionReport brief={plan} placeName={placeLabel(place, point)} />
+            <DecisionReport brief={plan} placeName={placeLabel(place, point, context)} lang={lang} onLangChange={setLang} selectedStrategyId={selectedStrategyId} onSelectStrategy={setSelectedStrategyId} />
           )}
         </main>
       )}

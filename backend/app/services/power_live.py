@@ -1,27 +1,111 @@
-"""Recent and historical NASA POWER context with fail-closed contracts."""
+"""Recent and historical NASA POWER context with fail-closed contracts, FAO-56 ET0, and root-zone soil moisture."""
 from __future__ import annotations
 
 import json
+import os
+import math
+import time
 from datetime import date, timedelta
+from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 POWER_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
 POWER_CLIMATOLOGY_URL = "https://power.larc.nasa.gov/api/temporal/climatology/point"
+POWER_PARAMETERS = "T2M,T2M_MAX,T2M_MIN,T2MDEW,PRECTOTCORR,RH2M,WS2M,ALLSKY_SFC_SW_DWN,GWETTOP,GWETROOT"
 MONTH_KEYS = {1: "JAN", 2: "FEB", 3: "MAR", 4: "APR", 5: "MAY", 6: "JUN", 7: "JUL", 8: "AUG", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC"}
 MISSING_SENTINEL = -999.0
 
+_POWER_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_CACHE_TTL_SEC = 1800.0
 
-def summarize_power_payload(payload: dict) -> dict:
+
+def _cache_get(key: str) -> dict[str, Any] | None:
+    entry = _POWER_CACHE.get(key)
+    if not entry:
+        return None
+    ts, value = entry
+    if time.monotonic() - ts > _CACHE_TTL_SEC:
+        _POWER_CACHE.pop(key, None)
+        return None
+    return value
+
+
+def _cache_set(key: str, value: dict[str, Any]) -> dict[str, Any]:
+    if len(_POWER_CACHE) > 256:
+        _POWER_CACHE.clear()
+    _POWER_CACHE[key] = (time.monotonic(), value)
+    return value
+
+
+def _extraterrestrial_radiation_mm_day(lat_deg: float, day_of_year: int = 180) -> float:
+    """FAO-56 extraterrestrial radiation (Ra) expressed in equivalent evaporation (mm/day)."""
+    phi = math.radians(max(-65.0, min(65.0, lat_deg)))
+    dr = 1.0 + 0.033 * math.cos(2.0 * math.pi * day_of_year / 365.0)
+    delta = 0.409 * math.sin(2.0 * math.pi * day_of_year / 365.0 - 1.39)
+    ws_arg = max(-1.0, min(1.0, -math.tan(phi) * math.tan(delta)))
+    ws = math.acos(ws_arg)
+    ra_mj = (24.0 * 60.0 / math.pi) * 0.0820 * dr * (
+        ws * math.sin(phi) * math.sin(delta) + math.cos(phi) * math.cos(delta) * math.sin(ws)
+    )
+    return max(1.0, 0.408 * ra_mj)
+
+
+def _hargreaves_et0_mm_day(
+    t_mean: float | None,
+    t_max: float | None,
+    t_min: float | None,
+    *,
+    lat_deg: float = 24.0,
+    day_of_year: int = 180,
+) -> float | None:
+    """FAO-56 Hargreaves-Samani reference evapotranspiration (ET0, mm/day)."""
+    if t_mean is None or t_max is None or t_min is None:
+        return None
+    td = max(0.0, float(t_max) - float(t_min))
+    if td <= 0.0:
+        return None
+    ra_mm = _extraterrestrial_radiation_mm_day(lat_deg, day_of_year)
+    et0 = 0.0023 * (float(t_mean) + 17.8) * math.sqrt(td) * ra_mm
+    return round(max(0.5, et0), 2)
+
+
+def _vapor_pressure_deficit_kpa(t_mean: float | None, rh_mean: float | None) -> float | None:
+    """Compute Vapor Pressure Deficit (VPD, kPa) from air temperature (°C) and relative humidity (%)."""
+    if t_mean is None or rh_mean is None:
+        return None
+    es = 0.6108 * math.exp((17.27 * float(t_mean)) / (float(t_mean) + 237.3))
+    rh_clamped = max(0.0, min(100.0, float(rh_mean)))
+    vpd = es * (1.0 - rh_clamped / 100.0)
+    return round(max(0.0, vpd), 2)
+
+
+def summarize_power_payload(payload: dict, *, lat: float = 24.0) -> dict:
     properties = payload.get("properties", {})
     parameter = properties.get("parameter", {})
     t2m = parameter.get("T2M", {})
     t2m_max = parameter.get("T2M_MAX", {})
     t2m_min = parameter.get("T2M_MIN", {})
+    t2m_dew = parameter.get("T2MDEW", {})
     rain = parameter.get("PRECTOTCORR", {})
     humidity = parameter.get("RH2M", {})
     wind = parameter.get("WS2M", {})
-    dates = sorted(set(t2m) | set(t2m_max) | set(t2m_min) | set(rain) | set(humidity) | set(wind))
+    solar = parameter.get("ALLSKY_SFC_SW_DWN", {})
+    gwettop = parameter.get("GWETTOP", {})
+    gwetroot = parameter.get("GWETROOT", {})
+
+    dates = sorted(
+        set(t2m)
+        | set(t2m_max)
+        | set(t2m_min)
+        | set(t2m_dew)
+        | set(rain)
+        | set(humidity)
+        | set(wind)
+        | set(solar)
+        | set(gwettop)
+        | set(gwetroot)
+    )
 
     def valid(values: dict) -> list[float]:
         out: list[float] = []
@@ -34,27 +118,100 @@ def summarize_power_payload(payload: dict) -> dict:
     temperatures = valid(t2m)
     max_temperatures = valid(t2m_max)
     min_temperatures = valid(t2m_min)
+    dew_points = valid(t2m_dew)
     precipitation = valid(rain)
     humidities = valid(humidity)
     winds = valid(wind)
+    solar_vals = valid(solar)
+    top_wetness = [v for v in valid(gwettop) if 0.0 <= v <= 1.0]
+    root_wetness = [v for v in valid(gwetroot) if 0.0 <= v <= 1.0]
+
+    t_mean = round(sum(temperatures) / len(temperatures), 2) if temperatures else None
+    t_max_mean = round(sum(max_temperatures) / len(max_temperatures), 2) if max_temperatures else None
+    t_min_mean = round(sum(min_temperatures) / len(min_temperatures), 2) if min_temperatures else None
+    dew_mean = round(sum(dew_points) / len(dew_points), 2) if dew_points else None
+    rain_total = round(sum(precipitation), 2) if precipitation and len(precipitation) == len(dates) else None
+    rain_daily_mean = round(sum(precipitation) / len(precipitation), 2) if precipitation else None
+    rh_mean = round(sum(humidities) / len(humidities), 2) if humidities else None
+    wind_mean = round(sum(winds) / len(winds), 2) if winds else None
+    solar_mean = round(sum(solar_vals) / len(solar_vals), 2) if solar_vals else None
+    gwettop_mean = round(sum(top_wetness) / len(top_wetness), 3) if top_wetness else None
+    gwetroot_mean = round(sum(root_wetness) / len(root_wetness), 3) if root_wetness else None
+    gwettop_pct = round(gwettop_mean * 100.0, 1) if gwettop_mean is not None else None
+    gwetroot_pct = round(gwetroot_mean * 100.0, 1) if gwetroot_mean is not None else None
+
+    et0_daily = _hargreaves_et0_mm_day(t_mean, t_max_mean, t_min_mean, lat_deg=lat)
+    vpd_kpa = _vapor_pressure_deficit_kpa(t_mean, rh_mean)
+    wb_daily = (
+        round(rain_daily_mean - et0_daily, 2)
+        if rain_daily_mean is not None and et0_daily is not None
+        else None
+    )
+    wb_period = (
+        round(rain_total - et0_daily * len(dates), 1)
+        if rain_total is not None and et0_daily is not None and dates
+        else None
+    )
+
+    heat_stress_days = sum(1 for v in max_temperatures if v >= 35.0)
+    cold_stress_days = sum(1 for v in min_temperatures if v <= 12.0)
+    frost_risk_days = sum(1 for v in min_temperatures if v <= 8.0)
+    heavy_rain_days = sum(1 for v in precipitation if v >= 25.0)
+    dry_days = sum(1 for v in precipitation if v < 1.0)
+
+    fog_blight_risk_days = 0
+    for day in dates:
+        tv = t2m.get(day)
+        dv = t2m_dew.get(day)
+        rv = humidity.get(day)
+        if (
+            isinstance(tv, (int, float)) and float(tv) != MISSING_SENTINEL
+            and isinstance(dv, (int, float)) and float(dv) != MISSING_SENTINEL
+            and (float(tv) - float(dv)) <= 2.5
+        ):
+            if not isinstance(rv, (int, float)) or float(rv) == MISSING_SENTINEL or float(rv) >= 80.0:
+                fog_blight_risk_days += 1
+
     return {
         "days_requested": len(dates),
         "temperature_valid_days": len(temperatures),
         "precipitation_valid_days": len(precipitation),
-        "temperature_mean_c": round(sum(temperatures) / len(temperatures), 2) if temperatures else None,
-        "temperature_max_mean_c": round(sum(max_temperatures) / len(max_temperatures), 2) if max_temperatures else None,
-        "temperature_min_mean_c": round(sum(min_temperatures) / len(min_temperatures), 2) if min_temperatures else None,
-        "precipitation_total_mm": round(sum(precipitation), 2) if precipitation and len(precipitation) == len(dates) else None,
-        "relative_humidity_mean_pct": round(sum(humidities) / len(humidities), 2) if humidities else None,
-        "wind_speed_mean_m_s": round(sum(winds) / len(winds), 2) if winds else None,
+        "temperature_mean_c": t_mean,
+        "temperature_max_mean_c": t_max_mean,
+        "temperature_min_mean_c": t_min_mean,
+        "dew_point_mean_c": dew_mean,
+        "precipitation_total_mm": rain_total,
+        "precipitation_mean_daily_mm": rain_daily_mean,
+        "relative_humidity_mean_pct": rh_mean,
+        "wind_speed_mean_m_s": wind_mean,
+        "solar_radiation_mean": solar_mean,
+        "surface_soil_wetness_pct": gwettop_pct,
+        "root_zone_soil_wetness_pct": gwetroot_pct,
+        "et0_mean_daily_mm": et0_daily,
+        "water_balance_daily_mm": wb_daily,
+        "water_balance_period_mm": wb_period,
+        "vpd_mean_kpa": vpd_kpa,
+        "heat_stress_days": heat_stress_days,
+        "cold_stress_days": cold_stress_days,
+        "frost_risk_days": frost_risk_days,
+        "fog_blight_risk_days": fog_blight_risk_days,
+        "heavy_rain_days": heavy_rain_days,
+        "dry_days": dry_days,
     }
 
 
 def fetch_recent_power(lat: float, lon: float, days: int = 14, lag_days: int = 7) -> dict:
+    if os.getenv("OFFLINE") == "1" or os.getenv("BOPONX_OFFLINE") == "1":
+        raise RuntimeError("OFFLINE=1 mode active; using local cache/snapshot")
     end = date.today() - timedelta(days=lag_days)
     start = end - timedelta(days=days - 1)
+    cache_key = f"recent_v2:{lat:.3f}:{lon:.3f}:{start.isoformat()}:{end.isoformat()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     params = {
-        "parameters": "T2M,T2M_MAX,T2M_MIN,PRECTOTCORR,RH2M,WS2M",
+        "parameters": POWER_PARAMETERS,
         "community": "AG",
         "latitude": f"{lat:.5f}",
         "longitude": f"{lon:.5f}",
@@ -65,10 +222,10 @@ def fetch_recent_power(lat: float, lon: float, days: int = 14, lag_days: int = 7
     }
     url = f"{POWER_URL}?{urlencode(params)}"
     request = Request(url, headers={"User-Agent": "BoponX/SpaceApps2026"})
-    with urlopen(request, timeout=12) as response:
+    with urlopen(request, timeout=10) as response:
         payload = json.loads(response.read().decode("utf-8"))
-    summary = summarize_power_payload(payload)
-    return {
+    summary = summarize_power_payload(payload, lat=lat)
+    result = {
         "status": "available",
         "mode": "recent_nasa_power_request",
         "provider": "NASA POWER",
@@ -78,15 +235,15 @@ def fetch_recent_power(lat: float, lon: float, days: int = 14, lag_days: int = 7
         "summary": summary,
         "source_request_url": url,
         "limitations": [
-            "This is regional gridded climate context, not a measurement taken in the farmer's field.",
-            "The period ends several days before today to reduce failures from upstream data latency.",
-            "This endpoint is not a weather forecast.",
+            "This is regional gridded climate context (0.5° × 0.625°), not a measurement taken inside the farmer's field.",
+            "GWETTOP (0–5 cm) and GWETROOT (0–100 cm) represent gridded physical soil wetness saturation (%), never soil pH or NPK chemistry.",
+            "Reference evapotranspiration (ET0) is estimated via the FAO-56 Hargreaves-Samani equation; this endpoint is not a weather forecast.",
         ],
     }
+    return _cache_set(cache_key, result)
 
 
-
-def summarize_climatology_payload(payload: dict, month: int) -> dict:
+def summarize_climatology_payload(payload: dict, month: int, *, lat: float = 24.0) -> dict:
     if month not in MONTH_KEYS:
         raise ValueError("month must be 1..12")
     key = MONTH_KEYS[month]
@@ -94,9 +251,13 @@ def summarize_climatology_payload(payload: dict, month: int) -> dict:
     t2m = parameter.get("T2M", {})
     t2m_max = parameter.get("T2M_MAX", {})
     t2m_min = parameter.get("T2M_MIN", {})
+    t2m_dew = parameter.get("T2MDEW", {})
     rain = parameter.get("PRECTOTCORR", {})
     humidity = parameter.get("RH2M", {})
     wind = parameter.get("WS2M", {})
+    solar = parameter.get("ALLSKY_SFC_SW_DWN", {})
+    gwettop = parameter.get("GWETTOP", {})
+    gwetroot = parameter.get("GWETROOT", {})
 
     def value(values: dict):
         raw = values.get(key)
@@ -104,16 +265,62 @@ def summarize_climatology_payload(payload: dict, month: int) -> dict:
             return None
         return round(float(raw), 2)
 
+    t_mean = value(t2m)
+    t_max = value(t2m_max)
+    t_min = value(t2m_min)
+    t_dew = value(t2m_dew)
+    p_daily = value(rain)
+    rh = value(humidity)
+    ws = value(wind)
+    sol = value(solar)
+    top_w = value(gwettop)
+    root_w = value(gwetroot)
+
+    doy = max(15, min(350, month * 30 - 15))
+    et0 = _hargreaves_et0_mm_day(t_mean, t_max, t_min, lat_deg=lat, day_of_year=doy)
+    wb = round(p_daily - et0, 2) if p_daily is not None and et0 is not None else None
+
     return {
         "calendar_month": month,
         "calendar_month_key": key,
-        "temperature_mean_c": value(t2m),
-        "temperature_max_mean_c": value(t2m_max),
-        "temperature_min_mean_c": value(t2m_min),
-        "precipitation_mean_daily_mm": value(rain),
-        "relative_humidity_mean_pct": value(humidity),
-        "wind_speed_mean_m_s": value(wind),
+        "temperature_mean_c": t_mean,
+        "temperature_max_mean_c": t_max,
+        "temperature_min_mean_c": t_min,
+        "dew_point_mean_c": t_dew,
+        "precipitation_mean_daily_mm": p_daily,
+        "relative_humidity_mean_pct": rh,
+        "wind_speed_mean_m_s": ws,
+        "solar_radiation_mean": sol,
+        "surface_soil_wetness_pct": round(top_w * 100.0, 1) if top_w is not None and 0.0 <= top_w <= 1.0 else None,
+        "root_zone_soil_wetness_pct": round(root_w * 100.0, 1) if root_w is not None and 0.0 <= root_w <= 1.0 else None,
+        "et0_mean_daily_mm": et0,
+        "water_balance_daily_mm": wb,
     }
+
+
+def _fetch_raw_climatology(lat: float, lon: float, start_year: int = 2001, end_year: int = 2020) -> tuple[dict, str]:
+    if os.getenv("OFFLINE") == "1" or os.getenv("BOPONX_OFFLINE") == "1":
+        raise RuntimeError("OFFLINE=1 mode active; using local cache/snapshot")
+    cache_key = f"clim_raw_v2:{lat:.3f}:{lon:.3f}:{start_year}:{end_year}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached["payload"], cached["url"]
+
+    params = {
+        "parameters": POWER_PARAMETERS,
+        "community": "AG",
+        "latitude": f"{lat:.5f}",
+        "longitude": f"{lon:.5f}",
+        "format": "JSON",
+        "start": str(start_year),
+        "end": str(end_year),
+    }
+    url = f"{POWER_CLIMATOLOGY_URL}?{urlencode(params)}"
+    request = Request(url, headers={"User-Agent": "BoponX/SpaceApps2026"})
+    with urlopen(request, timeout=10) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    _cache_set(cache_key, {"payload": payload, "url": url})
+    return payload, url
 
 
 def fetch_power_climatology(
@@ -124,43 +331,30 @@ def fetch_power_climatology(
     start_year: int = 2001,
     end_year: int = 2020,
 ) -> dict:
-    params = {
-        "parameters": "T2M,T2M_MAX,T2M_MIN,PRECTOTCORR,RH2M,WS2M",
-        "community": "AG",
-        "latitude": f"{lat:.5f}",
-        "longitude": f"{lon:.5f}",
-        "format": "JSON",
-        "start": str(start_year),
-        "end": str(end_year),
-    }
-    url = f"{POWER_CLIMATOLOGY_URL}?{urlencode(params)}"
-    request = Request(url, headers={"User-Agent": "BoponX/SpaceApps2026"})
-    with urlopen(request, timeout=12) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload, url = _fetch_raw_climatology(lat, lon, start_year=start_year, end_year=end_year)
     return {
         "status": "available",
         "provider": "NASA POWER",
         "kind": "historical_climatology",
         "baseline_period": {"start_year": start_year, "end_year": end_year},
         "coordinates": {"latitude": lat, "longitude": lon},
-        "summary": summarize_climatology_payload(payload, month),
+        "summary": summarize_climatology_payload(payload, month, lat=lat),
         "source_products": payload.get("header", {}).get("sources", []),
         "source_request_url": url,
         "limitations": [
-            "This is a multi-year regional climatology, not a forecast or a field measurement.",
+            "This is a multi-year regional climatology (2001–2020), not a forecast or a field measurement.",
             "PRECTOTCORR is shown as the POWER climatological daily precipitation value for the selected calendar month.",
         ],
     }
 
 
-
-def summarize_climatology_window(payload: dict, start_month: int, months: int = 3) -> list[dict]:
+def summarize_climatology_window(payload: dict, start_month: int, months: int = 3, *, lat: float = 24.0) -> list[dict]:
     if start_month not in MONTH_KEYS:
         raise ValueError("start_month must be 1..12")
     if months < 1 or months > 12:
         raise ValueError("months must be 1..12")
     return [
-        summarize_climatology_payload(payload, (start_month - 1 + offset) % 12 + 1)
+        summarize_climatology_payload(payload, (start_month - 1 + offset) % 12 + 1, lat=lat)
         for offset in range(months)
     ]
 
@@ -174,30 +368,18 @@ def fetch_power_climatology_window(
     start_year: int = 2001,
     end_year: int = 2020,
 ) -> dict:
-    params = {
-        "parameters": "T2M,T2M_MAX,T2M_MIN,PRECTOTCORR,RH2M,WS2M",
-        "community": "AG",
-        "latitude": f"{lat:.5f}",
-        "longitude": f"{lon:.5f}",
-        "format": "JSON",
-        "start": str(start_year),
-        "end": str(end_year),
-    }
-    url = f"{POWER_CLIMATOLOGY_URL}?{urlencode(params)}"
-    request = Request(url, headers={"User-Agent": "BoponX/SpaceApps2026"})
-    with urlopen(request, timeout=12) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload, url = _fetch_raw_climatology(lat, lon, start_year=start_year, end_year=end_year)
     return {
         "status": "available",
         "provider": "NASA POWER",
         "kind": "historical_climatology_window",
         "baseline_period": {"start_year": start_year, "end_year": end_year},
         "coordinates": {"latitude": lat, "longitude": lon},
-        "summaries": summarize_climatology_window(payload, start_month, months),
+        "summaries": summarize_climatology_window(payload, start_month, months, lat=lat),
         "source_products": payload.get("header", {}).get("sources", []),
         "source_request_url": url,
         "limitations": [
-            "These are multi-year monthly climatology references, not weather forecasts or field measurements.",
+            "These are multi-year monthly climatology references (2001–2020), not weather forecasts or field measurements.",
             "Each month is used as historical context for planning and monitoring.",
         ],
     }

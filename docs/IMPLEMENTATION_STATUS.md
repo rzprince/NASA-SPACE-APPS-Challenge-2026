@@ -112,3 +112,16 @@ Implemented:
 - the farmer field plan was redesigned with visual tasks, evidence reasons, monthly climate context and local support
 - Bangladesh printed plans include Agriculture Call Center 16123 so the paper output does not depend on clicking a website
 - mission control text received a readability pass across both side rails, Earth controls, Rotation Lab and Field Plan
+
+
+## 30 October 2026 — 28 Oct Challenge Brief Alignment & 64-District Bangladesh Integration
+
+**Reviewed:** 30 October 2026
+
+Implemented and verified:
+- **64-District Bangladesh Local Agronomy Dataset (`backend/app/compute/bangladesh_districts.py`)**: All 64 districts across 8 divisions encoded from `bpx.pdf` with bilingual soil/landform profiles, agro-climatic analog regions, established crops, preliminary crop opportunities, bare-field risk windows, published online pilot evidence (Dragon fruit, Katimon mango, Naogaon Avocado/Coffee demo, Patuakhali BARI red mango trial, national edible-oil/pulse import-substitution context), and explicit SRDI/BMD/BARC/WorldClim/SoilGrids and Plant Quarantine disclaimers.
+- **Deterministic Bangladesh Area Resolution (`/api/v1/bangladesh/resolve` & `/api/v1/bangladesh/districts`)**: Selecting any of the 8 divisions or 64 districts (or searching in English or Bangla) resolves coordinates and district profiles deterministically without failing if external Nominatim geocoding is slow or unreachable.
+- **Three-Strategy Rotation Comparison (`/api/v1/rotations/explore` & Rotation Lab UI)**: Compares at least three unranked strategies—(A) Existing/Baseline Rotation Benchmark, (B) Soil-Health & Nitrogen-Fixing Pulse/Oilseed Bridge, and (C) Climate-Adaptive & District Opportunity Exploration—with explicit *Why Suggested*, *Supporting Evidence*, *Potential Benefits*, *Information Gaps*, and *Local Review Risks*, while keeping `/api/v1/rotations/compare` fail-closed (`HTTP 409 AGRONOMIC_RULES_NOT_APPROVED`).
+- **Multi-Resolution Data Harmonization & Plain-Language Scientific Glossary**: Added coordinate-anchored multi-scale grid harmonization metadata (`0.5°×0.625°` POWER, `0.1°` IMERG, `9 km` SMAP, `250m–1km` MODIS vs. district/parcel soil data) and bilingual explanations of *Evapotranspiration*, *SMAP Soil Moisture Anomaly*, *NDVI / Bare-Field Windows*, *Heat/Frost Stress*, and *Water-Balance Indicators*.
+- **WebGL, Geolocation & Pydantic Resilience**: Restored `EarthCanvasFallback` 2D interactive map in `LocationMap.tsx`, added direct manual `Lat / Lon` coordinate entry and HTTPS/LAN geolocation error recovery in `App.tsx`, and added Pydantic v1/v2 compatibility in `backend/app/main.py` (fixing the `previous_crops` list validation bug).
+- **True Bilingual (`EN / বাংলা`) Parity**: Completed genuine Bangla translations across `plan.py`, `App.tsx`, and `DecisionReport.tsx` with a live `EN / বাংলা` toggle.

@@ -1,161 +1,212 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import EarthCanvasFallback from "./EarthCanvasFallback";
+import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type MouseEvent, type ReactNode } from "react";
+import maplibregl from "maplibre-gl";
 
 type Point = { latitude: number; longitude: number };
-type LayerKey = "trueColor" | "rain" | "soil";
+export type LayerKey = "trueColor" | "rain" | "soil" | "ndvi" | "temp" | "srtm";
 
 type Props = {
   point: Point | null;
   onPick: (point: Point) => void;
   mapDate: string;
+  onMapDateChange?: (date: string) => void;
   activeLayer: LayerKey | null;
   onLayerChange: (layer: LayerKey | null) => void;
 };
 
-const EARTH_RADIUS = 2.5;
 const NASA_BLUE_MARBLE =
   "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57730/land_ocean_ice_2048.jpg";
 
-function finitePoint(point: Point) {
-  return Number.isFinite(point.latitude) && Number.isFinite(point.longitude);
+function dateMinusDays(days: number) {
+  return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 }
 
-function nasaGlobalWms(
-  layer: string,
-  date: string,
-  format: "image/jpeg" | "image/png",
-  transparent: boolean,
-  width = 1024,
-  height = 512,
-) {
-  const params = new URLSearchParams({
-    SERVICE: "WMS",
-    REQUEST: "GetMap",
-    VERSION: "1.3.0",
-    LAYERS: layer,
-    STYLES: "",
-    FORMAT: format,
-    TRANSPARENT: transparent ? "true" : "false",
-    HEIGHT: String(height),
-    WIDTH: String(width),
-    CRS: "EPSG:4326",
-    BBOX: "-90,-180,90,180",
-  });
-  if (date) params.set("TIME", date);
-  return `https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?${params.toString()}`;
-}
+const TIME_PRESETS = [
+  { label: "Latest (-2d)", days: 2 },
+  { label: "-14d", days: 14 },
+  { label: "-30d", days: 30 },
+  { label: "-90d", days: 90 },
+  { label: "-180d", days: 180 },
+] as const;
 
-function latLonToVector(latitude: number, longitude: number, radius = EARTH_RADIUS) {
-  const lat = THREE.MathUtils.degToRad(latitude);
-  const lon = THREE.MathUtils.degToRad(longitude);
-  return new THREE.Vector3(
-    radius * Math.cos(lat) * Math.cos(lon),
-    radius * Math.sin(lat),
-    -radius * Math.cos(lat) * Math.sin(lon),
+function gibsWmsTileUrl(layer: string, date: string, format: "image/png" | "image/jpeg" = "image/png") {
+  const transparent = format === "image/png" ? "true" : "false";
+  return (
+    `https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi?` +
+    `SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=${encodeURIComponent(layer)}` +
+    `&STYLES=&FORMAT=${encodeURIComponent(format)}&TRANSPARENT=${transparent}` +
+    `&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&TIME=${encodeURIComponent(date)}&BBOX={bbox-epsg-3857}`
   );
 }
 
-function vectorToLatLon(vector: THREE.Vector3): Point {
-  const normal = vector.clone().normalize();
-  const latitude = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(normal.y, -1, 1)));
-  // Three.js sphere UVs place the Greenwich meridian at +X and east at -Z.
-  const longitude = THREE.MathUtils.radToDeg(Math.atan2(-normal.z, normal.x));
-  return {
-    latitude: Number(latitude.toFixed(5)),
-    longitude: Number(longitude.toFixed(5)),
+function EarthCanvasFallback({
+  point,
+  onPick,
+}: {
+  point: Point | null;
+  onPick: (point: Point) => void;
+}) {
+  const handleSelect = (event: MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+    const y = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+    const longitude = Number(((x / rect.width) * 360 - 180).toFixed(5));
+    const latitude = Number((90 - (y / rect.height) * 180).toFixed(5));
+    onPick({ latitude, longitude });
   };
+
+  const markerLeft = point ? `${((point.longitude + 180) / 360) * 100}%` : null;
+  const markerTop = point ? `${((90 - point.latitude) / 180) * 100}%` : null;
+
+  return (
+    <div
+      className="earth-fallback-surface"
+      onClick={handleSelect}
+      role="button"
+      tabIndex={0}
+      aria-label="2D NASA Earth fallback selector — click anywhere to select field coordinates"
+      style={{
+        position: "absolute",
+        inset: 0,
+        cursor: "crosshair",
+        backgroundImage: `linear-gradient(rgba(3,9,7,0.22), rgba(3,9,7,0.42)), url(${NASA_BLUE_MARBLE})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }}
+    >
+      {point && markerLeft && markerTop && (
+        <div
+          className="earth-field-marker"
+          style={{
+            position: "absolute",
+            left: markerLeft,
+            top: markerTop,
+            transform: "translate(-50%, -50%)",
+            pointerEvents: "none",
+          }}
+        >
+          <span />
+          <i />
+        </div>
+      )}
+    </div>
+  );
 }
 
-function prepareTexture(texture: THREE.Texture, anisotropy = 4) {
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = THREE.ClampToEdgeWrapping;
-  texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.anisotropy = anisotropy;
-  texture.needsUpdate = true;
-  return texture;
+class MapErrorBoundary extends Component<
+  { point: Point | null; onPick: (point: Point) => void; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.warn("MapLibre fallback activated:", error, info);
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="earth-globe-stage realistic-earth">
+          <EarthCanvasFallback point={this.props.point} onPick={this.props.onPick} />
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
-function makeOverlayMaterial() {
-  return new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    side: THREE.FrontSide,
-    uniforms: {
-      uMap: { value: null as THREE.Texture | null },
-      uOpacity: { value: 0.68 },
-      uMaskDark: { value: 0 },
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform sampler2D uMap;
-      uniform float uOpacity;
-      uniform float uMaskDark;
-      varying vec2 vUv;
-
-      void main() {
-        vec4 color = texture2D(uMap, vUv);
-        float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-        float alpha = color.a * uOpacity;
-
-        if (uMaskDark > 0.5) {
-          alpha *= smoothstep(0.035, 0.13, luminance);
-        }
-
-        if (alpha < 0.025) discard;
-        gl_FragColor = vec4(color.rgb, alpha);
-      }
-    `,
-  });
-}
-
-export default function LocationMap({ point, onPick, mapDate, activeLayer, onLayerChange }: Props) {
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const sceneRef = useRef<{
-    renderer: THREE.WebGLRenderer;
-    scene: THREE.Scene;
-    camera: THREE.PerspectiveCamera;
-    controls: OrbitControls;
-    earth: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
-    overlay: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
-    labels: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
-    marker: THREE.Group;
-    raycaster: THREE.Raycaster;
-    pointer: THREE.Vector2;
-    desiredCamera: THREE.Vector3 | null;
-    resumeTimer: number | null;
-    cleanup: () => void;
-  } | null>(null);
-
-  const baseTextureRef = useRef<THREE.Texture | null>(null);
-  const overlayTextureRef = useRef<THREE.Texture | null>(null);
-  const labelTextureRef = useRef<THREE.Texture | null>(null);
+function LocationMapInner({
+  point,
+  onPick,
+  mapDate,
+  onMapDateChange,
+  activeLayer,
+  onLayerChange,
+}: Props) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const markerRef = useRef<maplibregl.Marker | null>(null);
   const onPickRef = useRef(onPick);
-  const [ready, setReady] = useState(false);
-  const [fallback, setFallback] = useState(false);
-  const [message, setMessage] = useState("");
-  const [textureStatus, setTextureStatus] = useState("Loading NASA Blue Marble");
 
-  const layerMeta = useMemo(
+  const [ready, setReady] = useState(false);
+  const [webglFailed, setWebglFailed] = useState(false);
+  const [isGlobe, setIsGlobe] = useState(true);
+  const [baseStyle, setBaseStyle] = useState<"satellite" | "streets">("satellite");
+  const [overlayOpacity, setOverlayOpacity] = useState(0.72);
+  const [zoomLevel, setZoomLevel] = useState<number>(6.8);
+  const [statusNote, setStatusNote] = useState("3D Globe + High-Resolution Satellite & Village Map Ready");
+
+  const layerConfig = useMemo(
     () => ({
       trueColor: {
+        id: "MODIS_Terra_CorrectedReflectance_TrueColor",
         label: "MODIS TRUE COLOR",
-        detail: "dated Terra corrected reflectance laid over the complete Blue Marble base",
+        shortLabel: "TRUE COLOR",
+        format: "image/jpeg" as const,
+        resolution: "250 m",
+        detail: "NASA GIBS MODIS Terra daily surface reflectance",
+        legendMin: "Clear surface",
+        legendMax: "Cloud / Snow",
+        gradient: "linear-gradient(90deg, #1b4332, #52b788, #d8f3dc, #ffffff)",
       },
       rain: {
-        label: "GPM IMERG RAIN",
-        detail: "dated precipitation visualization from NASA GIBS",
+        id: "IMERG_Precipitation_Rate",
+        label: "GPM IMERG PRECIPITATION",
+        shortLabel: "IMERG RAIN",
+        format: "image/png" as const,
+        resolution: "0.1° (~10 km)",
+        detail: "Near-real-time precipitation rate (mm/hr) — not a forecast",
+        legendMin: "0.1 mm/hr",
+        legendMax: "50+ mm/hr",
+        gradient: "linear-gradient(90deg, #48cae4, #0077b6, #7209b7, #f72585, #ffbe0b)",
       },
       soil: {
-        label: "SMAP SOIL MOISTURE",
-        detail: "regional surface soil moisture visualization",
+        id: "SMAP_L2_Passive_Day_Soil_Moisture_Option2",
+        label: "SMAP SURFACE SOIL MOISTURE",
+        shortLabel: "SMAP SOIL",
+        format: "image/png" as const,
+        resolution: "9 km EASE-Grid",
+        detail: "Top-5 cm volumetric soil moisture (cm³/cm³) — not pH or NPK",
+        legendMin: "0.02 (Dry)",
+        legendMax: "0.50+ (Wet)",
+        gradient: "linear-gradient(90deg, #d97706, #eab308, #84cc16, #06b6d4, #1d4ed8)",
+      },
+      ndvi: {
+        id: "MODIS_Terra_NDVI_8Day",
+        label: "MODIS VEGETATION INDEX (NDVI)",
+        shortLabel: "NDVI CANOPY",
+        format: "image/png" as const,
+        resolution: "250 m (8-day)",
+        detail: "Canopy greenness & bare-field detection (-0.2 to 1.0)",
+        legendMin: "Bare / Water",
+        legendMax: "Dense Crop",
+        gradient: "linear-gradient(90deg, #a16207, #eab308, #84cc16, #15803d, #052e16)",
+      },
+      temp: {
+        id: "MODIS_Terra_Land_Surface_Temp_Day",
+        label: "MODIS LAND SURFACE TEMP (DAY)",
+        shortLabel: "SURFACE HEAT",
+        format: "image/png" as const,
+        resolution: "1 km",
+        detail: "Daytime land surface temperature & evaporative heat stress context",
+        legendMin: "10°C",
+        legendMax: "45°C+",
+        gradient: "linear-gradient(90deg, #38bdf8, #4ade80, #facc15, #f97316, #dc2626)",
+      },
+      srtm: {
+        id: "SRTM_Color_Index",
+        label: "NASA SRTM ELEVATION & SLOPE RELIEF",
+        shortLabel: "SRTM RELIEF",
+        format: "image/png" as const,
+        resolution: "30 m / 90 m DEM",
+        detail: "Shuttle Radar Topography Mission elevation, drainage basin & slope erosion context",
+        legendMin: "Lowland / Haor (0 m)",
+        legendMax: "Highland / Terrace",
+        gradient: "linear-gradient(90deg, #0ea5e9, #22c55e, #eab308, #d97706, #7c2d12)",
       },
     }),
     [],
@@ -166,533 +217,452 @@ export default function LocationMap({ point, onPick, mapDate, activeLayer, onLay
   }, [onPick]);
 
   useEffect(() => {
-    const host = rootRef.current;
-    if (!host || sceneRef.current) return;
+    const container = containerRef.current;
+    if (!container || mapRef.current) return;
 
-    let raf = 0;
-    let pointerDown = { x: 0, y: 0 };
-    let destroyed = false;
-    let provisionalRenderer: THREE.WebGLRenderer | null = null;
+    let disposed = false;
+    let mapInstance: maplibregl.Map | null = null;
 
     try {
-      THREE.Cache.enabled = true;
-
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x010403);
-      scene.fog = new THREE.FogExp2(0x010403, 0.028);
-
-      const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 120);
-      camera.position.set(0.35, 0.45, 6.75);
-
-      const renderer = new THREE.WebGLRenderer({
-        antialias: window.devicePixelRatio <= 1.35,
-        alpha: false,
-        powerPreference: "default",
-      });
-      provisionalRenderer = renderer;
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.3));
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.08;
-      host.appendChild(renderer.domElement);
-
-      const controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.052;
-      controls.enablePan = false;
-      controls.minDistance = 3.6;
-      controls.maxDistance = 9.2;
-      controls.rotateSpeed = 0.42;
-      controls.zoomSpeed = 0.82;
-      controls.autoRotate = true;
-      controls.autoRotateSpeed = 0.22;
-
-      const earthGeometry = new THREE.SphereGeometry(EARTH_RADIUS, 96, 64);
-      const earthMaterial = new THREE.MeshStandardMaterial({
-        color: 0x8aa095,
-        roughness: 0.92,
-        metalness: 0,
-      });
-      const earth = new THREE.Mesh(earthGeometry, earthMaterial);
-      scene.add(earth);
-
-      const overlayMaterial = makeOverlayMaterial();
-      const overlay = new THREE.Mesh(
-        new THREE.SphereGeometry(EARTH_RADIUS + 0.014, 96, 64),
-        overlayMaterial,
-      );
-      overlay.visible = false;
-      scene.add(overlay);
-
-      const labelsMaterial = new THREE.MeshBasicMaterial({
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        alphaTest: 0.03,
-      });
-      const labels = new THREE.Mesh(
-        new THREE.SphereGeometry(EARTH_RADIUS + 0.025, 96, 64),
-        labelsMaterial,
-      );
-      labels.visible = false;
-      scene.add(labels);
-
-      const atmosphere = new THREE.Mesh(
-        new THREE.SphereGeometry(EARTH_RADIUS + 0.085, 72, 48),
-        new THREE.ShaderMaterial({
-          transparent: true,
-          side: THREE.BackSide,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          vertexShader: `
-            varying vec3 vNormal;
-            varying vec3 vPositionNormal;
-            void main() {
-              vNormal = normalize(normalMatrix * normal);
-              vPositionNormal = normalize((modelViewMatrix * vec4(position, 1.0)).xyz);
-              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-          `,
-          fragmentShader: `
-            varying vec3 vNormal;
-            varying vec3 vPositionNormal;
-            void main() {
-              float intensity = pow(0.73 - dot(vNormal, vPositionNormal), 2.35);
-              vec3 glow = vec3(0.18, 0.72, 0.95) * intensity;
-              gl_FragColor = vec4(glow, intensity * 0.52);
-            }
-          `,
-        }),
-      );
-      scene.add(atmosphere);
-
-      scene.add(new THREE.HemisphereLight(0xdce9ff, 0x07110d, 1.38));
-      const sun = new THREE.DirectionalLight(0xffffff, 2.28);
-      sun.position.set(6.5, 3.1, 7.8);
-      scene.add(sun);
-      const rim = new THREE.DirectionalLight(0x4bdcff, 0.72);
-      rim.position.set(-7, 0.4, -5);
-      scene.add(rim);
-
-      const starGeometry = new THREE.BufferGeometry();
-      const starCount = 760;
-      const starPositions = new Float32Array(starCount * 3);
-      for (let index = 0; index < starCount; index += 1) {
-        const radius = 22 + Math.random() * 52;
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
-        starPositions[index * 3] = radius * Math.sin(phi) * Math.cos(theta);
-        starPositions[index * 3 + 1] = radius * Math.cos(phi);
-        starPositions[index * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
-      }
-      starGeometry.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
-      const stars = new THREE.Points(
-        starGeometry,
-        new THREE.PointsMaterial({
-          color: 0xc7dcff,
-          size: 0.026,
-          transparent: true,
-          opacity: 0.67,
-          depthWrite: false,
-        }),
-      );
-      scene.add(stars);
-
-      const orbitMaterial = new THREE.LineBasicMaterial({
-        color: 0x5eb39e,
-        transparent: true,
-        opacity: 0.18,
-      });
-      [3.06, 3.34].forEach((radius, index) => {
-        const points: THREE.Vector3[] = [];
-        for (let step = 0; step <= 120; step += 1) {
-          const angle = (step / 120) * Math.PI * 2;
-          points.push(
-            new THREE.Vector3(
-              Math.cos(angle) * radius,
-              Math.sin(angle) * radius * 0.25,
-              Math.sin(angle) * radius * 0.64,
-            ),
-          );
-        }
-        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), orbitMaterial.clone());
-        line.rotation.x = 0.38 + index * 0.26;
-        line.rotation.z = 0.16 + index * 0.34;
-        scene.add(line);
-      });
-
-      const marker = new THREE.Group();
-      const markerCore = new THREE.Mesh(
-        new THREE.SphereGeometry(0.052, 20, 14),
-        new THREE.MeshBasicMaterial({ color: 0xb8ff57 }),
-      );
-      const markerHalo = new THREE.Mesh(
-        new THREE.RingGeometry(0.095, 0.128, 44),
-        new THREE.MeshBasicMaterial({
-          color: 0xb8ff57,
-          transparent: true,
-          opacity: 0.82,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        }),
-      );
-      markerHalo.rotation.x = Math.PI / 2;
-      const markerBeam = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.006, 0.024, 0.38, 10),
-        new THREE.MeshBasicMaterial({
-          color: 0x64e6ff,
-          transparent: true,
-          opacity: 0.68,
-        }),
-      );
-      markerBeam.position.y = 0.18;
-      marker.add(markerCore, markerHalo, markerBeam);
-      marker.visible = false;
-      scene.add(marker);
-
-      const raycaster = new THREE.Raycaster();
-      const pointer = new THREE.Vector2();
-
-      const resize = () => {
-        const rect = host.getBoundingClientRect();
-        const width = Math.max(rect.width, 1);
-        const height = Math.max(rect.height, 1);
-        renderer.setSize(width, height, false);
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
-      };
-
-      const resumeRotationLater = () => {
-        const state = sceneRef.current;
-        if (!state) return;
-        if (state.resumeTimer) window.clearTimeout(state.resumeTimer);
-        state.resumeTimer = window.setTimeout(() => {
-          const current = sceneRef.current;
-          if (current && !current.desiredCamera) current.controls.autoRotate = true;
-        }, 5000);
-      };
-
-      const handlePointerDown = (event: PointerEvent) => {
-        pointerDown = { x: event.clientX, y: event.clientY };
-        controls.autoRotate = false;
-      };
-
-      const handlePointerUp = (event: PointerEvent) => {
-        const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
-        if (moved <= 5) {
-          const rect = renderer.domElement.getBoundingClientRect();
-          pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-          pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-          raycaster.setFromCamera(pointer, camera);
-          const hit = raycaster.intersectObject(earth, false)[0];
-          if (hit) {
-            const nextPoint = vectorToLatLon(hit.point);
-            if (finitePoint(nextPoint)) onPickRef.current(nextPoint);
-          }
-        }
-        resumeRotationLater();
-      };
-
-      renderer.domElement.addEventListener("pointerdown", handlePointerDown);
-      renderer.domElement.addEventListener("pointerup", handlePointerUp);
-
-      const observer = typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => requestAnimationFrame(resize))
-        : null;
-      observer?.observe(host);
-      window.addEventListener("resize", resize);
-      const handleContextLost = (event: Event) => {
-        event.preventDefault();
-        setReady(false);
-        setFallback(true);
-        setTextureStatus("WebGL interrupted · interactive 2D Earth");
-        setMessage("3D graphics were interrupted. The globe remains selectable in 2D.");
-      };
-      renderer.domElement.addEventListener("webglcontextlost", handleContextLost);
-      resize();
-
-      sceneRef.current = {
-        renderer,
-        scene,
-        camera,
-        controls,
-        earth,
-        overlay,
-        labels,
-        marker,
-        raycaster,
-        pointer,
-        desiredCamera: null,
-        resumeTimer: null,
-        cleanup: () => {
-          observer?.disconnect();
-          window.removeEventListener("resize", resize);
-          renderer.domElement.removeEventListener("webglcontextlost", handleContextLost);
-          renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
-          renderer.domElement.removeEventListener("pointerup", handlePointerUp);
-          controls.dispose();
-          earth.geometry.dispose();
-          earth.material.dispose();
-          overlay.geometry.dispose();
-          overlay.material.dispose();
-          labels.geometry.dispose();
-          labels.material.dispose();
-          starGeometry.dispose();
-          (stars.material as THREE.Material).dispose();
-          renderer.dispose();
-          if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
-        },
-      };
-
-      const loader = new THREE.TextureLoader();
-      loader.setCrossOrigin("anonymous");
-
-      const applyBaseTexture = (texture: THREE.Texture, label: string) => {
-        if (destroyed || !sceneRef.current) {
-          texture.dispose();
-          return;
-        }
-        baseTextureRef.current?.dispose();
-        baseTextureRef.current = prepareTexture(texture, renderer.capabilities.getMaxAnisotropy());
-        sceneRef.current.earth.material.map = baseTextureRef.current;
-        sceneRef.current.earth.material.color.set(0xffffff);
-        sceneRef.current.earth.material.needsUpdate = true;
-        setTextureStatus(label);
-      };
-
-      const fallbackBlueMarble = nasaGlobalWms(
-        "BlueMarble_NextGeneration",
-        "",
-        "image/jpeg",
-        false,
-        1024,
-        512,
-      );
-
-      loader.load(
-        NASA_BLUE_MARBLE,
-        (texture) => applyBaseTexture(texture, "NASA Blue Marble ready"),
-        undefined,
-        () => {
-          loader.load(
-            fallbackBlueMarble,
-            (texture) => applyBaseTexture(texture, "NASA Blue Marble ready"),
-            undefined,
-            () => {
-              setTextureStatus("NASA Blue Marble unavailable");
-              setMessage("The NASA Earth texture could not load. Field search and coordinates still work.");
+      mapInstance = new maplibregl.Map({
+        container,
+        attributionControl: false,
+        center: [88.6042, 24.3745],
+        zoom: 6.8,
+        pitch: 18,
+        maxZoom: 18,
+        minZoom: 1.2,
+        style: {
+          version: 8,
+          sources: {
+            satellite: {
+              type: "raster",
+              tiles: [
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+              ],
+              tileSize: 256,
+              maxzoom: 18,
             },
-          );
+            osm: {
+              type: "raster",
+              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+              tileSize: 256,
+              maxzoom: 19,
+            },
+            boundaries: {
+              type: "raster",
+              tiles: [
+                "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+              ],
+              tileSize: 256,
+              maxzoom: 18,
+            },
+          },
+          layers: [
+            {
+              id: "satellite-layer",
+              type: "raster",
+              source: "satellite",
+              paint: {
+                "raster-opacity": 1,
+                "raster-contrast": 0.06,
+                "raster-saturation": 0.08,
+              },
+            },
+            {
+              id: "osm-layer",
+              type: "raster",
+              source: "osm",
+              layout: { visibility: "none" },
+              paint: { "raster-opacity": 1 },
+            },
+            {
+              id: "boundaries-layer",
+              type: "raster",
+              source: "boundaries",
+              paint: { "raster-opacity": 0.88 },
+            },
+          ],
         },
-      );
+      });
 
-      const labelsUrl = nasaGlobalWms("Reference_Labels", "", "image/png", true, 2048, 1024);
-      loader.load(
-        labelsUrl,
-        (texture) => {
-          if (destroyed || !sceneRef.current) {
-            texture.dispose();
-            return;
+      mapInstance.on("load", () => {
+        if (disposed || !mapInstance) return;
+        try {
+          if (typeof mapInstance.setProjection === "function") {
+            mapInstance.setProjection({ type: "globe" });
           }
-          labelTextureRef.current?.dispose();
-          labelTextureRef.current = prepareTexture(texture);
-          sceneRef.current.labels.material.map = labelTextureRef.current;
-          sceneRef.current.labels.material.needsUpdate = true;
-          sceneRef.current.labels.visible = true;
-        },
-        undefined,
-        () => undefined,
-      );
-
-      const clock = new THREE.Clock();
-      const animate = () => {
-        const state = sceneRef.current;
-        if (!state) return;
-
-        const elapsed = clock.getElapsedTime();
-        state.controls.update();
-
-        if (state.desiredCamera) {
-          camera.position.lerp(state.desiredCamera, 0.075);
-          if (camera.position.distanceTo(state.desiredCamera) < 0.035) {
-            state.desiredCamera = null;
-            resumeRotationLater();
-          }
+        } catch {
+          // Keep standard Mercator projection if globe is unsupported on this GPU/version
         }
+        setReady(true);
+        setWebglFailed(false);
+      });
 
-        const distance = camera.position.length();
-        state.labels.material.opacity = THREE.MathUtils.clamp((6.5 - distance) / 1.7, 0.12, 0.92);
-        markerHalo.scale.setScalar(1 + Math.sin(elapsed * 2.3) * 0.1);
-        (markerHalo.material as THREE.MeshBasicMaterial).opacity = 0.58 + (Math.sin(elapsed * 2.3) + 1) * 0.11;
-        stars.rotation.y = elapsed * 0.0016;
-        renderer.render(scene, camera);
-        raf = requestAnimationFrame(animate);
-      };
-      animate();
-      setReady(true);
-    } catch (error) {
-      console.error("Earth Twin 3D initialization failed; switching to 2D Earth.", error);
-      if (sceneRef.current) {
-        sceneRef.current.cleanup();
-        sceneRef.current = null;
-      } else {
-        provisionalRenderer?.dispose();
-        host.replaceChildren();
-      }
-      setTextureStatus("WebGL unavailable · interactive 2D Earth");
-      setMessage("This device could not start 3D graphics. Use the interactive 2D NASA Earth instead.");
+      mapInstance.on("zoom", () => {
+        if (disposed || !mapInstance) return;
+        try {
+          setZoomLevel(Number(mapInstance.getZoom().toFixed(1)));
+        } catch {
+          // Ignore zoom read errors during teardown
+        }
+      });
+
+      mapInstance.on("click", (e) => {
+        if (disposed || !e?.lngLat) return;
+        const lat = Number(e.lngLat.lat.toFixed(5));
+        const lon = Number((((e.lngLat.lng + 180) % 360 + 360) % 360 - 180).toFixed(5));
+        if (Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90) {
+          onPickRef.current({ latitude: lat, longitude: lon });
+        }
+      });
+
+      mapInstance.on("error", () => {
+        // Keep base map operational even if an optional overlay tile returns 404
+      });
+
+      mapRef.current = mapInstance;
+    } catch {
       setReady(false);
-      setFallback(true);
+      setWebglFailed(true);
+      setStatusNote("2D NASA Blue Marble Fallback Active");
     }
 
     return () => {
-      destroyed = true;
-      cancelAnimationFrame(raf);
-      if (sceneRef.current?.resumeTimer) window.clearTimeout(sceneRef.current.resumeTimer);
-      baseTextureRef.current?.dispose();
-      overlayTextureRef.current?.dispose();
-      labelTextureRef.current?.dispose();
-      baseTextureRef.current = null;
-      overlayTextureRef.current = null;
-      labelTextureRef.current = null;
-      sceneRef.current?.cleanup();
-      sceneRef.current = null;
+      disposed = true;
+      try {
+        markerRef.current?.remove();
+      } catch {
+        // Ignore cleanup errors
+      }
+      markerRef.current = null;
+      try {
+        mapInstance?.remove();
+      } catch {
+        // Ignore cleanup errors
+      }
+      mapRef.current = null;
     };
   }, []);
 
+  // Toggle 3D Globe vs 2D Flat Map
   useEffect(() => {
-    const state = sceneRef.current;
-    if (!state || !ready) return;
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    try {
+      if (typeof map.setProjection === "function") {
+        map.setProjection({ type: isGlobe ? "globe" : "mercator" });
+      }
+    } catch {
+      // Older WebGL context fallback
+    }
+  }, [isGlobe, ready]);
 
-    let cancelled = false;
-    const loader = new THREE.TextureLoader();
-    loader.setCrossOrigin("anonymous");
+  // Toggle Base Style (Satellite + Place Labels vs OSM Street/Village Map)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    try {
+      if (map.getLayer("satellite-layer")) {
+        map.setLayoutProperty("satellite-layer", "visibility", baseStyle === "satellite" ? "visible" : "none");
+      }
+      if (map.getLayer("boundaries-layer")) {
+        map.setLayoutProperty("boundaries-layer", "visibility", baseStyle === "satellite" ? "visible" : "none");
+      }
+      if (map.getLayer("osm-layer")) {
+        map.setLayoutProperty("osm-layer", "visibility", baseStyle === "streets" ? "visible" : "none");
+      }
+    } catch {
+      // Ignore layout toggle errors before style ready
+    }
+  }, [baseStyle, ready]);
+
+  // Manage Live NASA GIBS WMS Overlay Layer
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+
+    const sourceId = "nasa-gibs-overlay";
+    const layerId = "nasa-gibs-overlay-layer";
+
+    try {
+      if (map.getLayer(layerId)) {
+        map.removeLayer(layerId);
+      }
+      if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+      }
+    } catch {
+      // Ignore removal error if source/layer was not present
+    }
 
     if (!activeLayer) {
-      state.overlay.visible = false;
-      overlayTextureRef.current?.dispose();
-      overlayTextureRef.current = null;
-      state.overlay.material.uniforms.uMap.value = null;
-      setTextureStatus("NASA Blue Marble ready");
-      setMessage("");
+      setStatusNote(
+        baseStyle === "satellite"
+          ? "High-Res Satellite + Place Boundaries Ready"
+          : "OpenStreetMap Villages, Upazilas & Rivers Ready",
+      );
       return;
     }
 
-    const urls: Record<LayerKey, { url: string; maskDark: boolean; opacity: number }> = {
-      trueColor: {
-        url: nasaGlobalWms("MODIS_Terra_CorrectedReflectance_TrueColor", mapDate, "image/jpeg", false),
-        maskDark: true,
-        opacity: 0.74,
-      },
-      rain: {
-        url: nasaGlobalWms("IMERG_Precipitation_Rate", mapDate, "image/png", true),
-        maskDark: false,
-        opacity: 0.72,
-      },
-      soil: {
-        url: nasaGlobalWms("SMAP_L2_Passive_Day_Soil_Moisture_Option2", mapDate, "image/png", true),
-        maskDark: false,
-        opacity: 0.72,
-      },
-    };
+    const meta = layerConfig[activeLayer];
+    if (!meta) return;
+    const tileUrl = gibsWmsTileUrl(meta.id, mapDate, meta.format);
 
-    const config = urls[activeLayer];
-    setTextureStatus(`Loading ${layerMeta[activeLayer].label}`);
-    setMessage("");
+    try {
+      map.addSource(sourceId, {
+        type: "raster",
+        tiles: [tileUrl],
+        tileSize: 256,
+        maxzoom: 9,
+      });
+      map.addLayer(
+        {
+          id: layerId,
+          type: "raster",
+          source: sourceId,
+          paint: {
+            "raster-opacity": overlayOpacity,
+            "raster-fade-duration": 200,
+          },
+        },
+        map.getLayer("boundaries-layer") ? "boundaries-layer" : undefined,
+      );
+      setStatusNote(`${meta.label} (${meta.resolution}) · ${mapDate}`);
+    } catch {
+      setStatusNote(`${meta.label} unavailable for ${mapDate}; base map active`);
+    }
+  }, [activeLayer, baseStyle, layerConfig, mapDate, overlayOpacity, ready]);
 
-    loader.load(
-      config.url,
-      (texture) => {
-        if (cancelled || !sceneRef.current) {
-          texture.dispose();
-          return;
-        }
-        overlayTextureRef.current?.dispose();
-        overlayTextureRef.current = prepareTexture(texture);
-        const material = sceneRef.current.overlay.material;
-        material.uniforms.uMap.value = overlayTextureRef.current;
-        material.uniforms.uOpacity.value = config.opacity;
-        material.uniforms.uMaskDark.value = config.maskDark ? 1 : 0;
-        material.needsUpdate = true;
-        sceneRef.current.overlay.visible = true;
-        setTextureStatus(`${layerMeta[activeLayer].label} ready`);
-      },
-      undefined,
-      () => {
-        if (!cancelled && sceneRef.current) {
-          sceneRef.current.overlay.visible = false;
-          setTextureStatus(`${layerMeta[activeLayer].label} unavailable`);
-          setMessage("This optional NASA overlay is unavailable for the selected date. The complete NASA Blue Marble Earth and field analysis remain active.");
-        }
-      },
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeLayer, layerMeta, mapDate, ready]);
-
+  // Update Field Marker and Smoothly Fly Camera ONLY after map is ready
   useEffect(() => {
-    const state = sceneRef.current;
-    if (!state || !point || !finitePoint(point)) return;
+    const map = mapRef.current;
+    if (!map || !ready || !point || !Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) return;
 
-    const surface = latLonToVector(point.latitude, point.longitude, EARTH_RADIUS + 0.075);
-    const normal = surface.clone().normalize();
-    state.marker.visible = true;
-    state.marker.position.copy(surface);
-    state.marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+    try {
+      if (!markerRef.current) {
+        const el = document.createElement("div");
+        el.className = "maplibre-field-pin";
+        el.innerHTML = `<span class="pin-core"></span><i class="pin-ring"></i><b class="pin-crosshair"></b>`;
+        markerRef.current = new maplibregl.Marker({ element: el, anchor: "center" })
+          .setLngLat([point.longitude, point.latitude])
+          .addTo(map);
+      } else {
+        markerRef.current.setLngLat([point.longitude, point.latitude]);
+      }
 
-    state.controls.autoRotate = false;
-    state.desiredCamera = normal.clone().multiplyScalar(4.95);
+      const currentZoom = map.getZoom();
+      const targetZoom = currentZoom < 7.5 ? 10.5 : Math.max(currentZoom, 10.5);
+      map.flyTo({
+        center: [point.longitude, point.latitude],
+        zoom: targetZoom,
+        pitch: targetZoom >= 10 ? 28 : 15,
+        duration: 1500,
+        essential: true,
+      });
+    } catch {
+      // Ignore camera/marker errors if WebGL context is transitioning
+    }
   }, [point, ready]);
+
+  function flyToPreset(mode: "space" | "bangladesh" | "field") {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    try {
+      if (mode === "space") {
+        map.flyTo({
+          center: [point?.longitude ?? 89.25, point?.latitude ?? 23.85],
+          zoom: 2.2,
+          pitch: 12,
+          duration: 1400,
+        });
+      } else if (mode === "bangladesh") {
+        map.flyTo({
+          center: [90.35, 23.85],
+          zoom: 6.7,
+          pitch: 20,
+          duration: 1200,
+        });
+      } else if (point) {
+        map.flyTo({
+          center: [point.longitude, point.latitude],
+          zoom: 14.2,
+          pitch: 35,
+          duration: 1400,
+        });
+      }
+    } catch {
+      // Ignore preset flyTo error
+    }
+  }
+
+  const currentMeta = activeLayer ? layerConfig[activeLayer] : null;
+  const maxSelectableDate = dateMinusDays(1);
 
   return (
     <div className="earth-globe-stage realistic-earth">
-      <div ref={rootRef} className="earth-globe-map" aria-label="Interactive realistic 3D NASA Earth field selector" />
-      {fallback && <EarthCanvasFallback point={point} onPick={onPick} />}
+      <div
+        ref={containerRef}
+        className="earth-globe-map"
+        aria-label="Interactive Space-to-Soil 3D Globe and High-Zoom Farm Field Selector"
+      />
+      {webglFailed && <EarthCanvasFallback point={point} onPick={onPick} />}
 
+      {/* Top-Left HUD: Field Coordinates & Scale */}
       <div className="globe-hud">
-        <span className="hud-label">EARTH TWIN</span>
-        <span>{point ? `${point.latitude.toFixed(4)}°, ${point.longitude.toFixed(4)}°` : "Rotate Earth. Tap any land area."}</span>
+        <span className="hud-label">SPACE-TO-SOIL TWIN</span>
+        <span>
+          {point
+            ? `${point.latitude.toFixed(4)}° N, ${point.longitude.toFixed(4)}° E`
+            : "Tap anywhere on Earth or zoom to your village"}
+        </span>
+        <b className="hud-zoom-badge">ZOOM {zoomLevel}x</b>
       </div>
 
-      <div className="space-view-label">
-        <span className="space-view-kicker">NASA EARTH VIEW</span>
-        <strong>{point ? "Field locked" : "Select a field anywhere on Earth"}</strong>
-        <small>{textureStatus}</small>
+      {/* Top-Right HUD: Projection, Base Map & Zoom Presets */}
+      <div className="map-view-toolbar" role="toolbar" aria-label="Map view and zoom controls">
+        <div className="toolbar-group">
+          <button
+            type="button"
+            className={isGlobe ? "active" : ""}
+            onClick={() => setIsGlobe(true)}
+            title="3D Spherical Earth Globe"
+          >
+            3D Globe
+          </button>
+          <button
+            type="button"
+            className={!isGlobe ? "active" : ""}
+            onClick={() => setIsGlobe(false)}
+            title="2D Flat Agronomic Map"
+          >
+            2D Map
+          </button>
+        </div>
+
+        <div className="toolbar-group">
+          <button
+            type="button"
+            className={baseStyle === "satellite" ? "active" : ""}
+            onClick={() => setBaseStyle("satellite")}
+          >
+            Satellite
+          </button>
+          <button
+            type="button"
+            className={baseStyle === "streets" ? "active" : ""}
+            onClick={() => setBaseStyle("streets")}
+          >
+            Villages / OSM
+          </button>
+        </div>
+
+        <div className="toolbar-group">
+          <button type="button" onClick={() => flyToPreset("space")} title="Zoom out to Space">
+            Space
+          </button>
+          <button type="button" onClick={() => flyToPreset("bangladesh")} title="Zoom to Bangladesh">
+            BD
+          </button>
+          {point && (
+            <button
+              type="button"
+              className="accent-zoom"
+              onClick={() => flyToPreset("field")}
+              title="Zoom right down to the selected farm plot"
+            >
+              Plot 14x
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="layer-switcher" aria-label="NASA spatial layers">
-        {([
-          ["trueColor", "TRUE COLOR"],
-          ["rain", "IMERG RAIN"],
-          ["soil", "SMAP SOIL"],
-        ] as const).map(([key, label]) => (
+      {/* NASA GIBS Layer Switcher (6 layers including SRTM Digital Elevation) */}
+      <div className="layer-switcher" aria-label="NASA GIBS Earth observation layers">
+        {(Object.keys(layerConfig) as LayerKey[]).map((key) => (
           <button
             type="button"
             key={key}
             className={activeLayer === key ? "active" : ""}
             onClick={() => onLayerChange(activeLayer === key ? null : key)}
-            disabled={!ready || fallback}
+            disabled={!ready && !webglFailed}
           >
             <i />
-            {label}
+            {layerConfig[key].shortLabel}
           </button>
         ))}
       </div>
 
-      <div className="globe-layer-detail">
-        <span>{activeLayer ? layerMeta[activeLayer].label : "NASA BLUE MARBLE"}</span>
-        <small>{fallback ? "Real geographic selection works in 2D; NASA overlays need WebGL." : activeLayer ? layerMeta[activeLayer].detail : "complete global NASA reference imagery"}</small>
-      </div>
+      {/* NASA Multi-Date Time Scrubber for Seasonal & Bare-Field Inspection */}
+      {onMapDateChange && (
+        <div className="gibs-time-scrubber" aria-label="NASA GIBS Satellite Date Scrubber">
+          <span className="scrubber-label">GIBS DATE:</span>
+          {TIME_PRESETS.map((preset) => {
+            const target = dateMinusDays(preset.days);
+            return (
+              <button
+                type="button"
+                key={preset.label}
+                className={mapDate === target ? "active" : ""}
+                onClick={() => onMapDateChange(target)}
+                title={`View NASA satellite layer on ${target}`}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
+          <input
+            type="date"
+            value={mapDate}
+            max={maxSelectableDate}
+            min="2015-01-01"
+            onChange={(e) => {
+              if (e.target.value) onMapDateChange(e.target.value);
+            }}
+            aria-label="Custom NASA GIBS observation date"
+          />
+        </div>
+      )}
 
-      <div className="globe-date">
-        {activeLayer ? "NASA layer date" : "Earth reference"}
-        <strong>{activeLayer ? mapDate : "Blue Marble"}</strong>
-      </div>
-
-      <div className="globe-interaction-tip">DRAG TO ROTATE · SCROLL TO ZOOM · TAP TO SELECT{fallback ? " · 2D COMPATIBILITY MODE" : " · LABELS APPEAR CLOSER"}</div>
-      {message && <div className="globe-message compact">{message}</div>}
+      {/* Active Layer Legend & Opacity Slider */}
+      {currentMeta ? (
+        <div className="gibs-legend-card">
+          <div className="gibs-legend-head">
+            <span>{currentMeta.label}</span>
+            <b>{mapDate} · {currentMeta.resolution}</b>
+          </div>
+          <small>{currentMeta.detail}</small>
+          <div className="gibs-gradient-bar" style={{ background: currentMeta.gradient }} />
+          <div className="gibs-legend-scale">
+            <span>{currentMeta.legendMin}</span>
+            <label className="opacity-slider">
+              Opacity {Math.round(overlayOpacity * 100)}%
+              <input
+                type="range"
+                min="0.2"
+                max="0.95"
+                step="0.05"
+                value={overlayOpacity}
+                onChange={(e) => setOverlayOpacity(Number(e.target.value))}
+              />
+            </label>
+            <span>{currentMeta.legendMax}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="globe-date">
+          <span>Active Base Layer</span>
+          <strong>{statusNote}</strong>
+        </div>
+      )}
     </div>
+  );
+}
+
+export default function LocationMap(props: Props) {
+  return (
+    <MapErrorBoundary point={props.point} onPick={props.onPick}>
+      <LocationMapInner {...props} />
+    </MapErrorBoundary>
   );
 }
