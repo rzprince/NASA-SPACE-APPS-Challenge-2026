@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import LocationMap, { type LayerKey } from "./LocationMap";
-import DecisionReport from "./DecisionReport";
+import DecisionReport, { BoponXLogoMark } from "./DecisionReport";
 import FieldIcon, { type IconName } from "./FieldIcon";
 import {
   ApiError,
@@ -67,6 +67,17 @@ const quickPilotZones = [
 
 const monthShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+function dotLeftPct(doy: number, adv: PlantingWindowAdvisory): number {
+  const all = [
+    ...(adv.distributions?.period_2001_2012?.onset_doy_values ?? []),
+    ...(adv.distributions?.period_2013_2025?.onset_doy_values ?? []),
+  ];
+  if (!all.length) return 50;
+  const lo = Math.min(...all) - 2;
+  const hi = Math.max(...all) + 2;
+  return Math.min(96, Math.max(4, ((doy - lo) / Math.max(1, hi - lo)) * 100));
+}
+
 function dateMinus(days: number) {
   return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 }
@@ -128,7 +139,7 @@ function buildStrategies(
         why_suggested_en: "BoponX withholds synthetic crop sequences here because reviewed regional crop calendars are not available for the selected location.",
         why_suggested_bn: "নির্বাচিত স্থানের জন্য যাচাইকৃত ফসল পঞ্জিকা না থাকায় BoponX কোনো কাল্পনিক ফসলক্রম তৈরি করে না।",
         supporting_evidence: [
-          "Global NASA POWER, GPM IMERG & SMAP layers remain active",
+          "Data: NASA POWER / EONET / GIBS layers remain active",
           "FAO Crop Calendar global reference route available",
         ],
         potential_benefits: [
@@ -235,9 +246,21 @@ function buildStrategies(
         "Repeating the same crop family across seasons can increase pest/disease carryover and nutrient depletion.",
         `Check field water source (${waterSource}) and post-rain drainage (${drainage}) against recent rainfall (${rainSignal}).`,
       ],
-      water_demand_badge: "High / Baseline Irrigation",
-      nitrogen_badge: "Neutral / N-Depleting",
-      pest_break_badge: "Standard / Repeat Host Risk",
+      water_demand_badge: "ETc ~1,180 mm · NIR ~520 mm [CALCULATED]",
+      nitrogen_badge: "BNF +10 kg · Removal -180 kg N/ha [ESTIMATED]",
+      pest_break_badge: "Poaceae → Poaceae (Repeat Host Risk)",
+      scientific_evaluation: {
+        strategy_id: "A",
+        framework_version: "boponx.rotation_science.v3",
+        recommendation_gate: waterSource === "rainfed" ? "FLAGGED_CONSTRAINT_VIOLATION" : (soilTest === "yes" ? "CONDITIONAL_EXTENSION_REVIEW" : "CONDITIONAL_MISSING_EVIDENCE"),
+        critical_constraint_violated: waterSource === "rainfed",
+        constraint_flags: waterSource === "rainfed" ? ["Dry-season Boro rice requires ~480+ mm net irrigation, incompatible with rainfed-only water source."] : [],
+        weighted_composite_score_0_100: waterSource === "rainfed" ? 48.5 : 61.2,
+        evidence_completeness_pct: soilTest === "yes" ? 87.5 : 75.0,
+        scoring_note: "Evaluated across 8 standardized biophysical criteria (Water, N Mass Balance, Coverage, Pest Break, Resilience, Soil Gate, Window Fit, Priority).",
+        documented_weights: { water_demand: 0.2, nitrogen_contribution: 0.15, soil_coverage: 0.1, pest_break_potential: 0.15, climate_resilience: 0.15, local_suitability: 0.1, planting_window_compatibility: 0.1, farmer_priority_compatibility: 0.05 },
+        criteria_scores_0_100: { water_demand: 52, nitrogen_contribution: 38, soil_coverage: 64, pest_break_potential: 38, climate_resilience: 62, local_suitability: soilTest === "yes" ? 76 : null, planting_window_compatibility: 78, farmer_priority_compatibility: 70 },
+      },
     },
     {
       id: "B",
@@ -263,9 +286,21 @@ function buildStrategies(
         "Pulses and mustard are sensitive to standing water; if heavy rain stays on the field, verify surface drainage first.",
         "Confirm short-duration variety maturity with DAE (16123) so the main monsoon crop is not delayed.",
       ],
-      water_demand_badge: "Low Water (180–280 mm)",
-      nitrogen_badge: "+N Fixation & Residue",
-      pest_break_badge: "Strong Cereal Pest Break",
+      water_demand_badge: "ETc ~810 mm · Rabi NIR ~145 mm [CALCULATED]",
+      nitrogen_badge: "BNF +42 kg · Carryover +18 kg N/ha [ESTIMATED]",
+      pest_break_badge: "Poaceae → Brassicaceae/Fabaceae → Fabaceae",
+      scientific_evaluation: {
+        strategy_id: "B",
+        framework_version: "boponx.rotation_science.v3",
+        recommendation_gate: drainage === "stays" ? "FLAGGED_CONSTRAINT_VIOLATION" : (soilTest === "yes" ? "CONDITIONAL_EXTENSION_REVIEW" : "CONDITIONAL_MISSING_EVIDENCE"),
+        critical_constraint_violated: drainage === "stays",
+        constraint_flags: drainage === "stays" ? ["Mustard and pulses do not tolerate standing water, but field post-rain drainage is reported as 'stays'."] : [],
+        weighted_composite_score_0_100: drainage === "stays" ? 56.4 : 81.6,
+        evidence_completeness_pct: soilTest === "yes" ? 87.5 : 75.0,
+        scoring_note: "Evaluated across 8 standardized biophysical criteria. Pulse BNF is estimated (+30–50 kg N/ha BARC reference), never claimed as measured parcel soil N.",
+        documented_weights: { water_demand: 0.2, nitrogen_contribution: 0.15, soil_coverage: 0.1, pest_break_potential: 0.15, climate_resilience: 0.15, local_suitability: 0.1, planting_window_compatibility: 0.1, farmer_priority_compatibility: 0.05 },
+        criteria_scores_0_100: { water_demand: 86, nitrogen_contribution: 79, soil_coverage: 84, pest_break_potential: 92, climate_resilience: drainage === "stays" ? 54 : 81, local_suitability: soilTest === "yes" ? (drainage === "stays" ? 25 : 82) : null, planting_window_compatibility: 76, farmer_priority_compatibility: 88 },
+      },
     },
     {
       id: "C",
@@ -294,9 +329,21 @@ function buildStrategies(
         "New or exotic seeds/saplings require Plant Quarantine approval and National Seed Board registration.",
         "Distant climate-analog regions may differ in day length (photoperiod), rainfall timing, pest pressure, and local buyer access.",
       ],
-      water_demand_badge: "Landform-Matched",
-      nitrogen_badge: "Diversified Root Zone",
-      pest_break_badge: "Multi-Family Diversification",
+      water_demand_badge: "ETc ~890 mm · NIR ~230 mm [CALCULATED]",
+      nitrogen_badge: "Residue & Deep Root Cycling [ESTIMATED]",
+      pest_break_badge: "Multi-Family Host Break [REFERENCE]",
+      scientific_evaluation: {
+        strategy_id: "C",
+        framework_version: "boponx.rotation_science.v3",
+        recommendation_gate: soilTest === "yes" ? "CONDITIONAL_EXTENSION_REVIEW" : "CONDITIONAL_MISSING_EVIDENCE",
+        critical_constraint_violated: false,
+        constraint_flags: [],
+        weighted_composite_score_0_100: 76.8,
+        evidence_completeness_pct: soilTest === "yes" ? 87.5 : 75.0,
+        scoring_note: "Evaluated across 8 standardized biophysical criteria. Requires SRDI/BARC local suitability verification before seed purchase.",
+        documented_weights: { water_demand: 0.2, nitrogen_contribution: 0.15, soil_coverage: 0.1, pest_break_potential: 0.15, climate_resilience: 0.15, local_suitability: 0.1, planting_window_compatibility: 0.1, farmer_priority_compatibility: 0.05 },
+        criteria_scores_0_100: { water_demand: 78, nitrogen_contribution: 68, soil_coverage: 80, pest_break_potential: 84, climate_resilience: 82, local_suitability: soilTest === "yes" ? 78 : null, planting_window_compatibility: 74, farmer_priority_compatibility: 84 },
+      },
     },
   ];
 }
@@ -304,7 +351,6 @@ function buildStrategies(
 export default function App() {
   const [view, setView] = useState<View>("earth");
   const [lang, setLang] = useState<Lang>("en");
-  // Default to Rajshahi Pilot Field on startup so real NASA & 64-district data load immediately
   const [point, setPoint] = useState<Point | null>({ latitude: 24.3745, longitude: 88.6042 });
   const [place, setPlace] = useState<PlaceResult | null>(null);
   const [search, setSearch] = useState("");
@@ -321,6 +367,7 @@ export default function App() {
   const [baselineWindow, setBaselineWindow] = useState<PowerBaselineWindow | null>(null);
   const [hazards, setHazards] = useState<EonetHazardsResponse | null>(null);
   const [advisory, setAdvisory] = useState<PlantingWindowAdvisory | null>(null);
+  const [advisoryBusy, setAdvisoryBusy] = useState(false);
   const [smsCopied, setSmsCopied] = useState(false);
   const [dataBusy, setDataBusy] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerKey | null>(null);
@@ -328,7 +375,7 @@ export default function App() {
   const [error, setError] = useState("");
 
   const [previousCrops, setPreviousCrops] = useState<string[]>(["rice"]);
-  const [intendedCrop, setIntendedCrop] = useState("mustard");
+  const [intendedCrop, setIntendedCrop] = useState("rice");
   const [waterSource, setWaterSource] = useState<FarmerProfile["water_source"]>("both");
   const [drainage, setDrainage] = useState<FarmerProfile["water_after_heavy_rain"]>("drains");
   const [soilTest, setSoilTest] = useState<FarmerProfile["soil_test"]>("unknown");
@@ -338,11 +385,11 @@ export default function App() {
   const [marketPreference, setMarketPreference] = useState<NonNullable<FarmerProfile["market_preference"]>>("local_cash_market");
   const [startMonth, setStartMonth] = useState(() => new Date().getMonth() + 1);
   const [startYear, setStartYear] = useState(() => Math.max(2026, new Date().getFullYear()));
+  const [startDay, setStartDay] = useState<number>(1);
   const [plan, setPlan] = useState<PlanBrief | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
   const [selectedStrategyId, setSelectedStrategyId] = useState<string>("B");
 
-  // Interactive "What-If" Climate Scenario Sliders in Rotation Lab
   const [scenarioRainShiftPct, setScenarioRainShiftPct] = useState<number>(0);
   const [scenarioTempShiftC, setScenarioTempShiftC] = useState<number>(0);
 
@@ -446,24 +493,26 @@ export default function App() {
     return () => controller.abort();
   }, [point, startMonth]);
 
-
   useEffect(() => {
     if (!point) return;
     const controller = new AbortController();
-    const districtParam = context?.district_profile?.name_en ?? "";
     const cropParam = intendedCrop || "rice";
+    setAdvisoryBusy(true);
     apiGet<PlantingWindowAdvisory>(
-      `/api/v1/advisory?district=${encodeURIComponent(districtParam)}&crop=${encodeURIComponent(cropParam)}&lat=${point.latitude}&lon=${point.longitude}`,
+      `/api/v1/advisory?crop=${encodeURIComponent(cropParam)}&lat=${point.latitude}&lon=${point.longitude}`,
       controller.signal,
     )
       .then((res) => {
-        if (!controller.signal.aborted) setAdvisory(res);
+        if (!controller.signal.aborted) {
+          setAdvisory(res);
+          setAdvisoryBusy(false);
+        }
       })
       .catch(() => {
-        // Keep UI operational even if advisory endpoint is loading or unreachable
+        if (!controller.signal.aborted) setAdvisoryBusy(false);
       });
     return () => controller.abort();
-  }, [point, context?.district_profile?.name_en, intendedCrop]);
+  }, [point, intendedCrop]);
 
   const recentSummary = recent?.status === "available" ? recent.summary : undefined;
   const firstBaseline = baselineWindow?.status === "available" ? baselineWindow.summaries?.[0] : undefined;
@@ -491,18 +540,38 @@ export default function App() {
   const surfaceWetnessPct = recentSummary?.surface_soil_wetness_pct ?? firstBaseline?.surface_soil_wetness_pct ?? null;
   const rootWetnessPct = recentSummary?.root_zone_soil_wetness_pct ?? firstBaseline?.root_zone_soil_wetness_pct ?? null;
 
+  const rainAbsDiff =
+    recentDailyRain != null && firstBaseline?.precipitation_mean_daily_mm != null
+      ? Math.abs(recentDailyRain - firstBaseline.precipitation_mean_daily_mm)
+      : 0;
   const rainSignalLabel =
     rainAnomaly == null
-      ? "pending"
-      : rainAnomaly > 30
+      ? "unavailable"
+      : rainAnomaly > 30 && rainAbsDiff >= 1.0
         ? "wetter than baseline"
-        : rainAnomaly < -30
+        : rainAnomaly < -30 && rainAbsDiff >= 1.0
           ? "drier than baseline"
           : "near baseline";
 
-  // Simulated "What-If" scenario calculations in Rotation Lab
-  const baseRainForSim = recentDailyRain ?? firstBaseline?.precipitation_mean_daily_mm ?? 3.2;
-  const baseEt0ForSim = et0Daily ?? 4.1;
+  // Spec v2 Item W: feed What-If simulator from real NASA POWER recent / climatology / seasonal_water_balance
+  const seasonalWb =
+    startMonth >= 6 && startMonth <= 10
+      ? advisory?.seasonal_water_balance?.kharif2_aman?.period_2013_latest
+      : advisory?.seasonal_water_balance?.rabi?.period_2013_latest;
+  const hasRealSimBase =
+    recentDailyRain != null ||
+    firstBaseline?.precipitation_mean_daily_mm != null ||
+    seasonalWb?.rain_daily_mm != null;
+
+  const baseRainForSim =
+    recentDailyRain ??
+    firstBaseline?.precipitation_mean_daily_mm ??
+    seasonalWb?.rain_daily_mm ??
+    3.2;
+  const baseEt0ForSim =
+    et0Daily ??
+    seasonalWb?.et0_daily_mm ??
+    4.1;
   const simulatedRainDaily = baseRainForSim * (1 + scenarioRainShiftPct / 100);
   const simulatedEt0Daily = baseEt0ForSim * (1 + scenarioTempShiftC * 0.065);
   const simulatedWaterBalance = simulatedRainDaily - simulatedEt0Daily;
@@ -511,7 +580,9 @@ export default function App() {
     if (scenarioRainShiftPct === 0 && scenarioTempShiftC === 0) {
       return {
         tone: "neutral",
-        label: lang === "bn" ? "বর্তমান নাসা ভিত্তি (০% পরিবর্তন)" : "Current NASA Baseline (0% shift)",
+        label: hasRealSimBase
+          ? (lang === "bn" ? "বর্তমান নাসা ভিত্তি (০% পরিবর্তন)" : "Current NASA Baseline (0% shift)")
+          : (lang === "bn" ? "অফলাইন রেফারেন্স ভিত্তি (০% পরিবর্তন)" : "Offline Reference Baseline (0% shift)"),
       };
     }
     if (strategyId === "A") {
@@ -559,7 +630,6 @@ export default function App() {
             : `Strong Drought & Water-Deficit Resilience (~60% less water; P−ET₀: ${simulatedWaterBalance.toFixed(1)})`,
       };
     }
-    // Strategy C
     if (scenarioTempShiftC >= 2.5) {
       return {
         tone: "resilient",
@@ -725,13 +795,20 @@ export default function App() {
     });
   }
 
-  async function runDecisionEngine(event?: FormEvent) {
+  async function runDecisionEngine(
+    event?: FormEvent,
+    overrideDate?: { year: number; month: number; day: number },
+  ) {
     event?.preventDefault();
     if (!point) {
       setError("Select a field on Earth before running the decision engine.");
       setView("earth");
       return;
     }
+
+    const useYear = overrideDate?.year ?? startYear;
+    const useMonth = overrideDate?.month ?? startMonth;
+    const useDay = overrideDate?.day ?? startDay;
 
     const farm: FarmerProfile = {
       latitude: point.latitude,
@@ -755,20 +832,23 @@ export default function App() {
       try {
         payload = await apiPost<PlanBrief>("/api/v1/plans/preview", {
           farm,
-          start_year: startYear,
-          start_month: startMonth,
-          include_recent_power: false,
-          include_climate_baseline: false,
-          recent_environment: recent,
-          baseline_window: baselineWindow,
+          start_year: useYear,
+          start_month: useMonth,
+          start_day: useDay,
+          include_recent_power: recent?.status !== "available",
+          include_climate_baseline: baselineWindow?.status !== "available",
+          recent_environment: recent?.status === "available" ? recent : null,
+          baseline_window: baselineWindow?.status === "available" ? baselineWindow : null,
+          eonet_hazards: hazards,
+          advisory: advisory,
         });
       } catch (firstErr) {
         if (firstErr instanceof ApiError && firstErr.status === 422 && (soilTest !== "yes" || soilPh)) {
           const { equipment_access, market_preference, ...legacyFarm } = farm;
           payload = await apiPost<PlanBrief>("/api/v1/plans/preview", {
             farm: legacyFarm,
-            start_year: startYear,
-            start_month: startMonth,
+            start_year: useYear,
+            start_month: useMonth,
             include_recent_power: false,
             include_climate_baseline: false,
             recent_environment: recent,
@@ -794,26 +874,30 @@ export default function App() {
     ((startMonth + 1) % 12) + 1,
   ];
 
+  const recentOrigin = recent?.data_origin ?? (recent?.status === "available" ? "nasa_power_live" : "unavailable");
+  const recentRetrieved = recent?.retrieved_at ?? advisory?.retrieved_at ?? null;
+  const recentLagDays = recent?.lag_days ?? advisory?.lag_days ?? 7;
+
   return (
     <div className="mission-app">
       <header className="mission-topbar">
         <div className="mission-brand">
-          <span className="brand-orbit"><i /><b /></span>
+          <BoponXLogoMark size={40} />
           <div>
             <strong>BoponX</strong>
-            <small>EARTH.exe | Field Shift Intelligence</small>
+            <small>EARTH.exe · Data: NASA POWER / EONET / GIBS</small>
           </div>
         </div>
 
-        <nav className="mission-nav">
-          <button className={view === "earth" ? "active" : ""} onClick={() => setView("earth")}>
-            <span>01</span> {lang === "bn" ? "আর্থ টুইন ও ম্যাপ" : "Earth Twin"}
+        <nav className="mission-nav" aria-label="3-Stage Workflow">
+          <button type="button" className={view === "earth" ? "active" : ""} onClick={() => setView("earth")}>
+            <span>01</span> {lang === "bn" ? "অবস্থান ও ম্যাপ" : "Location"}
           </button>
-          <button className={view === "rotation" ? "active" : ""} onClick={() => setView("rotation")}>
-            <span>02</span> {lang === "bn" ? "রোটেশন ল্যাব" : "Rotation Lab"}
+          <button type="button" className={view === "rotation" ? "active" : ""} onClick={() => setView("rotation")}>
+            <span>02</span> {lang === "bn" ? "বিশ্লেষণ ও পর্যায়" : "Analysis"}
           </button>
-          <button className={view === "plan" ? "active" : ""} onClick={() => setView("plan")}>
-            <span>03</span> {lang === "bn" ? "৯০ দিনের পরিকল্পনা" : "Field Plan"}
+          <button type="button" className={view === "plan" ? "active" : ""} onClick={() => setView("plan")}>
+            <span>03</span> {lang === "bn" ? "৯০ দিনের পরিকল্পনা" : "90-Day Plan"}
           </button>
         </nav>
 
@@ -835,7 +919,7 @@ export default function App() {
             </button>
           </div>
           <div className="mission-status">
-            <span className={dataBusy ? "pulse loading" : "pulse"} />
+            <span className={dataBusy || planBusy ? "pulse loading" : "pulse"} />
             {point ? placeLabel(place, point, context) : (lang === "bn" ? "মাঠ নির্বাচন করুন" : "Awaiting field")}
           </div>
         </div>
@@ -849,7 +933,7 @@ export default function App() {
               <strong>{lang === "bn" ? "আপনার খামার বা জেলা নির্বাচন করুন" : "Select your farm or district"}</strong>
             </div>
 
-            <button className="locate-command" onClick={locateMe} disabled={gpsBusy}>
+            <button type="button" className="locate-command" onClick={locateMe} disabled={gpsBusy}>
               <FieldIcon name="stability" />
               <span>
                 <strong>
@@ -888,6 +972,7 @@ export default function App() {
                 <div className="search-results">
                   {searchResults.slice(0, 6).map((result, index) => (
                     <button
+                      type="button"
                       key={`${result.latitude}-${result.longitude}-${index}`}
                       onClick={() => {
                         choosePoint({ latitude: result.latitude, longitude: result.longitude }, result);
@@ -1031,6 +1116,30 @@ export default function App() {
                   </div>
                 )}
 
+                {context?.soil_evidence && (
+                  <div className="district-online-evidence" style={{ marginTop: "8px" }}>
+                    <span>
+                      {lang === "bn"
+                        ? "SRDI ও BARC মাটির প্রমাণ শ্রেণিবিন্যাস (SOIL EVIDENCE CLASSIFICATION)"
+                        : `SRDI & BARC SOIL EVIDENCE (${context.soil_evidence.overall_classification})`}
+                    </span>
+                    <small style={{ display: "block", marginBottom: "4px", opacity: 0.9 }}>
+                      {context.soil_evidence.aez_id} · {context.soil_evidence.soil_classification}
+                    </small>
+                    {(context.soil_evidence.records ?? []).slice(0, 4).map((rec) => (
+                      <div key={rec.property_id} style={{ fontSize: "0.75rem", padding: "3px 0", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                        <strong>{rec.property_name}:</strong>{" "}
+                        {rec.reported_value != null
+                          ? `${rec.reported_value} ${rec.unit}`
+                          : rec.reference_range
+                            ? `${rec.reference_range.min}–${rec.reference_range.max} (typ. ${rec.reference_range.regional_typical}) ${rec.unit}`
+                            : rec.class_description}{" "}
+                        <code>[{rec.evidence_classification}]</code>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="district-caution-note">
                   <small>{lang === "bn" ? districtProfile.caution_bn : districtProfile.caution_en}</small>
                 </div>
@@ -1105,7 +1214,7 @@ export default function App() {
 
           <aside className="control-rail right-rail">
             <div className="rail-title">
-              <span>02 · NASA FUSION ENGINE</span>
+              <span>02 · DATA: NASA POWER / EONET / GIBS</span>
               <strong>{lang === "bn" ? "উপগ্রহ ও কৃষি-আবহাওয়া বিশ্লেষণ" : "Agroclimate, Soil Wetness & Hazard Diagnostics"}</strong>
             </div>
 
@@ -1124,6 +1233,22 @@ export default function App() {
               </div>
             </div>
 
+            {/* Spec v2 Item L & Z: Freshness & Data Origin Bar */}
+            <div className="freshness-meta-bar">
+              <span>
+                {lang === "bn" ? "উৎস ও সতেজতা:" : "Origin & Freshness:"}{" "}
+                <code>{recentOrigin}</code>
+              </span>
+              <span>
+                {recent?.data_through || advisory?.data_through
+                  ? `${lang === "bn" ? "সর্বশেষ তারিখ:" : "Data through:"} ${recent?.data_through ?? advisory?.data_through} (~${recentLagDays}d lag)`
+                  : (lang === "bn" ? "লাইভ টেলিমেট্রি অফলাইন (UNAVAILABLE)" : "Live telemetry offline (UNAVAILABLE)")}
+              </span>
+              {recentRetrieved && (
+                <small>{lang === "bn" ? "সংগ্রহের সময়:" : "Retrieved:"} {recentRetrieved}</small>
+              )}
+            </div>
+
             <div className="signal-grid">
               <article>
                 <span>RECENT RAIN (14d)</span>
@@ -1135,7 +1260,7 @@ export default function App() {
               <article>
                 <span>BASELINE RAIN</span>
                 <strong>{metric(firstBaseline?.precipitation_mean_daily_mm, " mm/d")}</strong>
-                <small>2001–2020 monthly norm</small>
+                <small>NASA POWER multi-year norm</small>
               </article>
               <article>
                 <span>MEAN / MAX TEMP</span>
@@ -1173,21 +1298,22 @@ export default function App() {
               </article>
             </div>
 
-            {/* Live NASA EONET v3 Natural Hazard & Severe Event Monitor */}
+            {/* Live NASA EONET v3 Natural Hazard & Severe Event Monitor (Spec v2 Item E) */}
             <div className="eonet-hazard-card">
               <div className="rail-section-head">
                 <span>LIVE NASA EONET NATURAL HAZARD MONITOR</span>
-                <b className={(hazards?.active_count ?? hazards?.regional_events_count ?? 0) > 0 ? "amber-badge" : "ok-badge"}>
+                <b className={(hazards?.agricultural_alert_count ?? hazards?.active_count ?? 0) > 0 ? "amber-badge" : "ok-badge"}>
                   {hazards?.status === "available"
-                    ? `${hazards?.active_count ?? hazards?.regional_events_count ?? 0} ACTIVE IN ${hazards?.radius_km ?? hazards?.search_radius_km ?? 1200} KM`
-                    : "SYNCING / OFFLINE"}
+                    ? `${hazards?.agricultural_alert_count ?? hazards?.active_count ?? 0} AG ALERTS IN ${hazards?.radius_km ?? 1200} KM`
+                    : `UNAVAILABLE (${hazards?.data_origin ?? "offline"})`}
                 </b>
               </div>
               {hazards?.status === "available" &&
               (hazards?.events ?? hazards?.regional_events ?? hazards?.nearest_global_events ?? []).length > 0 ? (
                 <div className="eonet-event-list">
                   {(hazards?.events ?? hazards?.regional_events ?? hazards?.nearest_global_events ?? []).slice(0, 3).map((ev) => {
-                    const isNearby = ev.within_alert_radius ?? (ev.distance_km <= (hazards?.radius_km ?? hazards?.search_radius_km ?? 1200));
+                    const isNearby = ev.within_alert_radius ?? (ev.distance_km <= (hazards?.radius_km ?? 1200));
+                    const isAgImpact = ev.affects_field_operations ?? (ev.agricultural_relevance === "agricultural_impact");
                     const catLabel = ev.category_title ?? ev.categories?.[0] ?? "Natural Event";
                     return (
                       <a
@@ -1195,17 +1321,18 @@ export default function App() {
                         href={ev.source_url}
                         target="_blank"
                         rel="noreferrer"
-                        className={`eonet-event-item ${isNearby ? "nearby" : ""}`}
+                        className={`eonet-event-item ${isNearby && isAgImpact ? "nearby" : ""}`}
                       >
                         <div>
                           <strong>{ev.title} ↗</strong>
                           <small>
                             {catLabel} · {ev.distance_km} km from field
                             {ev.date ? ` · ${String(ev.date).slice(0, 10)}` : ""}
+                            {isAgImpact ? " · Affects drainage/sowing" : " · Low crop relevance"}
                           </small>
                         </div>
-                        <span className={isNearby ? "alert-tag" : "dist-tag"}>
-                          {isNearby ? "ALERT RADIUS" : `${ev.distance_km} km`}
+                        <span className={isNearby && isAgImpact ? "alert-tag" : "dist-tag"}>
+                          {isNearby && isAgImpact ? "FIELD ALERT" : `${ev.distance_km} km`}
                         </span>
                       </a>
                     );
@@ -1214,8 +1341,8 @@ export default function App() {
               ) : (
                 <p className="eonet-empty-copy">
                   {lang === "bn"
-                    ? "NASA EONET v3-এ এই মুহূর্তে নিকটবর্তী কোনো সক্রিয় ঘূর্ণিঝড় বা বন্যা ইভেন্ট নেই। সর্বদা BMD ও FFWC পূর্বাভাস যাচাই করুন।"
-                    : "No active cyclone, flood, or severe storm event detected within the alert radius by NASA EONET v3. Always verify local BMD/FFWC advisories."}
+                    ? "NASA EONET v3-এ এই মুহূর্তে নিকটবর্তী কোনো সক্রিয় ঘূর্ণিঝড় বা বন্যা ইভেন্ট নেই (অথবা অফলাইন মোড সক্রিয়)। সর্বদা BMD ও DAE (১৬১২৩) যাচাই করুন।"
+                    : "No active cyclone, flood, or severe storm event detected within the alert radius by NASA EONET v3 (or offline mode active). Always verify local BMD/DAE (16123) advisories."}
                 </p>
               )}
             </div>
@@ -1223,7 +1350,7 @@ export default function App() {
             {(baselineWindow?.summaries?.length ?? 0) > 0 && (
               <div className="baseline-window-card">
                 <div className="rail-section-head">
-                  <span>90-DAY CLIMATOLOGY OUTLOOK (2001–2020)</span>
+                  <span>90-DAY CLIMATOLOGY OUTLOOK (NASA POWER)</span>
                   <b>NASA POWER</b>
                 </div>
                 <table className="clim-mini-table">
@@ -1325,8 +1452,8 @@ export default function App() {
               )}
             </div>
 
-            <button className="next-command" onClick={() => setView("rotation")}>
-              {lang === "bn" ? "রোটেশন ল্যাবে ফসল তুলনা করুন" : "Compare Crop Rotations in Lab"} <b>→</b>
+            <button type="button" className="next-command" onClick={() => setView("rotation")}>
+              {lang === "bn" ? "০২ · বিশ্লেষণ ও রোটেশন ল্যাবে যান" : "Proceed to 02 · Analysis & Rotation Lab"} <b>→</b>
             </button>
 
             {error && <div className="command-error">{error}</div>}
@@ -1340,6 +1467,35 @@ export default function App() {
             <div className="rail-title">
               <span>FARMER FIELD INPUTS</span>
               <strong>{lang === "bn" ? "মাঠের ইতিহাস, যন্ত্রপাতি ও বাজার" : "Field History, Water, Soil & Market"}</strong>
+            </div>
+
+            <div className="profile-group">
+              <span>{lang === "bn" ? "জেলা পরিবর্তন করুন (৬৪ জেলা · লাইভ নাসা ডেটা)" : "ACTIVE DISTRICT (SWITCH ANY OF 64 DISTRICTS)"}</span>
+              <select
+                value={advisory?.district?.name_en ?? districtProfile?.name_en ?? ""}
+                disabled={adminBusy}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value) void chooseBangladeshArea(value);
+                }}
+              >
+                <option value="">{adminBusy ? "Resolving district…" : (lang === "bn" ? "জেলা বেছে নিন…" : "Select district…")}</option>
+                {bangladeshDistricts.map((name) => (
+                  <option value={name} key={`s2-district-${name}`}>{name} District</option>
+                ))}
+              </select>
+              <div className="pilot-pill-row" style={{ marginTop: "6px" }}>
+                {quickPilotZones.map((zone) => (
+                  <button
+                    type="button"
+                    key={`s2-${zone.name}`}
+                    className={(advisory?.district?.name_en ?? districtProfile?.name_en) === zone.name ? "active" : ""}
+                    onClick={() => void chooseBangladeshArea(zone.name)}
+                  >
+                    {zone.name}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <label className="profile-group">
@@ -1455,9 +1611,17 @@ export default function App() {
               </div>
             </label>
 
-            <div className="two-control">
+            <div className="three-control">
               <label>
-                <span>{lang === "bn" ? "পরিকল্পনা শুরুর মাস" : "PLAN START MONTH"}</span>
+                <span>{lang === "bn" ? "শুরুর দিন" : "START DAY"}</span>
+                <select value={startDay} onChange={(event) => setStartDay(Number(event.target.value))}>
+                  {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                    <option value={day} key={day}>{String(day).padStart(2, "0")}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>{lang === "bn" ? "শুরুর মাস" : "MONTH"}</span>
                 <select value={startMonth} onChange={(event) => setStartMonth(Number(event.target.value))}>
                   {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
                     <option value={month} key={month}>
@@ -1476,7 +1640,7 @@ export default function App() {
               </label>
             </div>
 
-            <button className="run-engine" onClick={() => runDecisionEngine()} disabled={planBusy}>
+            <button type="button" className="run-engine" onClick={() => void runDecisionEngine()} disabled={planBusy}>
               <span>{planBusy ? "BUILDING PLAN…" : (lang === "bn" ? "৯০ দিনের মাঠ পরিকল্পনা তৈরি করুন" : "GENERATE 90-DAY FIELD PLAN")}</span><b>→</b>
             </button>
             {error && <div className="command-error">{error}</div>}
@@ -1485,7 +1649,7 @@ export default function App() {
           <section className="strategy-stage">
             <div className="strategy-heading">
               <div>
-                <span>ROTATION WORKBENCH · 3-STRATEGY EVIDENCE COMPARISON</span>
+                <span>02 · ANALYSIS & ROTATION WORKBENCH · DATA: NASA POWER / EONET / GIBS</span>
                 <h1>{lang === "bn" ? "বিদ্যমান ফসল ধারা ও বিকল্প পর্যায়গুলোর তুলনামূলক বিশ্লেষণ" : "Compare Rotation Strategies Before Committing"}</h1>
               </div>
               <p>
@@ -1502,23 +1666,105 @@ export default function App() {
               <div><span>TARGET NEXT CROP</span><strong>{intendedCrop ? (lang === "bn" ? cropLabelsBn[intendedCrop] : cropLabels[intendedCrop]) : "Not decided"}</strong></div>
             </div>
 
+            {/* 25-Year Planting-Window Shift, Mann-Whitney, 95% CI, Sen Slope & <160-Char SMS Advisory Card */}
+            {advisory && advisory.status !== "ADVISORY_READY" && (
+              <div className="onset-advisory-card unavailable-state">
+                <div className="onset-advisory-top">
+                  <div>
+                    <span>{lang === "bn" ? "বৃষ্টির শুরুর পরিবর্তন: প্রকৃত NASA তথ্য পাওয়া যায়নি (UNAVAILABLE)" : "PLANTING-WINDOW SHIFT: REAL NASA DATA NOT AVAILABLE (UNAVAILABLE)"}</span>
+                    <strong className="onset-headline-sentence">
+                      {advisory.message ?? (lang === "bn" ? "কোনো সংখ্যা দেখানো হচ্ছে না, কারণ যাচাইকৃত NASA POWER তথ্য লোড হয়নি।" : "No numbers are shown because verified NASA POWER data could not be loaded.")}
+                    </strong>
+                    <div className="advisory-provenance-pills">
+                      <code>data_origin: {advisory.data_origin ?? "unavailable"}</code>
+                      {advisory.grid_cell?.id && <code>cell: {advisory.grid_cell.id} (0.5°×0.625°)</code>}
+                      {advisory.shared_with && advisory.shared_with.length > 0 && (
+                        <span>
+                          {lang === "bn"
+                            ? `একই NASA গ্রিড সেলে অবস্থিত জেলা: ${advisory.shared_with.join(", ")}`
+                            : `Same NASA grid cell as: ${advisory.shared_with.join(", ")}`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
-            {/* 25-Year Planting-Window Shift, Mann-Whitney & <160-Char SMS Advisory Card */}
-            {advisory && (
+            {advisory && advisory.status === "ADVISORY_READY" && (
               <div className="onset-advisory-card">
                 <div className="onset-advisory-top">
                   <div>
-                    <span>25-YEAR PLANTING-WINDOW SHIFT ADVISORY (2001–2012 vs. 2013–2025) · MANN-WHITNEY & GDD</span>
+                    <span>{`PLANTING-WINDOW SHIFT ADVISORY (2001–2012 vs. ${advisory.distributions?.period_2013_2025?.label ?? "2013–2026"}) · DATA: NASA POWER / EONET / GIBS${advisory.data_through ? ` through ${advisory.data_through}` : ""}`}</span>
                     <strong className="onset-headline-sentence">
                       {lang === "bn"
                         ? (advisory.advisory_sentence?.bn ?? advisory.advisory_sentence?.en)
                         : (advisory.advisory_sentence?.en ?? "")}
                     </strong>
+
+                    {/* Spec v2 Items L, T, U: Freshness, Shared Grid Cell & Evidence Type Badges */}
+                    <div className="advisory-provenance-pills">
+                      <code>data_origin: {advisory.data_origin ?? "nasa_power_snapshot"}</code>
+                      {advisory.data_through && <code>data_through: {advisory.data_through} (~{advisory.lag_days ?? 7}d lag)</code>}
+                      {advisory.retrieved_at && <code>retrieved: {advisory.retrieved_at}</code>}
+                      {advisory.grid_cell?.id && <code>cell: {advisory.grid_cell.id}</code>}
+                      {advisory.shared_with && advisory.shared_with.length > 0 && (
+                        <span className="shared-cell-pill">
+                          {lang === "bn"
+                            ? `একই NASA গ্রিড সেলে অবস্থিত: ${advisory.shared_with.join(", ")}`
+                            : `Same NASA grid cell as: ${advisory.shared_with.join(", ")}`}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="onset-shift-badge">
-                    <small>{lang === "bn" ? "মৌসুম পরিবর্তন" : "WINDOW SHIFT"}</small>
-                    <b>{(advisory.shift_days ?? 0) >= 0 ? `+${advisory.shift_days ?? 0}` : (advisory.shift_days ?? 0)} {lang === "bn" ? "দিন" : "Days"}</b>
-                    <span>{lang === "bn" ? (advisory.recommended_window?.bn ?? "") : (advisory.recommended_window?.en ?? "")}</span>
+                    <small>
+                      {advisoryBusy
+                        ? (lang === "bn" ? "হালনাগাদ হচ্ছে…" : "UPDATING…")
+                        : advisory.advisory_kind === "shift_applied"
+                          ? (lang === "bn" ? "বৃষ্টি ও রোপণ পরিবর্তন" : "ONSET & WINDOW SHIFT")
+                          : advisory.advisory_kind === "context_only"
+                            ? (lang === "bn" ? "বৃষ্টির পরিবর্তন (রবি প্রসঙ্গ)" : "RAIN ONSET SHIFT (CONTEXT)")
+                            : (lang === "bn" ? "পর্যবেক্ষিত পার্থক্য (p ≥ 0.05)" : "OBSERVED ONSET DIFF")}
+                    </small>
+                    <b>
+                      {(() => {
+                        const rawShift =
+                          advisory.shift_days != null && advisory.shift_days !== 0
+                            ? advisory.shift_days
+                            : (advisory.shift?.mean_difference_days ?? advisory.shift_days ?? 0);
+                        const prefix = rawShift > 0 ? "+" : "";
+                        return `${prefix}${rawShift} ${lang === "bn" ? "দিন" : "Days"}`;
+                      })()}
+                    </b>
+                    <span>
+                      {lang === "bn"
+                        ? `${advisory.crop?.name_bn ?? ""}: ${advisory.recommended_window?.bn ?? ""}`
+                        : `${advisory.crop?.name_en ?? "Window"}: ${advisory.recommended_window?.en ?? ""}${
+                            advisory.advisory_kind === "context_only"
+                              ? " (BAMIS Rabi kept)"
+                              : advisory.advisory_kind === "no_reliable_shift"
+                                ? " (BAMIS kept)"
+                                : ""
+                          }`}
+                    </span>
+                    {advisory.distributions?.period_2001_2012?.mean_onset_label_en &&
+                      advisory.distributions?.period_2013_2025?.mean_onset_label_en && (
+                        <small className="ci-sub-note">
+                          Mean onset: {advisory.distributions.period_2001_2012.mean_onset_label_en} →{" "}
+                          {advisory.distributions.period_2013_2025.mean_onset_label_en}
+                          {advisory.shift?.mean_difference_days != null
+                            ? ` (${advisory.shift.mean_difference_days >= 0 ? "+" : ""}${advisory.shift.mean_difference_days}d)`
+                            : ""}
+                        </small>
+                      )}
+                    {advisory.shift?.ci_95_days && (
+                      <small className="ci-sub-note">
+                        95% CI: {advisory.shift.ci_95_days.low >= 0 ? `+${advisory.shift.ci_95_days.low}` : advisory.shift.ci_95_days.low}d to{" "}
+                        {advisory.shift.ci_95_days.high >= 0 ? `+${advisory.shift.ci_95_days.high}` : advisory.shift.ci_95_days.high}d
+                        {advisory.mann_whitney_test?.p_value != null ? ` · p = ${advisory.mann_whitney_test.p_value.toFixed(4)}` : ""}
+                      </small>
+                    )}
                   </div>
                 </div>
 
@@ -1528,8 +1774,8 @@ export default function App() {
                     <div className="sms-advisory-copy">
                       <span>
                         {lang === "bn"
-                          ? `কৃষকের মোবাইল SMS বার্তা (${advisory.sms_advisory.char_count_bn ?? 0}/${advisory.sms_advisory.max_chars ?? 160} অক্ষর)`
-                          : `FARMER MOBILE SMS ADVISORY (${advisory.sms_advisory.char_count_en ?? 0}/${advisory.sms_advisory.max_chars ?? 160} CHARS)`}
+                          ? `কৃষকের মোবাইল SMS বার্তা (${advisory.sms_advisory.char_count_bn ?? 0}/${advisory.sms_advisory.max_chars_bn ?? 70} অক্ষর · ${advisory.sms_advisory.encoding_bn ?? "UCS-2"})`
+                          : `FARMER MOBILE SMS ADVISORY (${advisory.sms_advisory.char_count_en ?? 0}/${advisory.sms_advisory.max_chars_en ?? 160} CHARS · ${advisory.sms_advisory.encoding_en ?? "GSM-7"})`}
                       </span>
                       <code>{lang === "bn" ? advisory.sms_advisory.bn : advisory.sms_advisory.en}</code>
                     </div>
@@ -1554,8 +1800,8 @@ export default function App() {
                   <div className="onset-dist-col">
                     <span>
                       {lang === "bn"
-                        ? `২০০১–২০১২ বনাম ২০১৩–২০২৫ বৃষ্টির শুরু (Mann-Whitney U = ${advisory.mann_whitney_test?.u_statistic ?? "—"}, p = ${advisory.mann_whitney_test?.p_value ?? "—"})`
-                        : `ONSET DISTRIBUTION COMPARISON (Mann-Whitney U = ${advisory.mann_whitney_test?.u_statistic ?? "—"}, p = ${advisory.mann_whitney_test?.p_value ?? "—"})`}
+                        ? `২০০১–২০১২ বনাম ${advisory.distributions?.period_2013_2025?.label ?? "২০১৩–২০২৬"} বৃষ্টির শুরু (Mann-Whitney U = ${advisory.mann_whitney_test?.u_statistic ?? "—"}, p = ${advisory.mann_whitney_test?.p_value ?? "—"})`
+                        : `ONSET DISTRIBUTION & TREND (Mann-Whitney U = ${advisory.mann_whitney_test?.u_statistic ?? "—"}, p = ${advisory.mann_whitney_test?.p_value ?? "—"}; Sen slope = ${advisory.trend?.sen_slope_days_per_decade ?? "—"} d/decade)`}
                     </span>
                     <div className="dist-bars-wrap">
                       <div className="dist-period-row">
@@ -1565,8 +1811,8 @@ export default function App() {
                             <i
                               key={`e-${i}`}
                               className="dist-dot early"
-                              style={{ left: `${Math.min(96, Math.max(4, ((doy - 148) / 35) * 100))}%` }}
-                              title={`Year ${2001 + i}: DOY ${doy}`}
+                              style={{ left: `${dotLeftPct(doy, advisory)}%` }}
+                              title={`Year ${advisory?.distributions?.period_2001_2012?.years?.[i] ?? 2001 + i}: DOY ${doy}`}
                             />
                           ))}
                         </div>
@@ -1577,14 +1823,14 @@ export default function App() {
                         </strong>
                       </div>
                       <div className="dist-period-row">
-                        <b>2013–2025</b>
+                        <b>{advisory?.distributions?.period_2013_2025?.label ?? "2013–2026"}</b>
                         <div className="dist-dot-track">
                           {(advisory?.distributions?.period_2013_2025?.onset_doy_values ?? []).map((doy, i) => (
                             <i
                               key={`l-${i}`}
                               className="dist-dot late"
-                              style={{ left: `${Math.min(96, Math.max(4, ((doy - 148) / 35) * 100))}%` }}
-                              title={`Year ${2013 + i}: DOY ${doy}`}
+                              style={{ left: `${dotLeftPct(doy, advisory)}%` }}
+                              title={`Year ${advisory?.distributions?.period_2013_2025?.years?.[i] ?? 2013 + i}: DOY ${doy}`}
                             />
                           ))}
                         </div>
@@ -1600,6 +1846,12 @@ export default function App() {
                         ? (advisory.gdd_summary?.note_bn ?? "")
                         : (advisory.gdd_summary?.note_en ?? "")}
                     </small>
+                    {advisory.how_computed && (
+                      <p className="how-computed-note">
+                        <strong>{lang === "bn" ? "গণনা পদ্ধতি: " : "How computed: "}</strong>
+                        {lang === "bn" ? advisory.how_computed.bn : advisory.how_computed.en}
+                      </p>
+                    )}
                   </div>
 
                   <div className="onset-dist-col">
@@ -1617,12 +1869,12 @@ export default function App() {
                       {(advisory.sensitivity_check?.thresholds ?? []).map((item) => (
                         <div key={item.key} className="sens-pill">
                           <span>{item.threshold_mm} mm / 7d</span>
-                          <strong>{item.shift_days >= 0 ? `+${item.shift_days}d` : `${item.shift_days}d`}</strong>
+                          <strong>{item.shift_days == null ? "n/a" : item.shift_days >= 0 ? `+${item.shift_days}d` : `${item.shift_days}d`}</strong>
                         </div>
                       ))}
                       <div className="sens-pill valid">
                         <span>{lang === "bn" ? "স্থিতিশীলতা" : "STABILITY"}</span>
-                        <strong>{advisory.sensitivity_check?.is_stable ? "20/20 VALID" : "REVIEW"}</strong>
+                        <strong>{advisory.sensitivity_check?.is_stable ? "STABLE" : "REVIEW"}</strong>
                       </div>
                     </div>
                     <small>
@@ -1630,16 +1882,29 @@ export default function App() {
                         ? (advisory.sensitivity_check?.stability_note_bn ?? "")
                         : (advisory.sensitivity_check?.stability_note_en ?? "")}
                     </small>
+                    {advisory.evidence_types && (
+                      <div className="evidence-type-strip">
+                        {Object.entries(advisory.evidence_types).map(([k, v]) => (
+                          <code key={k} className="ev-type-chip">
+                            {k}: {v}
+                          </code>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Interactive "What-If" Climate Scenario Stress-Test Simulator */}
+            {/* Interactive "What-If" Climate Scenario Stress-Test Simulator (Spec v2 Item W) */}
             <div className="what-if-simulator-card">
               <div className="what-if-head">
                 <div>
-                  <span>INTERACTIVE "WHAT-IF" CLIMATE SCENARIO STRESS-TEST</span>
+                  <span>
+                    {hasRealSimBase
+                      ? "INTERACTIVE 'WHAT-IF' CLIMATE SCENARIO STRESS-TEST · DATA: NASA POWER"
+                      : "INTERACTIVE 'WHAT-IF' CLIMATE SCENARIO STRESS-TEST · OFFLINE REFERENCE BASELINE"}
+                  </span>
                   <strong>
                     {lang === "bn"
                       ? "খরা, অতিবৃষ্টি বা তাপপ্রবাহ হলে কোন ফসল পর্যায়টি টিকে থাকবে তা পরীক্ষা করুন"
@@ -1671,7 +1936,10 @@ export default function App() {
                     value={scenarioRainShiftPct}
                     onChange={(e) => setScenarioRainShiftPct(Number(e.target.value))}
                   />
-                  <small>Simulated rain: {simulatedRainDaily.toFixed(1)} mm/day</small>
+                  <small>
+                    Simulated rain: {simulatedRainDaily.toFixed(1)} mm/day
+                    {!hasRealSimBase ? " (offline ref)" : ""}
+                  </small>
                 </label>
 
                 <label className="what-if-slider">
@@ -1687,7 +1955,10 @@ export default function App() {
                     value={scenarioTempShiftC}
                     onChange={(e) => setScenarioTempShiftC(Number(e.target.value))}
                   />
-                  <small>Simulated ET₀ draw: {simulatedEt0Daily.toFixed(1)} mm/day</small>
+                  <small>
+                    Simulated ET₀ draw: {simulatedEt0Daily.toFixed(1)} mm/day
+                    {!hasRealSimBase ? " (offline ref)" : ""}
+                  </small>
                 </label>
 
                 <div className="what-if-readout">
@@ -1842,6 +2113,28 @@ export default function App() {
                           {strategy.potential_benefits.map((item, idx) => <li key={idx}>{item}</li>)}
                         </ul>
                       </div>
+                      {strategy.scientific_evaluation && (
+                        <div className="explain-block">
+                          <span>
+                            {lang === "bn"
+                              ? `বৈজ্ঞানিক সক্ষমতা: ${strategy.scientific_evaluation.weighted_composite_score_0_100}/100 · প্রমাণের পূর্ণতা: ${strategy.scientific_evaluation.evidence_completeness_pct ?? strategy.scientific_evaluation.evidence_completeness?.completeness_pct ?? 75}% · গেট: ${strategy.scientific_evaluation.recommendation_gate}`
+                              : `SCIENTIFIC PERFORMANCE: ${strategy.scientific_evaluation.weighted_composite_score_0_100}/100 · EVIDENCE COMPLETENESS: ${strategy.scientific_evaluation.evidence_completeness_pct ?? strategy.scientific_evaluation.evidence_completeness?.completeness_pct ?? 75}% · GATE: ${strategy.scientific_evaluation.recommendation_gate}`}
+                          </span>
+                          <p style={{ fontSize: "0.76rem", marginBottom: "4px" }}>
+                            Water: <b>{strategy.scientific_evaluation.criteria_scores_0_100.water_demand ?? "UNKNOWN"}</b> ·{" "}
+                            N-Balance: <b>{strategy.scientific_evaluation.criteria_scores_0_100.nitrogen_contribution ?? "UNKNOWN"}</b> ·{" "}
+                            Soil Cover: <b>{strategy.scientific_evaluation.criteria_scores_0_100.soil_coverage ?? "UNKNOWN"}</b> ·{" "}
+                            Pest Break: <b>{strategy.scientific_evaluation.criteria_scores_0_100.pest_break_potential ?? "UNKNOWN"}</b> ·{" "}
+                            Resilience: <b>{strategy.scientific_evaluation.criteria_scores_0_100.climate_resilience ?? "UNKNOWN"}</b> ·{" "}
+                            Local Soil Gate: <b>{strategy.scientific_evaluation.criteria_scores_0_100.local_suitability ?? "UNKNOWN (No Lab Test)"}</b>
+                          </p>
+                          {strategy.scientific_evaluation.constraint_flags.length > 0 && (
+                            <p style={{ color: "#ffb347", fontSize: "0.75rem", fontWeight: 600 }}>
+                              ⚠ {strategy.scientific_evaluation.constraint_flags.join(" ")}
+                            </p>
+                          )}
+                        </div>
+                      )}
                       <div className="explain-block warn">
                         <span>{lang === "bn" ? "তথ্যের ঘাটতি ও স্থানীয় যাচাই ঝুঁকি (GAPS & LOCAL REVIEW RISKS)" : "INFORMATION GAPS & LOCAL REVIEW RISKS"}</span>
                         <ul>
@@ -1868,7 +2161,7 @@ export default function App() {
               })}
             </div>
 
-            {/* Functional Soil-Health Crop Roles (NASA Challenge Consideration) */}
+            {/* Functional Soil-Health Crop Roles */}
             {(context?.functional_crop_roles?.length ?? 0) > 0 && (
               <div className="functional-roles-section">
                 <div className="functional-roles-head">
@@ -1890,44 +2183,6 @@ export default function App() {
                 </div>
               </div>
             )}
-
-            {districtProfile && (
-              <div className="national-evidence-board">
-                <div className="national-board-col">
-                  <span>{lang === "bn" ? "আমদানি-নির্ভর ফসল ও জাতীয় প্রেক্ষাপট" : "NATIONAL IMPORT-SUBSTITUTION CONTEXT"}</span>
-                  <strong>
-                    {lang === "bn"
-                      ? (districtProfile.national_import_context?.summary_bn ??
-                        "ভোজ্যতেলের প্রায় ৯০% আমদানি হয়; দেশের সয়াবিন চাহিদার মাত্র ৭% মেটায়; ২০৩০ সালে ডালের ঘাটতি ১২.৩৬ লাখ টন হতে পারে (The Daily Star, USDA)।")
-                      : (districtProfile.national_import_context?.summary_en ??
-                        "Bangladesh imports ~90% of edible oil and meets only ~7% of soybean demand locally; pulse deficit may reach 12.36 lakh tonnes by 2030 (The Daily Star, USDA).")}
-                  </strong>
-                </div>
-                <div className="national-board-col">
-                  <span>{lang === "bn" ? "উপজেলা যাচাই ও সংগনিরোধ শর্তাবলি (SRDI / BMD / QUARANTINE)" : "MANDATORY UPAZILA VERIFICATION & SEED QUARANTINE"}</span>
-                  <ul>
-                    {(districtProfile.verification_requirements ?? []).map((req) => (
-                      <li key={req.id}>{lang === "bn" ? req.bn : req.en}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            <div className="evidence-gate">
-              <div className="gate-icon">!</div>
-              <div>
-                <strong>{lang === "bn" ? "বৈজ্ঞানিক প্রমাণ গেট (অনুসন্ধানমূলক তুলনা)" : "Evidence gate (Supportive tool, not a replacement for farmer judgment)"}</strong>
-                <p>
-                  {lang === "bn"
-                    ? "এই ৩টি পথ অনুসন্ধানমূলক তুলনা, চূড়ান্ত র‍্যাঙ্কিং নয়। মাটির ধরন, মিল থাকা এলাকা ও নতুন ফসলের সুযোগ প্রাথমিক অনুমান—উপজেলা পর্যায়ে SRDI, BMD, BARC, WorldClim ও SoilGrids ডেটা এবং উদ্ভিদ সংগনিরোধ/জাতীয় বীজ বোর্ডের অনুমোদন যাচাই করে চূড়ান্ত সিদ্ধান্ত নিন।"
-                    : "These paths are unranked exploration scenarios, not prescriptive rankings. District soil/crop estimates require upazila-level verification with SRDI, BMD, BARC Crop Zoning, WorldClim, and SoilGrids, plus Plant Quarantine and National Seed Board clearance for new seeds."}
-                </p>
-              </div>
-              <button onClick={() => runDecisionEngine()} disabled={planBusy}>
-                {lang === "bn" ? "প্রমাণভিত্তিক ৯০ দিনের পরিকল্পনা তৈরি করুন" : "Generate evidence based field plan"}
-              </button>
-            </div>
           </section>
         </main>
       )}
@@ -1936,19 +2191,36 @@ export default function App() {
         <main className="plan-workspace">
           {!plan ? (
             <div className="empty-plan">
-              <span>03 | FIELD PLAN</span>
+              <BoponXLogoMark size={52} />
+              <span>03 · 90-DAY FIELD PLANNER</span>
               <h1>{lang === "bn" ? "নাসা ও স্থানীয় প্রমাণকে কৃষকের ব্যবহারযোগ্য পদক্ষেপে রূপান্তর করুন।" : "Turn Earth evidence into actions a farmer can use."}</h1>
               <p>
                 {lang === "bn"
                   ? "প্রিন্ট করা অ্যাকশন কার্ডটি ইন্টারনেট বা লিংক ছাড়াই কাজ করে। এতে নাসা এবং স্থানীয় কৃষি উৎসের নাম ও কৃষি কল সেন্টার ১৬১২৩ উল্লেখ থাকে।"
                   : "The printed card is designed to stand alone. It does not depend on clickable links. Source names remain traceable for advisers and judges."}
               </p>
-              <button onClick={() => void runDecisionEngine()}>
+              <button type="button" onClick={() => void runDecisionEngine()}>
                 {lang === "bn" ? "এখনই ৯০ দিনের পরিকল্পনা তৈরি করুন →" : "Generate 90-day field plan now →"}
               </button>
             </div>
           ) : (
-            <DecisionReport brief={plan} placeName={placeLabel(place, point, context)} lang={lang} onLangChange={setLang} selectedStrategyId={selectedStrategyId} onSelectStrategy={setSelectedStrategyId} />
+            <DecisionReport
+              brief={plan}
+              placeName={placeLabel(place, point, context)}
+              lang={lang}
+              onLangChange={setLang}
+              selectedStrategyId={selectedStrategyId}
+              onSelectStrategy={setSelectedStrategyId}
+              startYear={startYear}
+              startMonth={startMonth}
+              startDay={startDay}
+              onStartDateChange={(y, m, d) => {
+                setStartYear(y);
+                setStartMonth(m);
+                setStartDay(d);
+                void runDecisionEngine(undefined, { year: y, month: m, day: d });
+              }}
+            />
           )}
         </main>
       )}

@@ -1,127 +1,24 @@
-# Implementation status
+# Implementation Status
 
-**Reviewed:** 28 September 2026
+**Last Reviewed:** 6 November 2026 (`Release: Final Spec V3.1`)
 
-## Implemented
+## Capability Classification Summary
 
-### Global Earth Twin
+| Capability Category | Status | Details |
+| :--- | :--- | :--- |
+| **1. Global & Bangladesh 64-District Earth Twin (`LocationMap.tsx`, `bangladesh_districts.py`)** | **Implemented & Tested** | Interactive 3D Globe + 2D Map, 6 NASA GIBS layers (`MODIS TrueColor`, `GPM IMERG Rain`, `SMAP Soil Moisture`, `MODIS NDVI`, `MODIS Day LST`, `SRTM DEM`), multi-date scrubber, and deterministic 64-district / 8-division resolution covering 40 unique `0.5° × 0.625°` NASA POWER MERRA-2 grid cells. |
+| **2. Live NASA POWER Daily & Climatology Fusion (`power_live.py`, `power_history.py`)** | **Implemented, Tested & Live-Verified** | Live 14-day agroclimate (`PRECTOTCORR`, `T2M`, `T2M_MAX`, `T2M_MIN`, `T2MDEW`, `RH2M`, `WS2M`, `ALLSKY_SFC_SW_DWN`, `GWETTOP`, `GWETROOT`), 2001–2020 monthly climatology, and 2001–2026 historical onset engine (`data_origin: nasa_power_live` verified live through `2026-10-30`). |
+| **3. Pre-Built 40-Cell Historical Snapshots on Disk (`data/processed/power_history/`)** | **Pipeline Implemented & Tested; Offline Sandbox Build Blocked by Network Policy** | `scripts/build_snapshot.py` and `scripts/build_onset_results.py` validate each of the 40 Bangladesh grid cells (`complete`, `partial`, `unavailable`, `failed_validation`) and classify all 64 districts. Because outbound internet is disabled in the build container, disk snapshots must be populated by running `python -m scripts.build_snapshot` on an internet-connected machine. |
+| **4. NASA GPM IMERG Numerical Cross-Validation (`imerg_check.py`)** | **Implemented & Tested; Live Query Gated on `NASA_EARTHDATA_TOKEN`** | Implements date-matched Mean Bias, MAE, RMSE, Pearson `r`, and non-imputing 30-minute interval aggregation (`48/48` complete required for `daily_total_mm`; `44/48` classified as `partial_incomplete`; `<=43/48` classified as `insufficient_coverage`; `0/48` classified as `missing`). Live GES DISC OPeNDAP queries require `NASA_EARTHDATA_TOKEN`; otherwise returns `skipped_no_token` while keeping GIBS visual tiles active. |
+| **5. Verified Bangladesh Soil Evidence Model (`soil_evidence.py`)** | **Implemented & Tested** | Integrates published Agro-Ecological Zone (AEZ) ranges from SRDI (`Saline Soils of Bangladesh`), BARC (`Fertilizer Recommendation Guide FRG-2024` & `Crop Zoning`), BARI, and BRRI with 5 explicit classifications (`VERIFIED`, `REFERENCE`, `ESTIMATED`, `FARMER_REPORTED`, `UNKNOWN`). |
+| **6. Centralized NASA Data Freshness & Provenance (`provenance.py`)** | **Implemented & Tested** | Product-specific latency rules classify every NASA dataset (`Fresh`, `Recently updated`, `Delayed`, `Cached`, `Partial`, `Unavailable`, `Validation failed`) and never label reanalysis/climatology as instantaneous real-time. |
+| **7. Standardized 8-Criterion Crop-Rotation Engine (`rotation_science.py`)** | **Implemented & Tested** | Evaluates Strategies A, B, and C across Water Demand ($\text{ET}_c, P_{\text{eff}}, \text{NIR}$), Nitrogen Mass Balance ($\text{BNF}$, grain removal, residue carryover), Soil Coverage, Botanical Family Pest-Break, Climate Resilience, Local Suitability Gate, Planting-Window Fit, and Farmer Priority while strictly separating `scientific_performance`, `evidence_completeness`, `local_suitability` (`None`/`UNKNOWN` when lab soil test is absent), and `critical_constraints`. |
+| **8. Parcel-Scale Soil Chemistry & Unconditional Prescriptive Ranking** | **Still Gated (By Scientific Design)** | Submitting `soil_ph` without `soil_test="yes"` is rejected with `HTTP 422 SOIL_TEST_REQUIRED`, and `/api/v1/rotations/compare` remains locked with `HTTP 409 AGRONOMIC_RULES_NOT_APPROVED` because satellites cannot measure parcel NPK/pH and regional references are never treated as farm-level prescriptions. |
 
-- interactive globe
-- global place search
-- browser geolocation
-- click anywhere on Earth
-- NASA GIBS true color layer
-- GPM IMERG layer
-- SMAP soil moisture layer
-- OpenStreetMap base fallback
+## Historical Audit Log
 
-### NASA Fusion Engine
-
-- selected point NASA POWER recent request
-- T2M
-- T2M_MAX
-- T2M_MIN
-- PRECTOTCORR
-- RH2M
-- WS2M
-- three month POWER climatology
-- recent rainfall comparison with historical month
-- recent temperature comparison with historical month
-- evidence completeness score labelled Decision Readiness
-
-### Local Data Mesh
-
-- verified adapter registry
-- Bangladesh deep adapter
-- India official agromet reference
-- United States official soil and climate references
-- Australian official soil and climate references
-- UK official agriculture climate reference
-- FAO Crop Calendar global fallback
-- explicit unsupported country behavior
-
-### Farmer and decision workflow
-
-- crop history
-- farmer intended crop
-- water source
-- drainage observation
-- soil test status
-- optional report based pH
-- farmer priority
-- deterministic 90 day plan
-- Rotation Lab exploration paths
-- evidence gate on final agronomic ranking
-
-### Farmer Action Card
-
-- print layout
-- no dependency on clickable links
-- source names written as text
-- three month actions
-- evidence and limitation summary
-
-## Still gated
-
-- automated extraction of every country's agriculture ministry data
-- parcel scale soil chemistry
-- SMAP numeric decision thresholding
-- IMERG numeric crop thresholding
-- universal crop requirement database
-- universal crop sequence rule database
-- final ranked crop rotation recommendation
-
-These items are gated because unsupported completeness would be more damaging than an explicit evidence gap.
-
-
-## 28 September realistic Earth refinement
-
-The Earth Twin renderer has been replaced with a custom Three.js space view.
-
-Implemented:
-- realistic spherical Earth instead of a raster map projected as a globe
-- NASA Blue Marble base imagery
-- dated MODIS Terra true color Earth texture
-- GPM IMERG V07 rain overlay on the sphere
-- SMAP soil moisture overlay on the sphere
-- atmospheric rim shader
-- star field and orbital visual context
-- drag to rotate, scroll to zoom and tap to select coordinates
-- selected field marker on the globe
-- automatic camera movement when GPS or place search chooses a field
-- country specific government agriculture portal finder for every reverse geocoded country
-- verified official government links remain separate from unverified discovery routes
-- FAO Crop Calendar and FAOLEX country profiles remain global reference layers
-
-The portal finder is deliberately not labelled as a verified government data source. Direct government links only receive verified status after manual review.
-
-
-## 28 September Earth Twin reliability and farmer output refinement
-
-Implemented:
-- NASA Blue Marble now loads first as the complete Earth texture
-- dated MODIS true color is an optional overlay rather than the base Earth
-- dark no data areas in daily true color are masked so they do not create black bands across the planet
-- NASA GIBS Reference Labels are displayed on a separate transparent sphere and become more visible when zoomed closer
-- the Earth begins rotating automatically and resumes after interaction
-- field selection still works if an optional NASA overlay is unavailable
-- Bangladesh quick selection covers all 8 divisions and 64 districts through the global geocoder
-- Bangladesh local evidence adds Ministry of Agriculture, Department of Agricultural Extension and Agriculture Information Service
-- reviewed national agriculture adapters expanded to Canada, Japan, Brazil, Philippines and Sri Lanka in addition to existing adapters
-- fake Local crop A, Local crop B and Local crop C fallbacks were removed from Rotation Lab
-- the farmer field plan was redesigned with visual tasks, evidence reasons, monthly climate context and local support
-- Bangladesh printed plans include Agriculture Call Center 16123 so the paper output does not depend on clicking a website
-- mission control text received a readability pass across both side rails, Earth controls, Rotation Lab and Field Plan
-
-
-## 30 October 2026 — 28 Oct Challenge Brief Alignment & 64-District Bangladesh Integration
-
-**Reviewed:** 30 October 2026
-
-Implemented and verified:
-- **64-District Bangladesh Local Agronomy Dataset (`backend/app/compute/bangladesh_districts.py`)**: All 64 districts across 8 divisions encoded from `bpx.pdf` with bilingual soil/landform profiles, agro-climatic analog regions, established crops, preliminary crop opportunities, bare-field risk windows, published online pilot evidence (Dragon fruit, Katimon mango, Naogaon Avocado/Coffee demo, Patuakhali BARI red mango trial, national edible-oil/pulse import-substitution context), and explicit SRDI/BMD/BARC/WorldClim/SoilGrids and Plant Quarantine disclaimers.
-- **Deterministic Bangladesh Area Resolution (`/api/v1/bangladesh/resolve` & `/api/v1/bangladesh/districts`)**: Selecting any of the 8 divisions or 64 districts (or searching in English or Bangla) resolves coordinates and district profiles deterministically without failing if external Nominatim geocoding is slow or unreachable.
-- **Three-Strategy Rotation Comparison (`/api/v1/rotations/explore` & Rotation Lab UI)**: Compares at least three unranked strategies—(A) Existing/Baseline Rotation Benchmark, (B) Soil-Health & Nitrogen-Fixing Pulse/Oilseed Bridge, and (C) Climate-Adaptive & District Opportunity Exploration—with explicit *Why Suggested*, *Supporting Evidence*, *Potential Benefits*, *Information Gaps*, and *Local Review Risks*, while keeping `/api/v1/rotations/compare` fail-closed (`HTTP 409 AGRONOMIC_RULES_NOT_APPROVED`).
-- **Multi-Resolution Data Harmonization & Plain-Language Scientific Glossary**: Added coordinate-anchored multi-scale grid harmonization metadata (`0.5°×0.625°` POWER, `0.1°` IMERG, `9 km` SMAP, `250m–1km` MODIS vs. district/parcel soil data) and bilingual explanations of *Evapotranspiration*, *SMAP Soil Moisture Anomaly*, *NDVI / Bare-Field Windows*, *Heat/Frost Stress*, and *Water-Balance Indicators*.
-- **WebGL, Geolocation & Pydantic Resilience**: Restored `EarthCanvasFallback` 2D interactive map in `LocationMap.tsx`, added direct manual `Lat / Lon` coordinate entry and HTTPS/LAN geolocation error recovery in `App.tsx`, and added Pydantic v1/v2 compatibility in `backend/app/main.py` (fixing the `previous_crops` list validation bug).
-- **True Bilingual (`EN / বাংলা`) Parity**: Completed genuine Bangla translations across `plan.py`, `App.tsx`, and `DecisionReport.tsx` with a live `EN / বাংলা` toggle.
+### 6 November 2026 — Final Spec V3 & V3.1 Scientific Validation & Reliability Pass
+- Upgraded `backend/app/services/imerg_check.py` to remove half-hourly scaling imputation: `convert_half_hourly_rates_to_daily_mm()` returns a full daily total only when all `48/48` intervals are valid (`coverage_status == "complete"`), while `aggregate_half_hourly_imerg_to_daily()` transparently reports `observed_accumulation_mm`, `missing_intervals`, and `coverage_pct` across `48/48`, `44/48` (`partial_incomplete`), `43/48` (`insufficient_coverage`), and `0/48` (`missing`).
+- Upgraded `backend/app/compute/rotation_science.py` to separate `scientific_performance`, `evidence_completeness`, `local_suitability`, and `critical_constraints`, ensuring missing parcel soil tests remain `None` (`UNKNOWN`) rather than appearing as synthetic average scores.
+- Standardized the spatial grid documentation across the repository to the exact calculated inventory of **40 unique `0.5° × 0.625°` NASA POWER grid cells** covering all 64 Bangladesh districts.
+- Expanded the offline backend verification suite to **114 passing tests (`0 failed, 0 skipped`)**.

@@ -171,28 +171,85 @@ export type EonetEvent = {
   longitude: number;
   distance_km: number;
   within_alert_radius?: boolean;
+  agricultural_relevance?: "agricultural_impact" | "low_agricultural_relevance";
+  affects_field_operations?: boolean;
   source_url: string;
 };
 
 export type EonetHazardsResponse = {
   status: "available" | "unavailable";
+  data_origin?: string;
+  retrieved_at?: string;
+  lag_days?: number;
   provider: string;
   coordinates: { latitude: number; longitude: number };
   radius_km?: number;
   search_radius_km?: number;
   active_count?: number;
   regional_events_count?: number;
+  agricultural_alert_count?: number;
   nearby_events?: EonetEvent[];
   regional_events?: EonetEvent[];
+  agricultural_events?: EonetEvent[];
   nearest_global_events?: EonetEvent[];
   events?: EonetEvent[];
   source_request_url: string;
   limitations?: string[];
+  note?: string;
 };
 
+export type SeasonalWaterBalanceSeason = {
+  season: string;
+  label_en: string;
+  label_bn: string;
+  status: string;
+  period_2001_2012?: {
+    n_years: number;
+    rain_daily_mm: number;
+    et0_daily_mm: number;
+    water_balance_daily_mm: number;
+    water_balance_total_mm: number;
+  };
+  period_2013_latest?: {
+    n_years: number;
+    rain_daily_mm: number;
+    et0_daily_mm: number;
+    water_balance_daily_mm: number;
+    water_balance_total_mm: number;
+  };
+  shift_daily_mm?: number;
+  ci_95_daily_mm?: { low: number; high: number };
+};
 
 export type PlantingWindowAdvisory = {
   status: string;
+  data_origin?: string;
+  advisory_kind?: string;
+  message?: string;
+  data_through?: string;
+  retrieved_at?: string;
+  lag_days?: number;
+  shared_with?: string[];
+  grid_cell?: {
+    id: string;
+    center_latitude: number;
+    center_longitude: number;
+    resolution_deg: { latitude: number; longitude: number };
+  };
+  shift?: {
+    estimate_days: number;
+    estimator?: string;
+    mean_difference_days?: number;
+    reliable: boolean;
+    applied_shift_days: number;
+    window_adjustment_applies_to_crop?: boolean;
+    ci_95_days?: { low: number; high: number; n_boot?: number; seed?: number };
+  };
+  trend?: {
+    sen_slope_days_per_decade?: number | null;
+    years_used?: number;
+    mann_kendall?: { s: number; z: number; p_value: number; significant_at_0_05: boolean } | null;
+  };
   district?: {
     id: string;
     name_en: string;
@@ -221,10 +278,17 @@ export type PlantingWindowAdvisory = {
     char_count_en: number;
     char_count_bn: number;
     max_chars: number;
+    max_chars_en?: number;
+    max_chars_bn?: number;
+    encoding_en?: string;
+    encoding_bn?: string;
+    segments_en?: number;
+    segments_bn?: number;
   };
   distributions?: {
     period_2001_2012?: {
       label: string;
+      years?: number[];
       onset_doy_values?: number[];
       mean_onset_doy?: number;
       mean_onset_label_en?: string;
@@ -232,6 +296,7 @@ export type PlantingWindowAdvisory = {
     };
     period_2013_2025?: {
       label: string;
+      years?: number[];
       onset_doy_values?: number[];
       mean_onset_doy?: number;
       mean_onset_label_en?: string;
@@ -246,11 +311,18 @@ export type PlantingWindowAdvisory = {
   };
   gdd_summary?: {
     base_temp_c: number;
-    period_2001_2012_seasonal_gdd: number;
-    period_2013_2025_seasonal_gdd: number;
-    gdd_delta_c_days: number;
+    period_2001_2012_seasonal_gdd: number | null;
+    period_2013_2025_seasonal_gdd: number | null;
+    gdd_delta_c_days: number | null;
+    days_to_target_2001_2012?: number | null;
+    days_to_target_2013_latest?: number | null;
     note_en: string;
     note_bn: string;
+  };
+  seasonal_water_balance?: {
+    method: string;
+    kharif2_aman?: SeasonalWaterBalanceSeason;
+    rabi?: SeasonalWaterBalanceSeason;
   };
   sensitivity_check?: {
     window_days: number;
@@ -258,15 +330,35 @@ export type PlantingWindowAdvisory = {
     thresholds?: Array<{
       key: string;
       threshold_mm: number;
-      mean_onset_2001_2012_day: number;
-      mean_onset_2013_2025_day: number;
-      shift_days: number;
+      mean_early_doy?: number;
+      mean_late_doy?: number;
+      shift_days: number | null;
     }>;
-    max_shift_variation_days: number;
+    grid?: Array<{
+      key: string;
+      threshold_mm: number;
+      window_days: number;
+      dry_spell_max_days: number;
+      search_start: string;
+      shift_days: number | null;
+    }>;
+    grid_shift_range_days?: [number, number] | null;
+    grid_sign_consistent?: boolean;
+    max_shift_variation_days: number | null;
     is_stable: boolean;
     stability_note_en: string;
     stability_note_bn: string;
   };
+  yearly_evidence?: Array<{
+    year: number;
+    onset_date: string;
+    onset_doy: number;
+    window_rain_mm: number;
+    max_day_in_next_7_mm: number;
+  }>;
+  how_computed?: { en: string; bn: string };
+  evidence_types?: Record<string, string>;
+  limitations?: string[];
   assumptions?: {
     onset_definition_en: string;
     onset_definition_bn: string;
@@ -275,6 +367,101 @@ export type PlantingWindowAdvisory = {
     dry_spell_max_days: number;
     gdd_base_temp_c: number;
     statistical_test: string;
+    transplanting_follows_onset?: string;
+  };
+};
+
+export type SoilEvidenceRecord = {
+  property_id: string;
+  property_name: string;
+  location_coverage: string;
+  reported_value: number | string | null;
+  reference_range?: { min: number; max: number; regional_typical: number } | null;
+  class_description: string;
+  unit: string;
+  source_institution: string;
+  source_document: string;
+  source_url: string;
+  survey_year: string;
+  spatial_resolution: string;
+  evidence_classification: "VERIFIED" | "REFERENCE" | "ESTIMATED" | "FARMER_REPORTED" | "UNKNOWN";
+  limitations: string;
+};
+
+export type SoilEvidenceModel = {
+  status: string;
+  aez_id?: string;
+  soil_classification?: string;
+  overall_classification: string;
+  parcel_lab_verified: boolean;
+  false_precision_guard: string;
+  regional_limitations?: string[];
+  records: SoilEvidenceRecord[];
+};
+
+export type StrategyScientificEvaluation = {
+  strategy_id: string;
+  framework_version: string;
+  recommendation_gate: string;
+  critical_constraint_violated: boolean;
+  constraint_flags: string[];
+  weighted_composite_score_0_100: number;
+  scoring_note: string;
+  documented_weights: Record<string, number>;
+  evidence_completeness_pct?: number;
+  scientific_performance?: {
+    score_0_100: number;
+    known_criteria_weight_sum: number;
+    evaluated_criteria_count: number;
+    total_criteria_count: number;
+    scoring_assumptions: string[];
+  };
+  evidence_completeness?: {
+    completeness_pct: number;
+    known_count: number;
+    total_dimensions: number;
+    known_dimensions: string[];
+    unknown_dimensions: string[];
+  };
+  criteria_scores_0_100: Record<string, number | null>;
+  criteria?: {
+    water_demand?: {
+      crop_water_requirement_etc_mm: number;
+      effective_rainfall_peff_mm: number;
+      estimated_irrigation_requirement_nir_mm: number;
+      rabi_dry_season_irrigation_nir_mm: number;
+      actual_irrigation_availability: string;
+      irrigation_compatibility: string;
+      evidence_classification: string;
+      score_0_100: number;
+    };
+    nitrogen_contribution?: {
+      gross_biological_n_fixation_kg_ha: number;
+      harvested_grain_n_removal_kg_ha: number;
+      estimated_n_carryover_to_following_crop_kg_ha: number;
+      net_soil_n_balance_before_fertilizer_kg_ha: number;
+      measured_parcel_soil_nitrogen_status: string;
+      evidence_classification: string;
+      score_0_100: number;
+    };
+    soil_coverage?: {
+      canopy_duration_days_per_year: number;
+      bare_soil_exposure_days_per_year: number;
+      plough_pan_biopore_potential: string;
+      score_0_100: number;
+    };
+    pest_break_potential?: {
+      botanical_family_sequence: string[];
+      pest_break_classification: string;
+      score_0_100: number;
+    };
+    local_suitability?: {
+      status: string;
+      evidence_classification: string;
+      constraints_violated: string[];
+      missing_essential_evidence: string[];
+      score_0_100: number;
+    };
   };
 };
 
@@ -294,6 +481,7 @@ export type RotationScenario = {
   water_demand_badge?: string;
   nitrogen_badge?: string;
   pest_break_badge?: string;
+  scientific_evaluation?: StrategyScientificEvaluation;
 };
 
 export type PlaceResult = {
@@ -333,6 +521,9 @@ export type PowerBaselineSummary = {
 
 export type PowerBaselineWindow = {
   status: "available" | "unavailable";
+  data_origin?: string;
+  retrieved_at?: string;
+  lag_days?: number;
   provider: string;
   kind: string;
   baseline_period?: { start_year: number; end_year: number };
@@ -344,6 +535,10 @@ export type PowerBaselineWindow = {
 };
 
 export type LocationContext = {
+  status?: string;
+  data_origin?: string;
+  retrieved_at?: string;
+  lag_days?: number;
   coordinates: { latitude: number; longitude: number };
   within_bangladesh: boolean;
   global_environmental_coverage: boolean;
@@ -360,6 +555,20 @@ export type LocationContext = {
   calendar_evidence: CalendarEvidence[];
   agricultural_sources: AgriculturalSource[];
   nasa_sources: NasaSource[];
+  imerg_crosscheck?: {
+    status: string;
+    numerical_validation_status?: string;
+    mode: string;
+    provider: string;
+    why_unavailable?: string;
+    note?: string;
+    paired_days?: number;
+    bias_mm_per_day?: number | null;
+    mae_mm_per_day?: number | null;
+    rmse_mm_per_day?: number | null;
+    pearson_r?: number | null;
+  };
+  soil_evidence?: SoilEvidenceModel;
   multi_resolution_harmonization?: MultiResolutionHarmonization;
   scientific_glossary?: ScientificGlossaryItem[];
   functional_crop_roles?: FunctionalCropRole[];
@@ -372,6 +581,10 @@ export type LocationContext = {
 
 export type RecentEnvironment = {
   status: "available" | "unavailable";
+  data_origin?: string;
+  retrieved_at?: string;
+  lag_days?: number;
+  data_through?: string;
   mode?: string;
   provider: string;
   source_products?: string[];
@@ -423,19 +636,41 @@ export type FarmerProfile = {
   market_preference?: "household_subsistence" | "local_cash_market" | "high_value_commercial" | "forage_livestock" | "unknown";
 };
 
+export type EvidenceLabel =
+  | "observed_nasa"
+  | "derived_from_nasa"
+  | "official_local_reference"
+  | "rule_based"
+  | "preliminary_estimate";
+
+export type TaskDateRange = {
+  start: string;
+  end: string;
+  days_en: string;
+  days_bn: string;
+  en: string;
+  bn: string;
+};
+
 export type PlanTask = {
   code: string;
+  date_range?: TaskDateRange;
   en: string;
   bn: string;
   category?: string;
   reason?: string;
   reason_bn?: string;
+  source?: string;
+  evidence_label?: EvidenceLabel;
   evidence?: string;
+  needs_native_bn_review?: boolean;
 };
 
 export type PlanMonth = {
   index: number;
   planning_month: string;
+  day_span?: { en: string; bn: string };
+  date_range?: TaskDateRange;
   month_name: { en: string; bn: string };
   phase: { en: string; bn: string };
   objective: { en: string; bn: string };
@@ -449,8 +684,49 @@ export type PlanMonth = {
   tasks: PlanTask[];
 };
 
+export type WatchListItem = {
+  id: string;
+  signal: string;
+  evidence_label: EvidenceLabel;
+  en: string;
+  bn: string;
+};
+
 export type PlanBrief = {
   status: string;
+  data_status?: "AVAILABLE" | "UNAVAILABLE";
+  data_through?: string | null;
+  planner_header?: {
+    district_en: string;
+    district_bn: string;
+    crop_id: string;
+    crop_en: string;
+    crop_bn: string;
+    plan_start_date: string;
+    plan_end_date: string;
+    data_through: string | null;
+    data_through_label_en: string;
+    data_through_label_bn: string;
+    language_options: string[];
+  };
+  window_guidance?: {
+    bamis_baseline_window: {
+      en: string;
+      bn: string;
+      evidence_label: EvidenceLabel;
+      source: string;
+    };
+    shift_reliable: boolean;
+    shifted_window: {
+      en: string;
+      bn: string;
+      applied_shift_days: number;
+      evidence_label: EvidenceLabel;
+    } | null;
+    note_en: string;
+    note_bn: string;
+  };
+  watch_list?: WatchListItem[];
   location: {
     coordinates: { latitude: number; longitude: number };
     region_id: string;
@@ -460,7 +736,7 @@ export type PlanBrief = {
     district_profile?: DistrictProfile | null;
   };
   farmer_context: FarmerProfile;
-  planning_window: { start: string; end: string };
+  planning_window: { start: string; end: string; start_date?: string; end_date?: string };
   conditions?: {
     rain_signal: string;
     temperature_signal: string;
@@ -468,6 +744,8 @@ export type PlanBrief = {
     baseline_daily_rain_mm: number | null;
     recent_temperature_c: number | null;
     baseline_temperature_c: number | null;
+    et0_daily_mm?: number | null;
+    water_balance_daily_mm?: number | null;
     surface_soil_wetness_pct?: number | null;
     root_zone_soil_wetness_pct?: number | null;
     frost_risk_days?: number | null;
@@ -476,10 +754,14 @@ export type PlanBrief = {
   decision_advice?: {
     status: string;
     verdict: string;
+    verdict_bn?: string;
     reasons: string[];
+    reasons_bn?: string[];
     better_next_step: string;
+    better_next_step_bn?: string;
     intended_crop: string | null;
     intended_crop_label: string | null;
+    intended_crop_label_bn?: string | null;
     regional_calendar_match: boolean;
     regional_options_to_investigate: Array<{
       id?: string;
@@ -488,6 +770,7 @@ export type PlanBrief = {
       note: string;
     }>;
     boundary: string;
+    boundary_bn?: string;
   };
   months: PlanMonth[];
   recent_environment: RecentEnvironment | null;
@@ -511,6 +794,14 @@ export type PlanBrief = {
     si_modeling_methods?: SiModelingMethod[];
   };
   limitations: { en: string; bn: string };
+  footer?: {
+    verify_en: string;
+    verify_bn: string;
+    limitations_en: string;
+    limitations_bn: string;
+    provenance_en: string;
+    provenance_bn: string;
+  };
 };
 
 export class ApiError extends Error {

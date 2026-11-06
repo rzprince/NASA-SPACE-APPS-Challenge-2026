@@ -1,4 +1,4 @@
-name: NASA POWER live pilot validation
+name: NASA POWER live pilot validation & 29-cell snapshot build
 
 on:
   push:
@@ -14,7 +14,7 @@ permissions:
 jobs:
   acquire:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 25
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -62,13 +62,19 @@ jobs:
               "historical_period": data["period"],
           }, indent=2))
           PY
-      - name: Save exact pilot data for team review
+      - name: Build 29-cell Bangladesh NASA POWER history snapshots & onset_results.json
+        run: |
+          python -m scripts.build_snapshot
+          python -m scripts.build_onset_results
+      - name: Save exact pilot data and 29-cell snapshots for team review
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: boponx-nasa-power-rajshahi-2024
+          name: boponx-nasa-power-snapshots-and-onset-results
           path: |
             data/raw/power_*.json
             data/processed/power_*.json
-          retention-days: 14
+            data/processed/power_history/*.json
+            data/processed/onset_results.json
+          retention-days: 30
           if-no-files-found: error

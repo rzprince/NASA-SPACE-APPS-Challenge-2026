@@ -1,14 +1,15 @@
-"""25-Year Planting-Window Shift, Usable-Rain Onset, GDD & Mann-Whitney Advisory Engine.
+"""Planting-window shift engine built on real NASA POWER daily data (2001 to present).
 
-Implements the Challenge 07 ('Field Shift: Adapting Farms with NASA Data') computational
-specification:
-1. Stated, configurable monsoon/usable-rain onset detection (`rain_onset`: 7-day window >= 20mm
-   not followed by a >7-day dry spell).
-2. Threshold sensitivity check at -5mm (15mm), base (20mm), and +5mm (25mm).
-3. Crop-specific Growing Degree Days (GDD) accumulation.
-4. Two-period onset distribution comparison (2001–2012 vs. 2013–2025) with a Mann-Whitney U test.
-5. Recommended planting/transplanting window shift in whole days, single clear advisory sentence,
-   and <160-character SMS advisory in both Bangla and English.
+For one POWER grid cell the engine:
+1. finds the usable-rain onset of every year with the stated definition (`rain_onset`),
+2. compares 2001-2012 with 2013-latest (Mann-Whitney U, Hodges-Lehmann shift, bootstrap CI),
+3. tests the whole record for a trend (Mann-Kendall, Sen slope),
+4. checks sensitivity to threshold, window length, dry-spell length and search start,
+5. computes crop GDD and seasonal water balance (P - ET0) from real PRECTOTCORR / T2M_MAX / T2M_MIN,
+6. turns the result into an English/Bangla advisory and an SMS, and only moves the BAMIS planting
+   window when the shift is statistically reliable and the crop is monsoon-linked.
+
+If no real data can be obtained the engine returns status "UNAVAILABLE". It never invents data.
 """
 from __future__ import annotations
 
@@ -21,14 +22,26 @@ from backend.app.compute.bangladesh_districts import (
     lookup_bangladesh_area,
     nearest_bangladesh_district,
 )
+from backend.app.compute.onset_stats import (
+    bootstrap_shift_ci,
+    find_onset,
+    hodges_lehmann_shift,
+    mann_kendall,
+    normalized_doy,
+    sen_slope,
+)
+from backend.app.services.power_history import grid_cell, load_history
+from backend.app.services.power_live import _hargreaves_et0_mm_day
 
 ONSET_DEFINITION_EN = (
-    "First day of a 7-day window with 20 mm or more of cumulative rainfall "
-    "that is not followed by a dry spell longer than 7 days (at least one day > 1.0 mm in the next 7 days)."
+    "First day (scanning from 01 May) of a 7-day window with 20 mm or more of cumulative rainfall "
+    "that is not followed by a dry spell longer than 7 days (at least one day > 1.0 mm in the next 7 days); "
+    "candidate windows containing any missing day are skipped, never imputed."
 )
 ONSET_DEFINITION_BN = (
-    "টানা ৭ দিনে কমপক্ষে ২০ মিমি বা তার বেশি বৃষ্টিপাতের প্রথম দিন, যার পরবর্তী ৭ দিনের মধ্যে "
-    "টানা শুষ্ক বিরতি থাকে না (পরবর্তী ৭ দিনে অন্তত ১ দিন >১.০ মিমি বৃষ্টি থাকে)।"
+    "১ মে থেকে গণনা করে টানা ৭ দিনে কমপক্ষে ২০ মিমি বা তার বেশি বৃষ্টিপাতের প্রথম দিন, যার পরবর্তী ৭ দিনের মধ্যে "
+    "টানা শুষ্ক বিরতি থাকে না (পরবর্তী ৭ দিনে অন্তত ১ দিন >১.০ মিমি বৃষ্টি থাকে); "
+    "কোনো দিনে তথ্য অনুপস্থিত থাকলে সেই উইন্ডোটি বাদ দেওয়া হয়, কখনো অনুমান করা হয় না।"
 )
 
 CROP_SPECS: dict[str, dict[str, Any]] = {
@@ -156,24 +169,17 @@ CROP_SPECS: dict[str, dict[str, Any]] = {
 
 
 def rain_onset(
-    daily_mm: Sequence[float],
+    daily_mm: Sequence[float | None],
     window: int = 7,
     threshold_mm: float = 20.0,
     dry_spell_max: int = 7,
 ) -> int | None:
-    """First day of a 7-day window with 20mm or more that is not followed by a
+    """First day of a 7-day window with 20 mm or more that is not followed by a
     dry spell longer than 7 days. State this definition in the interface.
+    Missing days (None) are skipped, never guessed.
     """
-    r = [float(x) for x in daily_mm]
-    limit = len(r) - window - dry_spell_max
-    if limit <= 0:
-        return None
-    for i in range(limit):
-        if sum(r[i : i + window]) >= float(threshold_mm):
-            after = r[i + window : i + window + dry_spell_max]
-            if any(val > 1.0 for val in after):
-                return i
-    return None
+    found = find_onset(daily_mm, window=window, threshold_mm=threshold_mm, dry_spell_max=dry_spell_max)
+    return None if found is None else int(found["index"])
 
 
 def growing_degree_days(
@@ -186,8 +192,6 @@ def growing_degree_days(
     n = min(len(t_max_c), len(t_min_c))
     daily_gdd: list[float] = []
     for idx in range(n):
-        tmax = min(float(t_max_c[idx]), float(cap_temp_c))
-        tmin = max(float(t_min_c[idx]), float(base_temp_c))
         mean_t = (float(t_max_c[idx]) + float(t_min_c[idx])) / 2.0
         gdd = max(0.0, min(mean_t, float(cap_temp_c)) - float(base_temp_c))
         daily_gdd.append(round(gdd, 2))
@@ -204,14 +208,14 @@ def growing_degree_days(
 
 
 def mann_whitney_u_test(period_a: Sequence[float], period_b: Sequence[float]) -> dict[str, Any]:
-    """Two-sided Mann-Whitney U test comparing two onset distributions (e.g., 2001–2012 vs. 2013–2025)."""
+    """Two-sided Mann-Whitney U test (tie-corrected normal approximation) for two onset samples."""
     a = [float(x) for x in period_a]
     b = [float(x) for x in period_b]
     n1, n2 = len(a), len(b)
     if n1 == 0 or n2 == 0:
         raise ValueError("Both distributions must be non-empty for Mann-Whitney U test")
 
-    combined = [(val, 0, idx) for idx, val in enumerate(a)] + [(val, 1, idx) for idx, val in enumerate(b)]
+    combined = [(val, 0) for val in a] + [(val, 1) for val in b]
     combined.sort(key=lambda item: item[0])
 
     n = n1 + n2
@@ -251,83 +255,11 @@ def mann_whitney_u_test(period_a: Sequence[float], period_b: Sequence[float]) ->
         "z_score": round(float(z_score), 3),
         "p_value": round(float(p_value), 5),
         "significant_at_0_05": bool(p_value < 0.05),
+        "n_early": n1,
+        "n_late": n2,
         "n_2001_2012": n1,
         "n_2013_2025": n2,
-    }
-
-
-def _synthesize_daily_rainfall_for_onset(onset_index: int, total_days: int = 140, seed_offset: int = 0) -> list[float]:
-    """Generate a deterministic daily rainfall series (mm) whose usable-rain 7-day window onset
-    occurs at `onset_index` across 15 mm, 20 mm, and 25 mm thresholds.
-    """
-    series = [0.0 for _ in range(total_days)]
-    idx = max(2, min(total_days - 20, int(onset_index)))
-    # 7-day window starting at idx reaches >= 26 mm on day idx + 6 (or idx + 5 in every 4th year for 15mm)
-    series[idx] = 1.0
-    series[idx + 1] = 1.0
-    series[idx + 2] = 1.5
-    series[idx + 3] = 2.0
-    series[idx + 4] = 2.5
-    series[idx + 5] = 4.0 + (4.0 if seed_offset % 4 == 0 else 0.0)
-    series[idx + 6] = 15.0
-    # Follow-up wet continuation (> 1.0 mm within next 7 days so no >7-day dry spell follows)
-    series[idx + 8] = 3.5
-    series[idx + 10] = 4.2
-    return series
-
-
-def onset_sensitivity_check(
-    early_series_list: Sequence[Sequence[float]],
-    late_series_list: Sequence[Sequence[float]],
-    *,
-    base_threshold_mm: float = 20.0,
-    delta_mm: float = 5.0,
-    window: int = 7,
-    dry_spell_max: int = 7,
-) -> dict[str, Any]:
-    """Evaluate how the 2001–2012 vs. 2013–2025 onset shift changes when the threshold moves by ±5 mm."""
-    thresholds = [
-        ("minus_5mm", round(base_threshold_mm - delta_mm, 1)),
-        ("base_20mm", round(base_threshold_mm, 1)),
-        ("plus_5mm", round(base_threshold_mm + delta_mm, 1)),
-    ]
-    results: list[dict[str, Any]] = []
-    shifts: list[int] = []
-
-    for label, thresh in thresholds:
-        early_onsets = [
-            o for s in early_series_list if (o := rain_onset(s, window=window, threshold_mm=thresh, dry_spell_max=dry_spell_max)) is not None
-        ]
-        late_onsets = [
-            o for s in late_series_list if (o := rain_onset(s, window=window, threshold_mm=thresh, dry_spell_max=dry_spell_max)) is not None
-        ]
-        mean_early = sum(early_onsets) / len(early_onsets) if early_onsets else 0.0
-        mean_late = sum(late_onsets) / len(late_onsets) if late_onsets else 0.0
-        shift_days = int(round(mean_late - mean_early))
-        shifts.append(shift_days)
-        results.append({
-            "key": label,
-            "threshold_mm": thresh,
-            "mean_onset_2001_2012_day": round(mean_early, 1),
-            "mean_onset_2013_2025_day": round(mean_late, 1),
-            "shift_days": shift_days,
-        })
-
-    max_diff = max(shifts) - min(shifts) if shifts else 0
-    return {
-        "window_days": window,
-        "dry_spell_max_days": dry_spell_max,
-        "thresholds": results,
-        "max_shift_variation_days": max_diff,
-        "is_stable": max_diff <= 2,
-        "stability_note_en": (
-            f"Shift remains stable ({min(shifts):+d} to {max(shifts):+d} days) when the 7-day rainfall threshold varies from "
-            f"{base_threshold_mm - delta_mm:.0f} mm to {base_threshold_mm + delta_mm:.0f} mm."
-        ),
-        "stability_note_bn": (
-            f"৭ দিনের বৃষ্টির সীমা ১৫ মিমি থেকে ২৫ মিমি (±৫ মিমি) পরিবর্তন করলেও মৌসুম শুরুর পরিবর্তন স্থিতিশীল থাকে "
-            f"({min(shifts):+d} থেকে {max(shifts):+d} দিন)।"
-        ),
+        "method": "two-sided Mann-Whitney U, tie-corrected normal approximation",
     }
 
 
@@ -336,71 +268,390 @@ def _doy_to_label(doy: int, lang: str = "en") -> str:
     months_en = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     months_bn = ["জানু", "ফেব্রু", "মার্চ", "এপ্রিল", "মে", "জুন", "জুলাই", "আগস্ট", "সেপ্টে", "অক্টো", "নভে", "ডিসে"]
     if lang == "bn":
-        bn_digits = str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯")
-        day_bn = str(base.day).translate(bn_digits)
-        return f"{day_bn} {months_bn[base.month - 1]}"
+        return f"{_bn(base.day)} {months_bn[base.month - 1]}"
     return f"{base.day:02d} {months_en[base.month - 1]}"
 
 
-def _district_shift_profile(district_id: str, division_en: str, crop_key: str) -> tuple[list[int], list[int], float, float]:
-    """Return deterministic 2001–2012 (12 yrs) and 2013–2025 (13 yrs) onset day-of-year distributions
-    and GDD seasonal accumulation shift for the selected Bangladesh district & crop.
-
-    Calibrated so Rajshahi + Rice (Aman) produces the exact +11 day later shift benchmark from the
-    Challenge 07 Field Shift brief.
-    """
-    # Base 2001–2012 monsoon onset DOY around mid-June (DOY 160 = June 9)
-    early_base = [157, 160, 155, 162, 159, 164, 158, 161, 156, 163, 160, 159]  # Mean = 159.5 (~June 9)
-    # For Rajshahi / Barind (drought-prone NW): +11 days later in 2013–2025 -> Mean = 170.5 (~June 20)
-    if district_id in ("rajshahi", "chapainawabganj", "naogaon", "natore"):
-        shift = 11
-    elif division_en == "Rajshahi":
-        shift = 10
-    elif division_en == "Rangpur":
-        shift = 9
-    elif division_en == "Khulna":
-        shift = 8
-    elif division_en == "Barishal":
-        shift = 6
-    elif division_en == "Sylhet":
-        shift = 5
-    elif division_en == "Chattogram":
-        shift = 6
-    elif division_en == "Mymensingh":
-        shift = 7
-    else:  # Dhaka
-        shift = 8
-
-    # Adjust slightly by crop season while keeping rice at the exact calibrated shift
-    if crop_key in ("wheat", "mustard", "pulse"):
-        # Post-monsoon / Rabi crops shift later because delayed monsoon harvest + warmer Nov temperatures
-        shift = max(5, shift - 2)
-    elif crop_key == "jute":
-        shift = max(4, shift - 3)
-
-    late_base = [
-        early_base[idx % len(early_base)] + shift + (1 if idx == 12 else 0)
-        for idx in range(13)
-    ]
-    # Adjust last element so round(mean(late_base) - mean(early_base)) == shift exactly
-    current_diff = (sum(late_base) / len(late_base)) - (sum(early_base) / len(early_base))
-    correction = int(round((shift - current_diff) * len(late_base)))
-    late_base[-1] += correction
-
-    # GDD accumulation rate shift (warmer temperatures in 2013–2025 shorten GDD maturity by ~4–6 days)
-    gdd_2001_2012 = float(CROP_SPECS.get(crop_key, CROP_SPECS["rice"])["gdd_target_c_days"])
-    gdd_2013_2025 = round(gdd_2001_2012 + (shift * 9.5), 1)
-    return early_base, late_base, gdd_2001_2012, gdd_2013_2025
+_BN_DIGITS = str.maketrans("0123456789-+", "০১২৩৪৫৬৭৮৯−+")
 
 
-def build_planting_window_advisory(
-    district_query: str | None = None,
-    crop_query: str | None = None,
-    *,
-    lat: float | None = None,
-    lon: float | None = None,
-) -> dict[str, Any]:
-    """Build the complete 25-year planting-window shift advisory for a Bangladesh district and crop."""
+def _bn(value: Any) -> str:
+    return str(value).translate(_BN_DIGITS)
+
+
+def _window_label(start_doy: int, end_doy: int, lang: str, *, ascii_only: bool = False) -> str:
+    sep = "-" if ascii_only else "–"
+    return f"{_doy_to_label(start_doy, lang)}{sep}{_doy_to_label(end_doy, lang)}" if ascii_only else (
+        f"{_doy_to_label(start_doy, lang)} – {_doy_to_label(end_doy, lang)}"
+    )
+
+
+# ------------------------------------------------------------------ SMS length rules
+_GSM7_BASIC = set(
+    "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"
+)
+_GSM7_EXT = set("^{}\\[~]|€\f")
+
+
+def sms_segments(text: str) -> dict[str, Any]:
+    """Encoding, length units and SMS segments for a message (GSM-7: 160/153, UCS-2: 70/67)."""
+    if all(ch in _GSM7_BASIC or ch in _GSM7_EXT for ch in text):
+        units = sum(2 if ch in _GSM7_EXT else 1 for ch in text)
+        single, multi, encoding = 160, 153, "GSM-7"
+    else:
+        units = sum(2 if ord(ch) > 0xFFFF else 1 for ch in text)
+        single, multi, encoding = 70, 67, "UCS-2"
+    segments = 1 if units <= single else math.ceil(units / multi)
+    return {"encoding": encoding, "length": units, "segments": segments, "single_segment_limit": single}
+
+
+def _pick_sms(candidates: Sequence[str]) -> str:
+    """Longest-informative candidate that fits one segment; otherwise the shortest candidate."""
+    for text in candidates:
+        if sms_segments(text)["segments"] == 1:
+            return text
+    return min(candidates, key=lambda t: sms_segments(t)["length"])
+
+
+# ------------------------------------------------------------------ real-data onset analysis
+SEARCH_END_MD = (8, 31)  # latest start day considered for an onset
+TAIL_END_MD = (9, 14)  # extra days so the dry-spell check can look past the search end
+MIN_VALID_FRACTION = 0.95
+MIN_YEARS_PER_PERIOD = 8
+EARLY_YEARS = (2001, 2012)
+GDD_WINDOW_DAYS = 90
+BASE_CONFIG = {"window": 7, "threshold_mm": 20.0, "dry_spell_max": 7, "search_start": (5, 1)}
+MONSOON_LINKED_CROPS = ("rice", "other")  # crops whose planting date is tied to the rainy-season start
+MAX_APPLIED_SHIFT_DAYS = 21
+
+
+def _day_index(record: dict[str, Any], d: date) -> int:
+    return (d - date.fromisoformat(record["start"])).days
+
+
+def _year_rain_slice(record: dict[str, Any], year: int, search_start: tuple[int, int]) -> dict[str, Any]:
+    """Daily rain for [search_start .. Sep 14] of one year and quality flags."""
+    start_d = date(year, *search_start)
+    search_end_d = date(year, *SEARCH_END_MD)
+    tail_end_d = date(year, *TAIL_END_MD)
+    rec_start = date.fromisoformat(record["start"])
+    rec_end = date.fromisoformat(record["end"])
+    if start_d < rec_start or tail_end_d > rec_end:
+        return {"year": year, "status": "incomplete_season"}
+    i0, i1 = _day_index(record, start_d), _day_index(record, tail_end_d)
+    rain = record["series"]["PRECTOTCORR"][i0 : i1 + 1]
+    search_len = (search_end_d - start_d).days + 1
+    valid = sum(1 for v in rain[:search_len] if v is not None)
+    fraction = valid / search_len
+    if fraction < MIN_VALID_FRACTION:
+        return {"year": year, "status": "insufficient_data", "valid_fraction": round(fraction, 3)}
+    return {
+        "year": year,
+        "status": "ok",
+        "start_date": start_d,
+        "rain": rain,
+        "max_start": search_len - 1,
+        "valid_fraction": round(fraction, 3),
+    }
+
+
+def _year_onsets(record: dict[str, Any], years: Sequence[int], cfg: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    out: dict[int, dict[str, Any]] = {}
+    for year in years:
+        sl = _year_rain_slice(record, year, cfg["search_start"])
+        if sl["status"] != "ok":
+            out[year] = {"year": year, "status": sl["status"], **({"valid_fraction": sl["valid_fraction"]} if "valid_fraction" in sl else {})}
+            continue
+        found = find_onset(
+            sl["rain"],
+            window=cfg["window"],
+            threshold_mm=cfg["threshold_mm"],
+            dry_spell_max=cfg["dry_spell_max"],
+            max_start=sl["max_start"],
+        )
+        if found is None:
+            out[year] = {"year": year, "status": "no_onset_found", "valid_fraction": sl["valid_fraction"]}
+            continue
+        onset_date = sl["start_date"] + timedelta(days=found["index"])
+        out[year] = {
+            "year": year,
+            "status": "ok",
+            "onset_date": onset_date,
+            "onset_doy": normalized_doy(onset_date),
+            "window_rain_mm": found["window_rain_mm"],
+            "next_span_max_mm": found["next_span_max_mm"],
+            "valid_fraction": sl["valid_fraction"],
+        }
+    return out
+
+
+def _split_periods(onsets: dict[int, dict[str, Any]], last_year: int) -> tuple[list[dict], list[dict]]:
+    early = [onsets[y] for y in range(EARLY_YEARS[0], EARLY_YEARS[1] + 1) if onsets.get(y, {}).get("status") == "ok"]
+    late = [onsets[y] for y in range(EARLY_YEARS[1] + 1, last_year + 1) if onsets.get(y, {}).get("status") == "ok"]
+    return early, late
+
+
+def _shift_from_onsets(onsets: dict[int, dict[str, Any]], last_year: int) -> dict[str, Any]:
+    early, late = _split_periods(onsets, last_year)
+    if len(early) < 3 or len(late) < 3:
+        return {"shift_days": None, "n_early": len(early), "n_late": len(late)}
+    e = [x["onset_doy"] for x in early]
+    l_ = [x["onset_doy"] for x in late]
+    return {
+        "shift_days": round(hodges_lehmann_shift(e, l_), 1),
+        "mean_early_doy": round(sum(e) / len(e), 1),
+        "mean_late_doy": round(sum(l_) / len(l_), 1),
+        "n_early": len(early),
+        "n_late": len(late),
+    }
+
+
+def _last_complete_year(record: dict[str, Any]) -> int:
+    end = date.fromisoformat(record["end"])
+    tail_end = date(end.year, *TAIL_END_MD)
+    return end.year if end >= tail_end else end.year - 1
+
+
+def _seasonal_water_balance(record: dict[str, Any], last_year: int) -> dict[str, Any]:
+    """Compute Kharif-2 (Jun-Oct) and Rabi (Nov-Mar) rainfall, FAO-56 Hargreaves ET0, and P-ET0
+    comparing 2001-2012 vs 2013-latest from the real NASA POWER daily series."""
+    rec_start = date.fromisoformat(record["start"])
+    rec_end = date.fromisoformat(record["end"])
+    lat_deg = float(record.get("cell", {}).get("center_latitude", 24.0))
+    rain_all = record["series"]["PRECTOTCORR"]
+    tmax_all = record["series"]["T2M_MAX"]
+    tmin_all = record["series"]["T2M_MIN"]
+
+    def _span_metrics(s_date: date, e_date: date) -> dict[str, float] | None:
+        if s_date < rec_start or e_date > rec_end:
+            return None
+        i0, i1 = _day_index(record, s_date), _day_index(record, e_date)
+        n_days = i1 - i0 + 1
+        if n_days <= 0:
+            return None
+        p_vals: list[float] = []
+        et0_vals: list[float] = []
+        for idx in range(i0, i1 + 1):
+            p = rain_all[idx]
+            hi = tmax_all[idx]
+            lo = tmin_all[idx]
+            if p is None or hi is None or lo is None:
+                continue
+            d = s_date + timedelta(days=idx - i0)
+            t_mean = (hi + lo) / 2.0
+            et0 = _hargreaves_et0_mm_day(t_mean, hi, lo, lat_deg=lat_deg, day_of_year=d.timetuple().tm_yday)
+            if et0 is None:
+                continue
+            p_vals.append(float(p))
+            et0_vals.append(float(et0))
+        if len(p_vals) / n_days < MIN_VALID_FRACTION:
+            return None
+        p_daily = sum(p_vals) / len(p_vals)
+        et0_daily = sum(et0_vals) / len(et0_vals)
+        wb_daily = p_daily - et0_daily
+        return {
+            "rain_daily_mm": round(p_daily, 2),
+            "et0_daily_mm": round(et0_daily, 2),
+            "wb_daily_mm": round(wb_daily, 2),
+            "rain_total_mm": round(p_daily * n_days, 1),
+            "et0_total_mm": round(et0_daily * n_days, 1),
+            "wb_total_mm": round(wb_daily * n_days, 1),
+        }
+
+    def _summarize_season(season_key: str, label_en: str, label_bn: str, is_rabi: bool) -> dict[str, Any]:
+        early_rows: list[dict[str, float]] = []
+        late_rows: list[dict[str, float]] = []
+        for y in range(EARLY_YEARS[0], last_year + 1):
+            if is_rabi:
+                # Rabi spans Nov 1 of year y to Mar 31 of year y+1
+                if y + 1 > rec_end.year:
+                    continue
+                s_d, e_d = date(y, 11, 1), date(y + 1, 3, 31)
+            else:
+                # Kharif-2 (Aman) spans Jun 1 to Oct 31 of year y
+                s_d, e_d = date(y, 6, 1), date(y, 10, 31)
+            m = _span_metrics(s_d, e_d)
+            if m is None:
+                continue
+            if y <= EARLY_YEARS[1]:
+                early_rows.append(m)
+            else:
+                late_rows.append(m)
+
+        if len(early_rows) < 3 or len(late_rows) < 3:
+            return {"season": season_key, "label_en": label_en, "label_bn": label_bn, "status": "insufficient_data"}
+
+        def _avg(rows: list[dict[str, float]], k: str) -> float:
+            return round(sum(r[k] for r in rows) / len(rows), 2)
+
+        e_wb = [r["wb_daily_mm"] for r in early_rows]
+        l_wb = [r["wb_daily_mm"] for r in late_rows]
+        hl_wb = round(hodges_lehmann_shift(e_wb, l_wb), 2)
+        ci_wb = bootstrap_shift_ci(e_wb, l_wb, n_boot=500)
+        return {
+            "season": season_key,
+            "label_en": label_en,
+            "label_bn": label_bn,
+            "status": "ok",
+            "period_2001_2012": {
+                "n_years": len(early_rows),
+                "rain_daily_mm": _avg(early_rows, "rain_daily_mm"),
+                "et0_daily_mm": _avg(early_rows, "et0_daily_mm"),
+                "water_balance_daily_mm": _avg(early_rows, "wb_daily_mm"),
+                "water_balance_total_mm": round(_avg(early_rows, "wb_total_mm"), 1),
+            },
+            "period_2013_latest": {
+                "n_years": len(late_rows),
+                "rain_daily_mm": _avg(late_rows, "rain_daily_mm"),
+                "et0_daily_mm": _avg(late_rows, "et0_daily_mm"),
+                "water_balance_daily_mm": _avg(late_rows, "wb_daily_mm"),
+                "water_balance_total_mm": round(_avg(late_rows, "wb_total_mm"), 1),
+            },
+            "shift_daily_mm": hl_wb,
+            "ci_95_daily_mm": {"low": round(ci_wb["low"], 2), "high": round(ci_wb["high"], 2)},
+        }
+
+    return {
+        "method": "FAO-56 Hargreaves-Samani ET0 and NASA POWER PRECTOTCORR daily water balance (P - ET0)",
+        "kharif2_aman": _summarize_season("kharif2_aman", "Kharif-2 / Aman (Jun–Oct)", "খরিফ-২ / আমন (জুন–অক্টোবর)", is_rabi=False),
+        "rabi": _summarize_season("rabi", "Rabi Dry Season (Nov–Mar)", "রবি মৌসুম (নভেম্বর–মার্চ)", is_rabi=True),
+    }
+
+
+_ONSET_CACHE: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+
+def analyze_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Crop-independent onset analysis of one POWER grid-cell record (cached)."""
+    rain_vals = [v for v in record["series"]["PRECTOTCORR"] if v is not None]
+    key = (record["cell"]["id"], record["retrieved_at"], f'{record["end"]}|{len(rain_vals)}|{round(sum(rain_vals), 2)}')
+    if key in _ONSET_CACHE:
+        return _ONSET_CACHE[key]
+
+    last_year = _last_complete_year(record)
+    years = list(range(EARLY_YEARS[0], last_year + 1))
+    base_onsets = _year_onsets(record, years, BASE_CONFIG)
+    early, late = _split_periods(base_onsets, last_year)
+
+    result: dict[str, Any] = {
+        "last_year": last_year,
+        "onsets": base_onsets,
+        "early": early,
+        "late": late,
+        "ok": len(early) >= MIN_YEARS_PER_PERIOD and len(late) >= MIN_YEARS_PER_PERIOD,
+    }
+    if result["ok"]:
+        e = [x["onset_doy"] for x in early]
+        l_ = [x["onset_doy"] for x in late]
+        mw = mann_whitney_u_test(e, l_)
+        hl = hodges_lehmann_shift(e, l_)
+        ci = bootstrap_shift_ci(e, l_)
+        ok_years = [y for y in years if base_onsets[y]["status"] == "ok"]
+        doys = [base_onsets[y]["onset_doy"] for y in ok_years]
+        mk = mann_kendall(doys) if len(doys) >= 4 else None
+        slope = sen_slope(ok_years, doys) if len(doys) >= 4 else None
+        result.update(
+            {
+                "mw": mw,
+                "hl_shift": hl,
+                "mean_diff": sum(l_) / len(l_) - sum(e) / len(e),
+                "mean_early": sum(e) / len(e),
+                "mean_late": sum(l_) / len(l_),
+                "ci": ci,
+                "trend": {
+                    "years_used": len(ok_years),
+                    "mann_kendall": mk,
+                    "sen_slope_days_per_decade": None if slope is None else round(slope * 10.0, 2),
+                },
+                "sensitivity": _sensitivity(record, years, last_year),
+                "seasonal_water_balance": _seasonal_water_balance(record, last_year),
+            }
+        )
+    _ONSET_CACHE[key] = result
+    if len(_ONSET_CACHE) > 128:
+        _ONSET_CACHE.clear()
+        _ONSET_CACHE[key] = result
+    return result
+
+
+def _sensitivity(record: dict[str, Any], years: Sequence[int], last_year: int) -> dict[str, Any]:
+    """Re-run the whole onset analysis with perturbed definitions on the real series."""
+    def run(label: str, **over: Any) -> dict[str, Any]:
+        cfg = {**BASE_CONFIG, **over}
+        s = _shift_from_onsets(_year_onsets(record, years, cfg), last_year)
+        return {"key": label, "threshold_mm": cfg["threshold_mm"], "window_days": cfg["window"],
+                "dry_spell_max_days": cfg["dry_spell_max"], "search_start": f"{cfg['search_start'][0]:02d}-{cfg['search_start'][1]:02d}", **s}
+
+    thresholds = [run("minus_5mm", threshold_mm=15.0), run("base_20mm"), run("plus_5mm", threshold_mm=25.0)]
+    grid: list[dict[str, Any]] = []
+    for w in (5, 7, 10):
+        for d in (5, 7, 10):
+            grid.append(run(f"w{w}_d{d}", window=w, dry_spell_max=d))
+    for start in ((4, 15), (6, 1)):
+        grid.append(run(f"start_{start[0]:02d}{start[1]:02d}", search_start=start))
+    return {"thresholds": thresholds, "grid": grid}
+
+
+def _gdd_for_crop(record: dict[str, Any], crop: dict[str, Any], last_year: int) -> dict[str, Any]:
+    """Real GDD per year from T2M_MAX/T2M_MIN: sum over 90 days from the crop's baseline start, and
+    days needed to reach the crop's GDD target."""
+    base = float(crop["gdd_base_c"])
+    target = float(crop["gdd_target_c_days"])
+    start_md = date(2026, 1, 1) + timedelta(days=int(crop["base_doy_start"]) - 1)
+    rec_start = date.fromisoformat(record["start"])
+    rec_end = date.fromisoformat(record["end"])
+    tmax_all, tmin_all = record["series"]["T2M_MAX"], record["series"]["T2M_MIN"]
+
+    def daily_gdd(idx: int) -> float | None:
+        hi, lo = tmax_all[idx], tmin_all[idx]
+        if hi is None or lo is None:
+            return None
+        return max(0.0, min((hi + lo) / 2.0, 35.0) - base)
+
+    per_year: dict[int, dict[str, Any]] = {}
+    for year in range(EARLY_YEARS[0], last_year + 1):
+        s = date(year, start_md.month, start_md.day)
+        if s < rec_start:
+            continue
+        i0 = _day_index(record, s)
+        window_end = i0 + GDD_WINDOW_DAYS
+        if s + timedelta(days=GDD_WINDOW_DAYS) > rec_end:
+            continue
+        vals = [daily_gdd(i) for i in range(i0, window_end)]
+        valid = [v for v in vals if v is not None]
+        if len(valid) / GDD_WINDOW_DAYS < MIN_VALID_FRACTION:
+            continue
+        entry: dict[str, Any] = {"gdd_90d": round(sum(valid) / len(valid) * GDD_WINDOW_DAYS, 1)}
+        cum, days_to = 0.0, None
+        for k in range(0, 300):
+            idx = i0 + k
+            if idx >= len(tmax_all):
+                break
+            g = daily_gdd(idx)
+            cum += g if g is not None else 0.0
+            if cum >= target:
+                days_to = k + 1
+                break
+        entry["days_to_target"] = days_to
+        per_year[year] = entry
+
+    def mean_of(years: range, key: str) -> float | None:
+        vals = [per_year[y][key] for y in years if y in per_year and per_year[y][key] is not None]
+        return round(sum(vals) / len(vals), 1) if len(vals) >= 3 else None
+
+    early_years = range(EARLY_YEARS[0], EARLY_YEARS[1] + 1)
+    late_years = range(EARLY_YEARS[1] + 1, last_year + 1)
+    return {
+        "per_year": per_year,
+        "gdd_90d_early": mean_of(early_years, "gdd_90d"),
+        "gdd_90d_late": mean_of(late_years, "gdd_90d"),
+        "days_to_target_early": mean_of(early_years, "days_to_target"),
+        "days_to_target_late": mean_of(late_years, "days_to_target"),
+    }
+
+
+# ------------------------------------------------------------------ advisory builder
+def _resolve_district(district_query: str | None, lat: float | None, lon: float | None):
     district_obj = None
     if district_query:
         match = lookup_bangladesh_area(district_query)
@@ -413,161 +664,365 @@ def build_planting_window_advisory(
     if district_obj is None and lat is not None and lon is not None:
         district_obj, _ = nearest_bangladesh_district(lat, lon)
     if district_obj is None:
-        # Default to Rajshahi for the Challenge 07 Killer Demo
-        district_obj = next(d for d in DISTRICTS if d.id == "rajshahi")
+        district_obj = next(d for d in DISTRICTS if d.id == "rajshahi")  # documented default demo district
+    return district_obj
 
+
+def _resolve_crop(crop_query: str | None) -> str:
     raw_crop = (crop_query or "rice").strip().lower()
     if raw_crop in ("aman", "boro", "aus", "paddy", "ধান", "আমন"):
-        crop_key = "rice"
-    elif raw_crop in CROP_SPECS:
-        crop_key = raw_crop
-    else:
-        crop_key = "rice"
+        return "rice"
+    return raw_crop if raw_crop in CROP_SPECS else "rice"
 
+
+def _shared_districts(cell_id: str, own_id: str) -> list[str]:
+    names: list[str] = []
+    for d in DISTRICTS:
+        if d.id != own_id and grid_cell(d.latitude, d.longitude)["id"] == cell_id:
+            names.append(d.name_en)
+    return names
+
+
+_EVIDENCE_TYPES = {
+    "onset_dates": "derived_from_nasa",
+    "shift_statistics": "derived_from_nasa",
+    "gdd": "derived_from_nasa",
+    "seasonal_water_balance": "derived_from_nasa",
+    "baseline_window": "official_local_reference",
+    "recommended_window": "rule_based",
+    "crop_gdd_targets": "preliminary_estimate",
+}
+
+_LIMITATIONS_EN = [
+    "NASA POWER precipitation is gridded (0.5° × 0.625°, roughly 50 km); neighbouring districts can share one cell and a field gauge may differ.",
+    "The record is short (about 25 seasons); a two-period comparison of 12 and 14 years has limited statistical power.",
+    "The onset definition is one of many; results are reported for several definitions, not only this one.",
+    "A one-for-one carry-over of the onset shift to transplanting dates is a planning assumption, not a measured response. Confirm with DAE (16123).",
+    "NASA POWER data lag real time by about a week. This is near-real-time context, not a forecast.",
+]
+
+
+def _unavailable(district_obj, crop, history: dict[str, Any], cell: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": "UNAVAILABLE",
+        "data_origin": "unavailable",
+        "reason": history.get("reason", "no_data"),
+        "message": history.get("message", "Real NASA POWER data could not be loaded."),
+        "district": _district_block(district_obj),
+        "crop": _crop_block(crop),
+        "grid_cell": cell,
+        "limitations": _LIMITATIONS_EN,
+        "provenance": {"datasets": [], "note": "No numbers are shown because no verified NASA POWER data was available."},
+    }
+
+
+def _district_block(d) -> dict[str, Any]:
+    return {
+        "id": d.id, "name_en": d.name_en, "name_bn": d.name_bn,
+        "division_en": d.division_en, "division_bn": d.division_bn,
+        "latitude": d.latitude, "longitude": d.longitude,
+        "landform_en": d.landform_en, "landform_bn": d.landform_bn,
+    }
+
+
+def _crop_block(crop: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": crop["id"], "name_en": crop["name_en"], "name_bn": crop["name_bn"],
+        "action_word_en": crop["action_word_en"], "action_word_bn": crop["action_word_bn"],
+        "gdd_base_temp_c": crop["gdd_base_c"], "gdd_target_c_days": crop["gdd_target_c_days"],
+    }
+
+
+def build_planting_window_advisory(
+    district_query: str | None = None,
+    crop_query: str | None = None,
+    *,
+    lat: float | None = None,
+    lon: float | None = None,
+    history: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Planting-window advisory computed from real NASA POWER history.
+
+    `history` lets tests inject a loader result; production code leaves it None.
+    """
+    district_obj = _resolve_district(district_query, lat, lon)
+    crop_key = _resolve_crop(crop_query)
     crop = CROP_SPECS[crop_key]
-    early_doy, late_doy, gdd_early, gdd_late = _district_shift_profile(
-        district_obj.id, district_obj.division_en, crop_key
-    )
 
-    mean_early = round(sum(early_doy) / len(early_doy), 1)
-    mean_late = round(sum(late_doy) / len(late_doy), 1)
-    shift_days = int(round(mean_late - mean_early))
+    point_lat = lat if lat is not None else district_obj.latitude
+    point_lon = lon if lon is not None else district_obj.longitude
+    cell = grid_cell(point_lat, point_lon)
+    if history is None:
+        history = load_history(point_lat, point_lon)
+    if history.get("status") != "available":
+        return _unavailable(district_obj, crop, history, cell)
 
-    mw = mann_whitney_u_test(early_doy, late_doy)
+    record = history["record"]
+    analysis = analyze_record(record)
+    if not analysis["ok"]:
+        out = _unavailable(district_obj, crop, {
+            "reason": "insufficient_valid_years",
+            "message": (f"Only {len(analysis['early'])} early and {len(analysis['late'])} late seasons had complete rainfall "
+                        f"and a detectable onset; at least {MIN_YEARS_PER_PERIOD} are required in each period."),
+        }, cell)
+        out["status"] = "INSUFFICIENT_DATA"
+        out["data_origin"] = history.get("data_origin", "nasa_power_snapshot")
+        return out
 
-    # Synthesize daily series from April 1 (DOY 91) to verify rain_onset & ±5 mm sensitivity
-    season_origin_doy = 91
-    early_series = [
-        _synthesize_daily_rainfall_for_onset(doy - season_origin_doy, total_days=140, seed_offset=idx)
-        for idx, doy in enumerate(early_doy)
-    ]
-    late_series = [
-        _synthesize_daily_rainfall_for_onset(doy - season_origin_doy, total_days=140, seed_offset=idx + 20)
-        for idx, doy in enumerate(late_doy)
-    ]
-    sensitivity = onset_sensitivity_check(early_series, late_series, base_threshold_mm=20.0, delta_mm=5.0)
+    last_year = analysis["last_year"]
+    early, late = analysis["early"], analysis["late"]
+    mw, hl, ci = analysis["mw"], analysis["hl_shift"], analysis["ci"]
+    mean_early, mean_late = round(analysis["mean_early"], 1), round(analysis["mean_late"], 1)
+    mean_diff = float(analysis["mean_diff"])
+    hl_rounded = int(math.floor(hl + 0.5)) if hl >= 0 else -int(math.floor(-hl + 0.5))
+    mean_rounded = int(math.floor(mean_diff + 0.5)) if mean_diff >= 0 else -int(math.floor(-mean_diff + 0.5))
+    shift_days = hl_rounded if hl_rounded != 0 else mean_rounded
+    significant = bool(mw["significant_at_0_05"]) and shift_days != 0
+    applies = crop_key in MONSOON_LINKED_CROPS
+    applied_shift = 0
+    if significant and applies:
+        applied_shift = max(-MAX_APPLIED_SHIFT_DAYS, min(MAX_APPLIED_SHIFT_DAYS, shift_days))
 
-    rev_start_doy = crop["base_doy_start"] + shift_days
-    rev_end_doy = crop["base_doy_end"] + shift_days
-    revised_window_en = f"{_doy_to_label(rev_start_doy, 'en')} – {_doy_to_label(rev_end_doy, 'en')}"
-    revised_window_bn = f"{_doy_to_label(rev_start_doy, 'bn')} – {_doy_to_label(rev_end_doy, 'bn')}"
+    rev_start = crop["base_doy_start"] + applied_shift
+    rev_end = crop["base_doy_end"] + applied_shift
+    baseline_en = _window_label(crop["base_doy_start"], crop["base_doy_end"], "en")
+    baseline_bn = _window_label(crop["base_doy_start"], crop["base_doy_end"], "bn")
+    revised_en = _window_label(rev_start, rev_end, "en")
+    revised_bn = _window_label(rev_start, rev_end, "bn")
 
-    bn_digits = str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯")
-    shift_bn = str(abs(shift_days)).translate(bn_digits)
+    ci_lo, ci_hi = int(math.floor(ci["low"])), int(math.ceil(ci["high"]))
+    p_en = f"p = {mw['p_value']:.4f}" if mw["p_value"] >= 0.0001 else "p < 0.0001"
+    p_bn = _bn(p_en).replace("p =", "p =")
     direction_en = "later" if shift_days >= 0 else "earlier"
-    direction_bn = "পিছিয়েছে" if shift_days >= 0 else "এগিয়েছে"
+    direction_bn = "দেরিতে" if shift_days >= 0 else "আগে"
+    name_en, name_bn = district_obj.name_en, district_obj.name_bn
+    crop_en, crop_bn = crop["name_en"], crop["name_bn"]
+    act_en, act_bn = crop["action_word_en"], crop["action_word_bn"]
 
-    advisory_sentence_en = (
-        f"In {district_obj.name_en}, usable-rain onset has shifted {abs(shift_days)} days {direction_en} since 2001 "
-        f"(2001–2012 mean {_doy_to_label(int(round(mean_early)), 'en')} vs. 2013–2025 mean {_doy_to_label(int(round(mean_late)), 'en')}, "
-        f"Mann-Whitney p = {mw['p_value']:.4f}); shift {crop['name_en']} {crop['action_word_en']} to {revised_window_en}."
-    )
-    advisory_sentence_bn = (
-        f"{district_obj.name_bn} জেলায় ২০০১ সালের তুলনায় কার্যকর বৃষ্টির শুরু {shift_bn} দিন {direction_bn} "
-        f"(২০০১–২০১২ গড় {_doy_to_label(int(round(mean_early)), 'bn')} বনাম ২০১৩–২০২৫ গড় {_doy_to_label(int(round(mean_late)), 'bn')}); "
-        f"তাই {crop['name_bn']} {crop['action_word_bn']}ের সময় {revised_window_bn}-এ সমন্বয় করুন।"
-    )
+    if significant and applies:
+        kind = "shift_applied"
+        sentence_en = (
+            f"In {name_en}, usable-rain onset in 2013–{last_year} came about {abs(shift_days)} days {direction_en} than in 2001–2012 "
+            f"(95% CI {ci_lo:+d} to {ci_hi:+d} days; Mann-Whitney {p_en}). Suggested {crop_en} {act_en} window: "
+            f"{revised_en} (BAMIS baseline {baseline_en}). Verify with DAE 16123."
+        )
+        sentence_bn = (
+            f"{name_bn} জেলায় ২০০১–২০১২ সালের তুলনায় ২০১৩–{_bn(last_year)} সালে কার্যকর বৃষ্টির শুরু প্রায় {_bn(abs(shift_days))} দিন {direction_bn} হয়েছে "
+            f"(৯৫% আস্থা-ব্যবধান {_bn(f'{ci_lo:+d}')} থেকে {_bn(f'{ci_hi:+d}')} দিন; {p_bn})। {crop_bn} {act_bn}ের প্রস্তাবিত সময় "
+            f"{revised_bn} (BAMIS ভিত্তি: {baseline_bn})। ১৬১২৩ নম্বরে যাচাই করুন।"
+        )
+    elif significant and not applies:
+        kind = "context_only"
+        sentence_en = (
+            f"In {name_en}, usable-rain onset in 2013–{last_year} came about {abs(shift_days)} days {direction_en} than in 2001–2012 "
+            f"(95% CI {ci_lo:+d} to {ci_hi:+d} days; {p_en}). This is shown as context only: {crop_en} {act_en} stays on the BAMIS window {baseline_en}."
+        )
+        sentence_bn = (
+            f"{name_bn} জেলায় ২০০১–২০১২ সালের তুলনায় ২০১৩–{_bn(last_year)} সালে কার্যকর বৃষ্টির শুরু প্রায় {_bn(abs(shift_days))} দিন {direction_bn} হয়েছে "
+            f"(৯৫% আস্থা-ব্যবধান {_bn(f'{ci_lo:+d}')} থেকে {_bn(f'{ci_hi:+d}')} দিন; {p_bn})। এটি শুধু প্রসঙ্গ হিসেবে দেওয়া হলো; "
+            f"{crop_bn} {act_bn}ের সময় BAMIS-এর {baseline_bn}-ই থাকছে।"
+        )
+    else:
+        kind = "no_reliable_shift"
+        sentence_en = (
+            f"In {name_en}, no reliable shift in usable-rain onset was detected between 2001–2012 and 2013–{last_year} "
+            f"(estimate {shift_days:+d} days, 95% CI {ci_lo:+d} to {ci_hi:+d}; Mann-Whitney {p_en}). "
+            f"Keep the BAMIS {crop_en} {act_en} window {baseline_en}."
+        )
+        sentence_bn = (
+            f"{name_bn} জেলায় ২০০১–২০১২ ও ২০১৩–{_bn(last_year)} সময়ের মধ্যে কার্যকর বৃষ্টির শুরুতে নির্ভরযোগ্য কোনো পরিবর্তন পাওয়া যায়নি "
+            f"(আনুমানিক {_bn(f'{shift_days:+d}')} দিন, ৯৫% আস্থা-ব্যবধান {_bn(f'{ci_lo:+d}')} থেকে {_bn(f'{ci_hi:+d}')}; {p_bn})। "
+            f"{crop_bn} {act_bn}ের জন্য BAMIS-এর সময় {baseline_bn} অনুসরণ করুন।"
+        )
 
-    sms_en = (
-        f"BoponX {district_obj.name_en}: Usable rain shifted +{abs(shift_days)}d since 2001. "
-        f"Recommended {crop['short_en']} {crop['action_word_en']}: {revised_window_en}. Verify: DAE 16123"
-    )[:160]
-    sms_bn = (
-        f"BoponX {district_obj.name_bn}: ২০০১ থেকে কার্যকর বৃষ্টি {shift_bn} দিন পিছিয়েছে। "
-        f"{crop['short_bn']} {crop['action_word_bn']}: {revised_window_bn}। পরামর্শ: ১৬১২৩"
-    )[:160]
+    # SMS: ASCII hyphens keep English in GSM-7; Bangla is UCS-2 (70 per segment), so it is kept short.
+    ws_en = _window_label(rev_start, rev_end, "en", ascii_only=True)
+    ws_bn = _window_label(rev_start, rev_end, "bn", ascii_only=True)
+    if kind == "shift_applied":
+        sms_en_c = [
+            f"BoponX {name_en}: usable rain {shift_days:+d}d vs 2001-12. {crop['short_en']} {act_en}: {ws_en}. Verify: DAE 16123",
+            f"{name_en}: rain onset {shift_days:+d}d. {crop['short_en']} {act_en}: {ws_en}. DAE 16123",
+        ]
+        sms_bn_c = [
+            f"{name_bn}: বৃষ্টি {_bn(abs(shift_days))} দিন {direction_bn}। {crop['short_bn']} {act_bn}: {ws_bn}। ১৬১২৩",
+            f"{name_bn}: বৃষ্টি {_bn(abs(shift_days))} দিন {direction_bn}। {crop['short_bn']} {ws_bn}। ১৬১২৩",
+            f"{name_bn}: {crop['short_bn']} {act_bn} {ws_bn}। ১৬১২৩",
+        ]
+    elif kind == "context_only":
+        sms_en_c = [
+            f"BoponX {name_en}: rain onset {shift_days:+d}d vs 2001-12 (context). {crop['short_en']} {act_en} stays {ws_en}. DAE 16123",
+            f"{name_en}: {crop['short_en']} {act_en} stays {ws_en}. DAE 16123",
+        ]
+        sms_bn_c = [
+            f"{name_bn}: {crop['short_bn']} {act_bn} {ws_bn}। ১৬১২৩",
+            f"{name_bn}: {crop['short_bn']} {ws_bn}। ১৬১২৩",
+        ]
+    else:
+        sms_en_c = [
+            f"BoponX {name_en}: no reliable rain-onset shift found. Keep {crop['short_en']} {act_en}: {ws_en}. Verify: DAE 16123",
+            f"{name_en}: no reliable shift. Keep {crop['short_en']} {act_en}: {ws_en}. DAE 16123",
+        ]
+        sms_bn_c = [
+            f"{name_bn}: বৃষ্টির শুরুতে নির্ভরযোগ্য পরিবর্তন নেই। {crop['short_bn']} {act_bn}: {ws_bn}। ১৬১২৩",
+            f"{name_bn}: পরিবর্তন নেই। {crop['short_bn']} {ws_bn}। ১৬১২৩",
+        ]
+    sms_en, sms_bn = _pick_sms(sms_en_c), _pick_sms(sms_bn_c)
+    seg_en, seg_bn = sms_segments(sms_en), sms_segments(sms_bn)
 
-    years_2001_2012 = [
-        {"year": 2001 + i, "onset_doy": d, "onset_date_label": _doy_to_label(d, "en")}
-        for i, d in enumerate(early_doy)
-    ]
-    years_2013_2025 = [
-        {"year": 2013 + i, "onset_doy": d, "onset_date_label": _doy_to_label(d, "en")}
-        for i, d in enumerate(late_doy)
+    # GDD from real temperatures
+    gdd = _gdd_for_crop(record, crop, last_year)
+    g_e, g_l = gdd["gdd_90d_early"], gdd["gdd_90d_late"]
+    d_e, d_l = gdd["days_to_target_early"], gdd["days_to_target_late"]
+    if g_e is not None and g_l is not None:
+        gdd_delta = round(g_l - g_e, 1)
+        gdd_note_en = (
+            f"Real NASA POWER temperatures, base {crop['gdd_base_c']:.0f}°C: {GDD_WINDOW_DAYS}-day GDD from the baseline planting start averaged "
+            f"{g_e:.0f} °C·days in 2001–2012 and {g_l:.0f} in 2013–{last_year} ({gdd_delta:+.0f})."
+            + (f" Days to reach the preliminary crop target: {d_e:.0f} vs {d_l:.0f}." if d_e is not None and d_l is not None else "")
+        )
+        gdd_note_bn = (
+            f"NASA POWER-এর প্রকৃত তাপমাত্রা (ভিত্তি {crop['gdd_base_c']:.0f}°C): বপন/রোপণের ভিত্তি তারিখ থেকে {_bn(GDD_WINDOW_DAYS)} দিনের GDD গড়ে "
+            f"২০০১–২০১২ সালে {_bn(round(g_e))} এবং ২০১৩–{_bn(last_year)} সালে {_bn(round(g_l))} °C·দিন ({_bn(f'{gdd_delta:+.0f}')})।"
+        )
+    else:
+        gdd_delta = None
+        gdd_note_en = "GDD could not be computed: too few years with complete temperature data."
+        gdd_note_bn = "GDD হিসাব করা যায়নি: পর্যাপ্ত বছরের সম্পূর্ণ তাপমাত্রার তথ্য নেই।"
+
+    # sensitivity block (keeps old keys; adds grid)
+    sens = analysis["sensitivity"]
+    thr = sens["thresholds"]
+    thr_shifts = [t["shift_days"] for t in thr if t["shift_days"] is not None]
+    all_shifts = [t["shift_days"] for t in sens["grid"] + thr if t["shift_days"] is not None]
+    thr_rounded = [int(round(x)) for x in thr_shifts]
+    thr_var = (max(thr_rounded) - min(thr_rounded)) if len(thr_rounded) == 3 else None
+    is_stable = thr_var is not None and thr_var <= 2
+    for t in thr:
+        t["shift_days"] = None if t["shift_days"] is None else int(round(t["shift_days"]))
+    sign_consistent = bool(all_shifts) and (all(s > 0 for s in all_shifts) or all(s < 0 for s in all_shifts))
+    sensitivity = {
+        "window_days": 7,
+        "dry_spell_max_days": 7,
+        "thresholds": thr,
+        "max_shift_variation_days": thr_var,
+        "is_stable": bool(is_stable),
+        "grid": sens["grid"],
+        "grid_shift_range_days": [min(all_shifts), max(all_shifts)] if all_shifts else None,
+        "grid_sign_consistent": sign_consistent,
+        "stability_note_en": (
+            f"Shift across 15/20/25 mm thresholds: {min(thr_rounded):+d} to {max(thr_rounded):+d} days; across {len(sens['grid'])} further "
+            f"definition variants (window, dry-spell, search start): {min(all_shifts):+.0f} to {max(all_shifts):+.0f} days."
+            if thr_rounded and all_shifts else "Sensitivity could not be computed for this record."
+        ),
+        "stability_note_bn": (
+            f"১৫/২০/২৫ মিমি সীমায় পরিবর্তন {_bn(f'{min(thr_rounded):+d}')} থেকে {_bn(f'{max(thr_rounded):+d}')} দিন; আরও {_bn(len(sens['grid']))}টি সংজ্ঞা-বৈচিত্র্যে "
+            f"{_bn(f'{min(all_shifts):+.0f}')} থেকে {_bn(f'{max(all_shifts):+.0f}')} দিন।"
+            if thr_rounded and all_shifts else "এই তথ্যের জন্য সংবেদনশীলতা পরীক্ষা করা যায়নি।"
+        ),
+    }
+
+    onsets = analysis["onsets"]
+    ok_years = [y for y in sorted(onsets) if onsets[y]["status"] == "ok"]
+    excluded = [{"year": y, "reason": onsets[y]["status"]} for y in sorted(onsets) if onsets[y]["status"] != "ok"]
+
+    def period_block(label: str, rows: list[dict[str, Any]], mean_doy: float) -> dict[str, Any]:
+        doys = [r["onset_doy"] for r in rows]
+        return {
+            "label": label,
+            "years": [r["year"] for r in rows],
+            "onset_doy_values": doys,
+            "mean_onset_doy": round(mean_doy, 1),
+            "mean_onset_label_en": _doy_to_label(int(round(mean_doy)), "en"),
+            "mean_onset_label_bn": _doy_to_label(int(round(mean_doy)), "bn"),
+            "min_onset_doy": min(doys),
+            "max_onset_doy": max(doys),
+            "records": [{"year": r["year"], "onset_doy": r["onset_doy"], "onset_date_label": _doy_to_label(r["onset_doy"], "en")} for r in rows],
+        }
+
+    yearly_evidence = [
+        {"year": y, "onset_date": onsets[y]["onset_date"].isoformat(), "onset_doy": onsets[y]["onset_doy"],
+         "window_rain_mm": onsets[y]["window_rain_mm"], "max_day_in_next_7_mm": onsets[y]["next_span_max_mm"]}
+        for y in ok_years
     ]
 
     return {
         "status": "ADVISORY_READY",
-        "district": {
-            "id": district_obj.id,
-            "name_en": district_obj.name_en,
-            "name_bn": district_obj.name_bn,
-            "division_en": district_obj.division_en,
-            "division_bn": district_obj.division_bn,
-            "latitude": district_obj.latitude,
-            "longitude": district_obj.longitude,
-            "landform_en": district_obj.landform_en,
-            "landform_bn": district_obj.landform_bn,
-        },
-        "crop": {
-            "id": crop["id"],
-            "name_en": crop["name_en"],
-            "name_bn": crop["name_bn"],
-            "action_word_en": crop["action_word_en"],
-            "action_word_bn": crop["action_word_bn"],
-            "gdd_base_temp_c": crop["gdd_base_c"],
-            "gdd_target_c_days": crop["gdd_target_c_days"],
-        },
+        "data_origin": history.get("data_origin", "nasa_power_snapshot"),
+        "advisory_kind": kind,
+        "district": _district_block(district_obj),
+        "crop": _crop_block(crop),
+        "grid_cell": cell,
+        "shared_with": _shared_districts(cell["id"], district_obj.id),
+        "data_through": record["end"],
+        "retrieved_at": record["retrieved_at"],
+        "lag_days": (date.today() - date.fromisoformat(record["end"])).days,
         "shift_days": shift_days,
-        "baseline_window": {
-            "en": crop["baseline_window_en"],
-            "bn": crop["baseline_window_bn"],
+        "shift": {
+            "estimate_days": round(hl, 1),
+            "estimator": "Hodges-Lehmann median of pairwise differences (robust)",
+            "mean_difference_days": round(analysis["mean_diff"], 1),
+            "ci_95_days": {"low": round(ci["low"], 1), "high": round(ci["high"], 1), "n_boot": ci["n_boot"], "seed": ci["seed"]},
+            "reliable": significant,
+            "applied_shift_days": applied_shift,
+            "window_adjustment_applies_to_crop": applies,
+            "max_applied_shift_days": MAX_APPLIED_SHIFT_DAYS,
         },
-        "recommended_window": {
-            "en": revised_window_en,
-            "bn": revised_window_bn,
-        },
-        "advisory_sentence": {
-            "en": advisory_sentence_en,
-            "bn": advisory_sentence_bn,
-        },
+        "baseline_window": {"en": baseline_en, "bn": baseline_bn},
+        "recommended_window": {"en": revised_en, "bn": revised_bn},
+        "advisory_sentence": {"en": sentence_en, "bn": sentence_bn},
         "sms_advisory": {
             "en": sms_en,
             "bn": sms_bn,
-            "char_count_en": len(sms_en),
-            "char_count_bn": len(sms_bn),
+            "char_count_en": seg_en["length"],
+            "char_count_bn": seg_bn["length"],
             "max_chars": 160,
+            "max_chars_en": seg_en["single_segment_limit"],
+            "max_chars_bn": seg_bn["single_segment_limit"],
+            "encoding_en": seg_en["encoding"],
+            "encoding_bn": seg_bn["encoding"],
+            "segments_en": seg_en["segments"],
+            "segments_bn": seg_bn["segments"],
         },
         "distributions": {
-            "period_2001_2012": {
-                "label": "2001–2012",
-                "years": list(range(2001, 2013)),
-                "onset_doy_values": early_doy,
-                "mean_onset_doy": mean_early,
-                "mean_onset_label_en": _doy_to_label(int(round(mean_early)), "en"),
-                "mean_onset_label_bn": _doy_to_label(int(round(mean_early)), "bn"),
-                "min_onset_doy": min(early_doy),
-                "max_onset_doy": max(early_doy),
-                "records": years_2001_2012,
-            },
-            "period_2013_2025": {
-                "label": "2013–2025",
-                "years": list(range(2013, 2026)),
-                "onset_doy_values": late_doy,
-                "mean_onset_doy": mean_late,
-                "mean_onset_label_en": _doy_to_label(int(round(mean_late)), "en"),
-                "mean_onset_label_bn": _doy_to_label(int(round(mean_late)), "bn"),
-                "min_onset_doy": min(late_doy),
-                "max_onset_doy": max(late_doy),
-                "records": years_2013_2025,
-            },
+            "period_2001_2012": period_block("2001–2012", early, mean_early),
+            "period_2013_2025": period_block(f"2013–{last_year}", late, mean_late),
         },
         "mann_whitney_test": mw,
+        "trend": analysis["trend"],
         "gdd_summary": {
             "base_temp_c": crop["gdd_base_c"],
-            "period_2001_2012_seasonal_gdd": gdd_early,
-            "period_2013_2025_seasonal_gdd": gdd_late,
-            "gdd_delta_c_days": round(gdd_late - gdd_early, 1),
-            "note_en": (
-                f"Accumulated above base {crop['gdd_base_c']:.0f}°C; warmer post-2013 temperatures add "
-                f"+{gdd_late - gdd_early:.0f} °C·days over the growing window, accelerating maturity by ~4–6 days."
+            "window_days": GDD_WINDOW_DAYS,
+            "period_2001_2012_seasonal_gdd": g_e,
+            "period_2013_2025_seasonal_gdd": g_l,
+            "gdd_delta_c_days": gdd_delta,
+            "days_to_target_2001_2012": d_e,
+            "days_to_target_2013_latest": d_l,
+            "note_en": gdd_note_en,
+            "note_bn": gdd_note_bn,
+        },
+        "seasonal_water_balance": analysis.get("seasonal_water_balance"),
+        "sensitivity_check": sensitivity,
+        "data_quality": {
+            "min_valid_fraction_required": MIN_VALID_FRACTION,
+            "years_used": len(ok_years),
+            "years_excluded": excluded,
+            "season_search_window": "from 01 May to 31 Aug (start varied in sensitivity grid)",
+            "missing_values_policy": "never imputed; candidate windows containing a missing day are skipped",
+        },
+        "yearly_evidence": yearly_evidence,
+        "how_computed": {
+            "en": (
+                "For each year, daily NASA POWER PRECTOTCORR is scanned from 01 May. The onset is the first start day whose 7-day total is at least 20 mm "
+                "and that is followed by at least one day above 1.0 mm in the next 7 days (candidate windows with any missing day are skipped, never imputed). "
+                "2001–2012 and 2013–latest onsets are compared with a Mann-Whitney U test; the shift is the Hodges-Lehmann median difference with a seeded "
+                "bootstrap 95% interval. A Mann-Kendall test and Sen slope on all years check the trend."
             ),
-            "note_bn": (
-                f"ভিত্তি তাপমাত্রা {crop['gdd_base_c']:.0f}°C ধরে ২০১৩–২০২৫ মেয়াদে ক্রমপুঞ্জিত তাপমাত্রা (GDD) "
-                f"+{gdd_late - gdd_early:.0f} °C·দিন বেড়েছে, যা ফসলের পরিপক্বতা ৪–৬ দিন এগিয়ে আনে।"
+            "bn": (
+                "প্রতি বছর ১ মে থেকে NASA POWER-এর দৈনিক বৃষ্টি (PRECTOTCORR) দেখা হয়। টানা ৭ দিনে অন্তত ২০ মিমি এবং পরের ৭ দিনে অন্তত একদিন ১ মিমির বেশি বৃষ্টি হলে "
+                "প্রথম দিনটিই কার্যকর বৃষ্টির শুরু (কোনো দিনে তথ্য না থাকলে সেই উইন্ডো বাদ দেওয়া হয়, কখনো অনুমান করা হয় না)। ২০০১–২০১২ ও ২০১৩–সর্বশেষ বছরের শুরুর তারিখ "
+                "Mann-Whitney U পরীক্ষায় তুলনা করা হয়; পরিবর্তনের পরিমাণ Hodges-Lehmann মধ্যমা ও ৯৫% bootstrap ব্যবধানে দেওয়া হয়।"
             ),
         },
-        "sensitivity_check": sensitivity,
         "assumptions": {
             "onset_definition_en": ONSET_DEFINITION_EN,
             "onset_definition_bn": ONSET_DEFINITION_BN,
@@ -575,30 +1030,26 @@ def build_planting_window_advisory(
             "threshold_mm": 20.0,
             "dry_spell_max_days": 7,
             "gdd_base_temp_c": crop["gdd_base_c"],
-            "statistical_test": "Two-sided Mann-Whitney U test (2001–2012 vs. 2013–2025)",
+            "statistical_test": f"Two-sided Mann-Whitney U test (2001–2012 vs. 2013–{last_year}); trend: Mann-Kendall + Sen slope",
+            "transplanting_follows_onset": "Planning assumption: transplanting dates move one-for-one with the onset shift, only when significant (p < 0.05), capped at ±21 days.",
         },
+        "evidence_types": _EVIDENCE_TYPES,
+        "limitations": _LIMITATIONS_EN,
         "provenance": {
             "datasets": [
                 {
-                    "name": "NASA POWER Agroclimatology Daily (PRECTOTCORR, T2M, T2M_MAX, T2M_MIN, ALLSKY_SFC_SW_DWN)",
+                    "name": "NASA POWER Agroclimatology Daily (PRECTOTCORR, T2M_MAX, T2M_MIN), community AG",
                     "url": "https://power.larc.nasa.gov/docs/services/api/temporal/daily/",
+                    "role": "computed: onset dates, shift statistics, GDD, seasonal P-ET0 water balance",
+                    "request_url": record.get("source_request_url"),
+                    "retrieved_at": record["retrieved_at"],
                 },
                 {
-                    "name": "GPM IMERG Precipitation V07B",
-                    "url": "https://gpm.nasa.gov/data/directory",
-                },
-                {
-                    "name": "NASA SMAP L3 Root-Zone & Surface Soil Moisture",
-                    "url": "https://nsidc.org/data/spl3smp_e/versions/6",
-                },
-                {
-                    "name": "MODIS Terra NDVI 8-Day (MOD13Q1 / GIBS)",
-                    "url": "https://worldview.earthdata.nasa.gov/",
-                },
-                {
-                    "name": "BAMIS Regional Crop-Weather Calendars & DAE Bangladesh",
+                    "name": "BAMIS regional crop calendar (baseline planting windows)",
                     "url": "https://www.bamis.gov.bd/",
+                    "role": "official local reference: baseline window only",
                 },
             ],
+            "map_layers_not_used_in_this_calculation": ["GPM IMERG", "SMAP", "MODIS (visual GIBS layers)"],
         },
     }

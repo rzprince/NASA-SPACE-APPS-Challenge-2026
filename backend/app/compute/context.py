@@ -9,6 +9,7 @@ until a country adapter is added.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
 from typing import Any
 
@@ -17,6 +18,9 @@ from backend.app.compute.bangladesh_districts import (
     nearest_bangladesh_district,
     serialize_district,
 )
+from backend.app.compute.soil_evidence import build_soil_evidence_model
+from backend.app.services.imerg_check import get_imerg_crosscheck_status
+from backend.app.services.provenance import build_centralized_provenance_registry
 
 BANGLADESH_BOUNDS = {"south": 20.5, "north": 26.75, "west": 88.0, "east": 92.8}
 
@@ -126,7 +130,7 @@ MULTI_RESOLUTION_HARMONIZATION: dict[str, Any] = {
         "তবে স্যাটেলাইট গ্রিডকে কখনোই মাঠের মাটি পরীক্ষার বিকল্প হিসেবে ধরে না।"
     ),
     "layers": [
-        {"layer": "NASA POWER Daily & Climatology", "spatial_scale": "0.5° × 0.625° (~50 km)", "temporal_scale": "Daily (14d) & Monthly (2001–2020)", "role": "Active: Temp, rain, solar, dew/frost, GWETTOP (0–5cm) & GWETROOT (0–100cm)"},
+        {"layer": "NASA POWER Daily & Climatology", "spatial_scale": "0.5° × 0.625° (~50 km)", "temporal_scale": "Live 2026 Daily (14d) & Multi-Year Climatology", "role": "Active: Temp, rain, solar, dew/frost, GWETTOP (0–5cm) & GWETROOT (0–100cm)"},
         {"layer": "GPM IMERG Early V07B", "spatial_scale": "0.1° (~10 km)", "temporal_scale": "Near-real-time (~4h latency)", "role": "Active: Spatial precipitation distribution & extreme rain context"},
         {"layer": "SMAP SPL3SMP_E V6", "spatial_scale": "9 km EASE-Grid", "temporal_scale": "Daily multi-date", "role": "Active: Top-5 cm regional soil moisture context (not pH/nutrients)"},
         {"layer": "MODIS Terra / Landsat Reflectance & NDVI", "spatial_scale": "30 m – 1 km", "temporal_scale": "Daily / 8-day composite", "role": "Active GIBS visual layer & bare-field / canopy NDVI stress detection"},
@@ -337,6 +341,10 @@ def build_context(lat: float, lon: float) -> dict[str, Any]:
         local_status = "country_adapter_required"
 
     return {
+        "status": "available",
+        "data_origin": "static_verified_registry",
+        "retrieved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "lag_days": 0,
         "coordinates": {"latitude": round(lat, 5), "longitude": round(lon, 5)},
         "within_bangladesh": inside,
         "global_environmental_coverage": True,
@@ -350,6 +358,11 @@ def build_context(lat: float, lon: float) -> dict[str, Any]:
         "calendar_evidence": calendars,
         "agricultural_sources": agricultural_sources,
         "nasa_sources": [dict(source) for source in NASA_SOURCES],
+        "imerg_crosscheck": get_imerg_crosscheck_status(lat, lon),
+        "soil_evidence": build_soil_evidence_model(district_payload),
+        "nasa_provenance": build_centralized_provenance_registry(
+            lat, lon, imerg_status=get_imerg_crosscheck_status(lat, lon)
+        ),
         "multi_resolution_harmonization": MULTI_RESOLUTION_HARMONIZATION,
         "scientific_glossary": list(SCIENTIFIC_GLOSSARY),
         "functional_crop_roles": list(FUNCTIONAL_CROP_ROLES),

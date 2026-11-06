@@ -5,7 +5,7 @@ import json
 import os
 import math
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -18,6 +18,13 @@ MISSING_SENTINEL = -999.0
 
 _POWER_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _CACHE_TTL_SEC = 1800.0
+
+
+def _is_offline() -> bool:
+    return (
+        os.getenv("OFFLINE", "").strip().lower() in ("1", "true", "yes")
+        or os.getenv("BOPONX_OFFLINE", "").strip().lower() in ("1", "true", "yes")
+    )
 
 
 def _cache_get(key: str) -> dict[str, Any] | None:
@@ -80,7 +87,18 @@ def _vapor_pressure_deficit_kpa(t_mean: float | None, rh_mean: float | None) -> 
     return round(max(0.0, vpd), 2)
 
 
-def summarize_power_payload(payload: dict, *, lat: float = 24.0) -> dict:
+def _is_valid_num(val: Any, *, non_negative: bool = False) -> bool:
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        return False
+    fv = float(val)
+    if not math.isfinite(fv) or fv <= MISSING_SENTINEL:
+        return False
+    if non_negative and fv < 0.0:
+        return False
+    return True
+
+
+def summarize_power_payload(payload: dict, *, lat: float = 24.0, max_valid_days: int | None = None) -> dict:
     properties = payload.get("properties", {})
     parameter = properties.get("parameter", {})
     t2m = parameter.get("T2M", {})
@@ -94,7 +112,7 @@ def summarize_power_payload(payload: dict, *, lat: float = 24.0) -> dict:
     gwettop = parameter.get("GWETTOP", {})
     gwetroot = parameter.get("GWETROOT", {})
 
-    dates = sorted(
+    all_dates = sorted(
         set(t2m)
         | set(t2m_max)
         | set(t2m_min)
@@ -107,11 +125,31 @@ def summarize_power_payload(payload: dict, *, lat: float = 24.0) -> dict:
         | set(gwetroot)
     )
 
-    def valid(values: dict) -> list[float]:
+    # When max_valid_days is set (live recent queries), select the latest `max_valid_days` dates
+    # where both T2M and PRECTOTCORR have arrived (not -999 fill value).
+    if max_valid_days is not None and len(all_dates) > max_valid_days:
+        complete_dates = [
+            d for d in all_dates
+            if _is_valid_num(t2m.get(d)) and _is_valid_num(rain.get(d), non_negative=True)
+        ]
+        if len(complete_dates) >= max_valid_days:
+            dates = complete_dates[-max_valid_days:]
+        elif complete_dates:
+            dates = complete_dates
+        else:
+            valid_any = [
+                d for d in all_dates
+                if _is_valid_num(t2m.get(d)) or _is_valid_num(rain.get(d), non_negative=True)
+            ]
+            dates = valid_any[-max_valid_days:] if valid_any else all_dates[-max_valid_days:]
+    else:
+        dates = list(all_dates)
+
+    def valid(values: dict, *, non_negative: bool = False, source_dates: list[str] | None = None) -> list[float]:
         out: list[float] = []
-        for day in dates:
+        for day in (source_dates if source_dates is not None else dates):
             value = values.get(day)
-            if isinstance(value, (int, float)) and float(value) != MISSING_SENTINEL:
+            if _is_valid_num(value, non_negative=non_negative):
                 out.append(float(value))
         return out
 
@@ -119,12 +157,20 @@ def summarize_power_payload(payload: dict, *, lat: float = 24.0) -> dict:
     max_temperatures = valid(t2m_max)
     min_temperatures = valid(t2m_min)
     dew_points = valid(t2m_dew)
-    precipitation = valid(rain)
+    precipitation = valid(rain, non_negative=True)
     humidities = valid(humidity)
     winds = valid(wind)
     solar_vals = valid(solar)
+
+    # MERRA-2 Land soil wetness (GWETTOP / GWETROOT) often lags T2M by an extra 1-3 weeks in NASA POWER;
+    # if the latest 14 T2M days have -999 for GWET, use the latest valid GWET days from the full query window.
     top_wetness = [v for v in valid(gwettop) if 0.0 <= v <= 1.0]
+    if not top_wetness and max_valid_days is not None:
+        top_wetness = [v for v in valid(gwettop, source_dates=all_dates) if 0.0 <= v <= 1.0][-max_valid_days:]
+
     root_wetness = [v for v in valid(gwetroot) if 0.0 <= v <= 1.0]
+    if not root_wetness and max_valid_days is not None:
+        root_wetness = [v for v in valid(gwetroot, source_dates=all_dates) if 0.0 <= v <= 1.0][-max_valid_days:]
 
     t_mean = round(sum(temperatures) / len(temperatures), 2) if temperatures else None
     t_max_mean = round(sum(max_temperatures) / len(max_temperatures), 2) if max_temperatures else None
@@ -165,14 +211,14 @@ def summarize_power_payload(payload: dict, *, lat: float = 24.0) -> dict:
         dv = t2m_dew.get(day)
         rv = humidity.get(day)
         if (
-            isinstance(tv, (int, float)) and float(tv) != MISSING_SENTINEL
-            and isinstance(dv, (int, float)) and float(dv) != MISSING_SENTINEL
+            _is_valid_num(tv)
+            and _is_valid_num(dv)
             and (float(tv) - float(dv)) <= 2.5
         ):
-            if not isinstance(rv, (int, float)) or float(rv) == MISSING_SENTINEL or float(rv) >= 80.0:
+            if not _is_valid_num(rv) or float(rv) >= 80.0:
                 fog_blight_risk_days += 1
 
-    return {
+    out: dict[str, Any] = {
         "days_requested": len(dates),
         "temperature_valid_days": len(temperatures),
         "precipitation_valid_days": len(precipitation),
@@ -198,18 +244,13 @@ def summarize_power_payload(payload: dict, *, lat: float = 24.0) -> dict:
         "heavy_rain_days": heavy_rain_days,
         "dry_days": dry_days,
     }
+    if max_valid_days is not None and dates:
+        out["resolved_start_date"] = f"{dates[0][:4]}-{dates[0][4:6]}-{dates[0][6:8]}"
+        out["resolved_end_date"] = f"{dates[-1][:4]}-{dates[-1][4:6]}-{dates[-1][6:8]}"
+    return out
 
 
-def fetch_recent_power(lat: float, lon: float, days: int = 14, lag_days: int = 7) -> dict:
-    if os.getenv("OFFLINE") == "1" or os.getenv("BOPONX_OFFLINE") == "1":
-        raise RuntimeError("OFFLINE=1 mode active; using local cache/snapshot")
-    end = date.today() - timedelta(days=lag_days)
-    start = end - timedelta(days=days - 1)
-    cache_key = f"recent_v2:{lat:.3f}:{lon:.3f}:{start.isoformat()}:{end.isoformat()}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-
+def _request_power_window(lat: float, lon: float, start: date, end: date) -> tuple[dict, str]:
     params = {
         "parameters": POWER_PARAMETERS,
         "community": "AG",
@@ -222,15 +263,63 @@ def fetch_recent_power(lat: float, lon: float, days: int = 14, lag_days: int = 7
     }
     url = f"{POWER_URL}?{urlencode(params)}"
     request = Request(url, headers={"User-Agent": "BoponX/SpaceApps2026"})
-    with urlopen(request, timeout=10) as response:
+    with urlopen(request, timeout=25) as response:
         payload = json.loads(response.read().decode("utf-8"))
-    summary = summarize_power_payload(payload, lat=lat)
+    return payload, url
+
+
+def fetch_recent_power(lat: float, lon: float, days: int = 14, lag_days: int = 7) -> dict:
+    if _is_offline():
+        raise RuntimeError("OFFLINE=1 mode active; using local cache/snapshot")
+
+    today = date.today()
+    end = today - timedelta(days=max(2, lag_days))
+    # Request a 75-day lookback window so NASA POWER NRT processing lag (typically 3-25 days for MERRA-2/GWET)
+    # never leaves the latest 14 valid days empty.
+    query_start = end - timedelta(days=max(days + 14, 75))
+    cache_key = f"recent_v3:{lat:.3f}:{lon:.3f}:{end.isoformat()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    payload = None
+    url = ""
+    summary = None
+    # Try current clock year first; if system clock is set ahead of NASA's archive (e.g. simulated 2026 clock
+    # when NASA POWER's server only has up to 2025), step back by 1 year so real NASA POWER data for the coordinate loads.
+    for year_offset in (0, 1):
+        try_end = end - timedelta(days=365 * year_offset)
+        try_start = query_start - timedelta(days=365 * year_offset)
+        try:
+            cand_payload, cand_url = _request_power_window(lat, lon, try_start, try_end)
+            cand_summary = summarize_power_payload(cand_payload, lat=lat, max_valid_days=days)
+            if cand_summary.get("temperature_valid_days", 0) > 0 or cand_summary.get("precipitation_valid_days", 0) > 0:
+                payload = cand_payload
+                url = cand_url
+                summary = cand_summary
+                break
+        except Exception:
+            if year_offset == 1:
+                raise
+
+    if payload is None or summary is None:
+        raise RuntimeError("NASA POWER returned no valid observation days for this coordinate")
+
+    resolved_start = summary.pop("resolved_start_date", (end - timedelta(days=days - 1)).isoformat())
+    resolved_end = summary.pop("resolved_end_date", end.isoformat())
+    actual_lag = max(0, (today - date.fromisoformat(resolved_end)).days)
+    retrieved_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     result = {
         "status": "available",
+        "data_origin": "nasa_power_live",
+        "retrieved_at": retrieved_at,
+        "lag_days": actual_lag,
+        "data_through": resolved_end,
         "mode": "recent_nasa_power_request",
         "provider": "NASA POWER",
         "source_products": payload.get("header", {}).get("sources", []),
-        "period": {"start": start.isoformat(), "end": end.isoformat(), "time_standard": "LST"},
+        "period": {"start": resolved_start, "end": resolved_end, "time_standard": "LST"},
         "coordinates": {"latitude": lat, "longitude": lon},
         "summary": summary,
         "source_request_url": url,
@@ -261,7 +350,7 @@ def summarize_climatology_payload(payload: dict, month: int, *, lat: float = 24.
 
     def value(values: dict):
         raw = values.get(key)
-        if not isinstance(raw, (int, float)) or float(raw) == MISSING_SENTINEL:
+        if not isinstance(raw, (int, float)) or float(raw) <= MISSING_SENTINEL:
             return None
         return round(float(raw), 2)
 
@@ -298,13 +387,13 @@ def summarize_climatology_payload(payload: dict, month: int, *, lat: float = 24.
     }
 
 
-def _fetch_raw_climatology(lat: float, lon: float, start_year: int = 2001, end_year: int = 2020) -> tuple[dict, str]:
-    if os.getenv("OFFLINE") == "1" or os.getenv("BOPONX_OFFLINE") == "1":
+def _fetch_raw_climatology(lat: float, lon: float, start_year: int = 2001, end_year: int = 2020) -> tuple[dict, str, str]:
+    if _is_offline():
         raise RuntimeError("OFFLINE=1 mode active; using local cache/snapshot")
     cache_key = f"clim_raw_v2:{lat:.3f}:{lon:.3f}:{start_year}:{end_year}"
     cached = _cache_get(cache_key)
     if cached is not None:
-        return cached["payload"], cached["url"]
+        return cached["payload"], cached["url"], cached["retrieved_at"]
 
     params = {
         "parameters": POWER_PARAMETERS,
@@ -317,10 +406,11 @@ def _fetch_raw_climatology(lat: float, lon: float, start_year: int = 2001, end_y
     }
     url = f"{POWER_CLIMATOLOGY_URL}?{urlencode(params)}"
     request = Request(url, headers={"User-Agent": "BoponX/SpaceApps2026"})
-    with urlopen(request, timeout=10) as response:
+    with urlopen(request, timeout=25) as response:
         payload = json.loads(response.read().decode("utf-8"))
-    _cache_set(cache_key, {"payload": payload, "url": url})
-    return payload, url
+    retrieved_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _cache_set(cache_key, {"payload": payload, "url": url, "retrieved_at": retrieved_at})
+    return payload, url, retrieved_at
 
 
 def fetch_power_climatology(
@@ -331,9 +421,12 @@ def fetch_power_climatology(
     start_year: int = 2001,
     end_year: int = 2020,
 ) -> dict:
-    payload, url = _fetch_raw_climatology(lat, lon, start_year=start_year, end_year=end_year)
+    payload, url, retrieved_at = _fetch_raw_climatology(lat, lon, start_year=start_year, end_year=end_year)
     return {
         "status": "available",
+        "data_origin": "nasa_power_live",
+        "retrieved_at": retrieved_at,
+        "lag_days": 0,
         "provider": "NASA POWER",
         "kind": "historical_climatology",
         "baseline_period": {"start_year": start_year, "end_year": end_year},
@@ -368,9 +461,12 @@ def fetch_power_climatology_window(
     start_year: int = 2001,
     end_year: int = 2020,
 ) -> dict:
-    payload, url = _fetch_raw_climatology(lat, lon, start_year=start_year, end_year=end_year)
+    payload, url, retrieved_at = _fetch_raw_climatology(lat, lon, start_year=start_year, end_year=end_year)
     return {
         "status": "available",
+        "data_origin": "nasa_power_live",
+        "retrieved_at": retrieved_at,
+        "lag_days": 0,
         "provider": "NASA POWER",
         "kind": "historical_climatology_window",
         "baseline_period": {"start_year": start_year, "end_year": end_year},

@@ -88,3 +88,17 @@ BoponX integrates a 64-district agro-ecological profile dataset across all 8 div
 - Published online trial/production evidence (Dragon fruit & Katimon off-season mango in Rajshahi/Naogaon from *The Daily Star*; PKSF-PACE Avocado & Robusta Coffee demo in Naogaon; BARI Lebukhali exotic red mango trial in Patuakhali from UNB/*Dhaka Tribune*; national edible-oil and pulse deficit statistics from *The Daily Star* and USDA)
 
 **Decision boundary:** District profiles are preliminary estimates. Similarity percentages and profit figures are not verified, and soil properties vary across >490 upazilas within the 64 districts. All field decisions must be verified against SRDI soil data, BMD weather records, BARC Crop Zoning, WorldClim, and SoilGrids, and any new seed/sapling introduction requires Plant Quarantine and National Seed Board clearance.
+
+
+## NASA POWER daily history for the onset engine (6 November 2026)
+
+| Item | Detail |
+| --- | --- |
+| Variables | `PRECTOTCORR`, `T2M_MAX`, `T2M_MIN`, community `AG` |
+| Period | 2001-01-01 to today − 7 days |
+| Unit of request | one POWER grid cell (0.5° × 0.625°), several districts may share it |
+| Storage | `data/processed/power_history/<cell>.json`, SHA-256 in `index.json` |
+| Role | computed: onset dates, shift statistics, GDD |
+| Boundary | gridded regional data, not a field gauge; about one week behind real time; not a forecast |
+
+IMERG, SMAP and MODIS remain visual GIBS layers and are not part of this calculation.

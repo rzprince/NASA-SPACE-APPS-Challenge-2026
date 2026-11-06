@@ -1,6 +1,7 @@
 """BoponX location-aware decision-support API."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import math
 import os
@@ -13,6 +14,7 @@ import pydantic
 from pydantic import BaseModel, Field
 
 from backend.app.compute.agro import build_planting_window_advisory
+from backend.app.services.power_history import snapshot_health as onset_history_health
 from backend.app.compute.agronomy import calendar_evidence_for_region, supported_calendar_regions
 from backend.app.compute.bangladesh_districts import (
     DATASET_CAUTION_BN,
@@ -81,11 +83,14 @@ if PYDANTIC_V2:
         farm: FarmerProfile
         start_year: int = Field(ge=2026, le=2035)
         start_month: int = Field(ge=1, le=12)
+        start_day: int = Field(default=1, ge=1, le=31)
         include_recent_power: bool = True
         include_climate_baseline: bool = False
         recent_environment: dict[str, Any] | None = None
         baseline_environment: dict[str, Any] | None = None
         baseline_window: dict[str, Any] | None = None
+        eonet_hazards: dict[str, Any] | None = None
+        advisory: dict[str, Any] | None = None
 else:
     class _CompatModelV1(BaseModel):
         class Config:
@@ -126,11 +131,14 @@ else:
         farm: FarmerProfile
         start_year: int = Field(ge=2026, le=2035)
         start_month: int = Field(ge=1, le=12)
+        start_day: int = Field(default=1, ge=1, le=31)
         include_recent_power: bool = True
         include_climate_baseline: bool = False
         recent_environment: dict[str, Any] | None = None
         baseline_environment: dict[str, Any] | None = None
         baseline_window: dict[str, Any] | None = None
+        eonet_hazards: dict[str, Any] | None = None
+        advisory: dict[str, Any] | None = None
 
 
 def snapshot_path() -> Path:
@@ -181,6 +189,7 @@ def health() -> dict:
         "global_nasa_context_ready": True,
         "nasa_eonet_hazard_monitor_ready": True,
         "verified_local_source_registry_ready": True,
+        "onset_history_snapshots": onset_history_health(),
     }
 
 
@@ -366,6 +375,9 @@ def recent_environment(
     except Exception:
         return {
             "status": "unavailable",
+            "data_origin": "unavailable",
+            "retrieved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "lag_days": 7,
             "mode": "recent_query_failed",
             "provider": "NASA POWER",
             "coordinates": {"latitude": lat, "longitude": lon},
@@ -389,6 +401,9 @@ def environment_baseline(
     except Exception:
         return {
             "status": "unavailable",
+            "data_origin": "unavailable",
+            "retrieved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "lag_days": 0,
             "provider": "NASA POWER",
             "kind": "historical_climatology",
             "coordinates": {"latitude": lat, "longitude": lon},
@@ -410,6 +425,9 @@ def environment_baseline_window(
     except Exception:
         return {
             "status": "unavailable",
+            "data_origin": "unavailable",
+            "retrieved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "lag_days": 0,
             "provider": "NASA POWER",
             "kind": "historical_climatology_window",
             "coordinates": {"latitude": lat, "longitude": lon},
@@ -431,11 +449,16 @@ def environment_hazards(
     except Exception:
         return {
             "status": "unavailable",
+            "data_origin": "unavailable",
+            "retrieved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "lag_days": 0,
             "provider": "NASA EONET v3",
             "coordinates": {"latitude": lat, "longitude": lon},
             "radius_km": radius_km,
             "active_count": 0,
+            "agricultural_alert_count": 0,
             "events": [],
+            "agricultural_events": [],
             "source_request_url": "https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=40",
             "limitations": [
                 "Live NASA EONET natural hazard feed could not be reached. No synthetic storm or flood alert was invented.",
@@ -496,12 +519,15 @@ def planning_preview(request: PlanRequest) -> dict:
     recent = request.recent_environment
     baseline = request.baseline_environment
     baseline_window = request.baseline_window
+    eonet = request.eonet_hazards
+    advisory = request.advisory
     if recent is None and request.include_recent_power:
         try:
             recent = fetch_recent_power(request.farm.latitude, request.farm.longitude)
         except Exception:
             recent = {
                 "status": "unavailable",
+                "data_origin": "unavailable",
                 "provider": "NASA POWER",
                 "message": "Recent selected-location context is unavailable. No fallback number was fabricated.",
             }
@@ -515,19 +541,46 @@ def planning_preview(request: PlanRequest) -> dict:
         except Exception:
             baseline = {
                 "status": "unavailable",
+                "data_origin": "unavailable",
                 "provider": "NASA POWER",
                 "kind": "historical_climatology",
                 "message": "Selected-month climate baseline is unavailable. No fallback number was fabricated.",
             }
+    if baseline_window is None and request.include_climate_baseline:
+        try:
+            baseline_window = fetch_power_climatology_window(
+                request.farm.latitude,
+                request.farm.longitude,
+                start_month=request.start_month,
+                months=3,
+            )
+        except Exception:
+            baseline_window = None
+    if eonet is None and request.include_recent_power:
+        try:
+            eonet = fetch_eonet_hazards(request.farm.latitude, request.farm.longitude)
+        except Exception:
+            eonet = None
+    if advisory is None:
+        district_id = (context.get("district_profile") or {}).get("id") if isinstance(context.get("district_profile"), dict) else None
+        advisory = build_planting_window_advisory(
+            district_id,
+            request.farm.intended_crop or "rice",
+            lat=request.farm.latitude,
+            lon=request.farm.longitude,
+        )
     try:
         return make_90_day_plan(
             request.farm.model_dump(),
             context,
             start_year=request.start_year,
             start_month=request.start_month,
+            start_day=request.start_day,
             recent_environment=recent,
             baseline_environment=baseline,
             baseline_window=baseline_window,
+            eonet_hazards=eonet,
+            advisory=advisory,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "INVALID_PLAN_WINDOW", "message": str(exc)}) from exc
@@ -574,3 +627,66 @@ def planting_window_advisory(
     lon: float | None = Query(default=None, ge=-180, le=180),
 ) -> dict:
     return build_planting_window_advisory(district, crop, lat=lat, lon=lon)
+
+
+@app.get("/api/v1/validation/imerg")
+def imerg_validation_endpoint(
+    lat: float = Query(ge=-90, le=90),
+    lon: float = Query(ge=-180, le=180),
+    live: bool = Query(default=False),
+) -> dict:
+    from backend.app.services.imerg_check import get_imerg_crosscheck_status
+
+    return get_imerg_crosscheck_status(lat, lon, attempt_live_fetch=live)
+
+
+@app.get("/api/v1/soil/evidence")
+def soil_evidence_endpoint(
+    lat: float = Query(ge=-90, le=90),
+    lon: float = Query(ge=-180, le=180),
+    crop: str = Query(default="rice", max_length=60),
+    soil_test: Literal["yes", "no", "unknown"] = Query(default="unknown"),
+    soil_ph: float | None = Query(default=None, ge=0, le=14),
+    drainage: Literal["drains", "stays", "sometimes", "unknown"] = Query(default="unknown"),
+    water_source: Literal["rainfed", "irrigated", "both", "unknown"] = Query(default="unknown"),
+) -> dict:
+    from backend.app.compute.soil_evidence import build_soil_evidence_model, evaluate_crop_soil_suitability
+
+    if soil_ph is not None and soil_test != "yes":
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "SOIL_TEST_REQUIRED", "message": "Enter soil pH only when it comes from a soil-test report."},
+        )
+    ctx = build_context(lat, lon)
+    soil_model = build_soil_evidence_model(
+        ctx.get("district_profile"),
+        soil_test=soil_test,
+        farmer_soil_ph=soil_ph,
+        farmer_drainage=drainage,
+    )
+    suitability = evaluate_crop_soil_suitability(
+        crop,
+        soil_model,
+        water_source=water_source,
+        drainage=drainage,
+        soil_test=soil_test,
+        farmer_ph=soil_ph,
+    )
+    return {
+        "coordinates": {"latitude": round(lat, 5), "longitude": round(lon, 5)},
+        "soil_evidence": soil_model,
+        "crop_suitability": suitability,
+    }
+
+
+@app.get("/api/v1/provenance")
+def nasa_provenance_endpoint(
+    lat: float = Query(ge=-90, le=90),
+    lon: float = Query(ge=-180, le=180),
+) -> dict:
+    from backend.app.services.imerg_check import get_imerg_crosscheck_status
+    from backend.app.services.provenance import build_centralized_provenance_registry
+
+    adv = build_planting_window_advisory(None, "rice", lat=lat, lon=lon)
+    imerg = get_imerg_crosscheck_status(lat, lon)
+    return build_centralized_provenance_registry(lat, lon, advisory=adv, imerg_status=imerg)
