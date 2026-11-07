@@ -4829,3 +4829,49 @@ a:focus-visible,
     margin: 0 12px 14px !important;
   }
 }
+
+/* Original BoponX Brand Logos (Full Lockup + Circular Icon Mark) */
+.boponx-full-logo-img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.boponx-logo-icon-img {
+  display: block;
+  border-radius: 50%;
+  object-fit: contain;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.mission-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.planner-brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.planner-brand-sub {
+  padding-left: 14px;
+  border-left: 1px solid rgba(184, 224, 206, 0.24);
+}
+
+@media print {
+  .boponx-full-logo-img {
+    height: 42px !important;
+    width: auto !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

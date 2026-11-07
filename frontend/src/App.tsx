@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import LocationMap, { type LayerKey } from "./LocationMap";
-import DecisionReport, { BoponXLogoMark } from "./DecisionReport";
+import DecisionReport, { BoponXFullLogo, BoponXLogoMark } from "./DecisionReport";
 import FieldIcon, { type IconName } from "./FieldIcon";
 import {
   ApiError,
@@ -882,11 +882,7 @@ export default function App() {
     <div className="mission-app">
       <header className="mission-topbar">
         <div className="mission-brand">
-          <BoponXLogoMark size={40} />
-          <div>
-            <strong>BoponX</strong>
-            <small>EARTH.exe · Data: NASA POWER / EONET / GIBS</small>
-          </div>
+          <BoponXFullLogo height={46} />
         </div>
 
         <nav className="mission-nav" aria-label="3-Stage Workflow">
@@ -2191,7 +2187,7 @@ export default function App() {
         <main className="plan-workspace">
           {!plan ? (
             <div className="empty-plan">
-              <BoponXLogoMark size={52} />
+              <BoponXLogoMark size={64} />
               <span>03 · 90-DAY FIELD PLANNER</span>
               <h1>{lang === "bn" ? "নাসা ও স্থানীয় প্রমাণকে কৃষকের ব্যবহারযোগ্য পদক্ষেপে রূপান্তর করুন।" : "Turn Earth evidence into actions a farmer can use."}</h1>
               <p>

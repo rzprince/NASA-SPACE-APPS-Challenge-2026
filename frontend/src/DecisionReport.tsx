@@ -27,29 +27,26 @@ const EVIDENCE_BADGE_LABELS: Record<EvidenceLabel, { en: string; bn: string }> =
 
 export function BoponXLogoMark({ size = 40, className = "" }: { size?: number; className?: string }) {
   return (
-    <svg
+    <img
+      src="/boponx-logo-icon.png"
       width={size}
       height={size}
-      viewBox="0 0 64 64"
-      className={`boponx-logo-svg ${className}`.trim()}
-      aria-hidden="true"
-      focusable="false"
-    >
-      <rect width="64" height="64" rx="16" fill="#050908" stroke="rgba(184, 224, 206, 0.28)" strokeWidth="1.5" />
-      <circle cx="32" cy="32" r="24" fill="none" stroke="#b8dccc" strokeOpacity="0.34" strokeWidth="1.6" />
-      <ellipse
-        cx="32"
-        cy="32"
-        rx="20.5"
-        ry="11"
-        transform="rotate(-28 32 32)"
-        fill="none"
-        stroke="#b8ff57"
-        strokeWidth="3.2"
-      />
-      <circle cx="48.5" cy="17.5" r="6.2" fill="#ff4f72" />
-      <circle cx="23.5" cy="30" r="2.6" fill="#ffffff" />
-    </svg>
+      alt="BoponX Logo"
+      className={`boponx-logo-svg boponx-logo-icon-img ${className}`.trim()}
+      draggable={false}
+    />
+  );
+}
+
+export function BoponXFullLogo({ height = 46, className = "" }: { height?: number; className?: string }) {
+  return (
+    <img
+      src="/boponx-logo-full.png"
+      style={{ height: `${height}px`, width: "auto" }}
+      alt="BoponX — From Space to Soil | মহাকাশ থেকে মাটিতে"
+      className={`boponx-full-logo-img ${className}`.trim()}
+      draggable={false}
+    />
   );
 }
 
@@ -188,9 +185,8 @@ export default function DecisionReport({
         <header className="planner-part1-header">
           <div className="planner-brand-row">
             <div className="planner-brand-mark">
-              <BoponXLogoMark size={42} />
-              <div>
-                <strong>BoponX</strong>
+              <BoponXFullLogo height={50} />
+              <div className="planner-brand-sub">
                 <small>
                   {lang === "bn"
                     ? "তথ্যসূত্র: NASA POWER / EONET / GIBS · স্থানীয় কৃষি প্রমাণ"
