@@ -1,23 +1,8 @@
-&lt;div align=&quot;center&quot;&gt;
+![BoponX Animated Header](https://capsule-render.vercel.app/api?type=waving&color=0:04120b,50:0b2e1c,100:b8ff57&height=230&section=header&text=BoponX%20%C2%B7%20%E0%A6%AC%E0%A6%AA%E0%A6%A8%E0%A6%8F%E0%A6%95%E0%A7%8D%E0%A6%B8&fontSize=54&fontColor=ffffff&fontAlignY=38&desc=From%20Space%20to%20Soil%20%E2%80%94%20Next-Generation%20Agricultural%20Decision%20Intelligence&descAlignY=60&descSize=18&animation=fadeIn)
 
-&lt;!-- LIVE ANIMATED HERO WAVE BANNER --&gt;
-&lt;img src=&quot;https://capsule-render.vercel.app/api?type=waving&amp;color=0:04120b,50:0b2e1c,100:b8ff57&amp;height=230&amp;section=header&amp;text=BoponX%20%C2%B7%20%E0%A6%AC%E0%A6%AA%E0%A6%A8%E0%A6%8F%E0%A6%95%E0%A7%8D%E0%A6%B8&amp;fontSize=54&amp;fontColor=ffffff&amp;fontAlignY=38&amp;desc=From%20Space%20to%20Soil%20%E2%80%94%20Next-Generation%20Agricultural%20Decision%20Intelligence&amp;descAlignY=60&amp;descSize=18&amp;animation=fadeIn&quot; width=&quot;100%&quot; alt=&quot;BoponX Animated Header&quot; /&gt;
+[![Animated Typing Headline](https://readme-typing-svg.demolab.com?font=Inter&weight=700&size=22&duration=3200&pause=900&color=B8FF57&background=06110B00&center=true&vCenter=true&width=1000&lines=NASA+Space+Apps+Challenge+2026+%C2%B7+Field+Shift;3D+Interactive+Earth+Twin+%2B+Real-Time+NASA+Satellite+Telemetry;All+64+Districts+of+Bangladesh+%C2%B7+Bilingual+(English+%2B+%E0%A6%AC%E0%A6%BE%E0%A6%82%E0%A6%B2%E0%A6%BE);Developed+by+Rezwan+Hossain+Prince+(Team+Leader)+%26+Team+EARTH.exe)](https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026)
 
-&lt;!-- LIVE ANIMATED TYPING SUBTITLE --&gt;
-&lt;a href=&quot;https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026&quot;&gt;
-  &lt;img src=&quot;https://readme-typing-svg.demolab.com?font=Inter&amp;weight=700&amp;size=22&amp;duration=3200&amp;pause=900&amp;color=B8FF57&amp;background=06110B00&amp;center=true&amp;vCenter=true&amp;width=860&amp;lines=NASA+Space+Apps+Challenge+2026+%C2%B7+Field+Shift;3D+Interactive+Earth+Twin+%2B+Real-Time+NASA+Satellite+Telemetry;All+64+Districts+of+Bangladesh+%C2%B7+Bilingual+(English+%2B+%E0%A6%AC%E0%A6%BE%E0%A6%82%E0%A6%B2%E0%A6%BE);Developed+by+Rezwan+Hossain+Prince+%26+Team+EARTH.exe&quot; alt=&quot;Animated Typing Headline&quot; /&gt;
-&lt;/a&gt;
-
-<br/>
-
-&lt;!-- MISSION &amp; STATUS BADGES --&gt;
-[NASA Space Apps 2026](https://www.google.com/search?q=https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026)
-[](https://github.com/rzprince)
-[](https://github.com/rzprince)
-[Bilingual](https://www.google.com/search?q=https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026)
-[License](https://www.google.com/search?q=./LICENSE)
-
-&lt;/div&gt;
+[![NASA Space Apps 2026](https://img.shields.io/badge/NASA_Space_Apps_2026-Field_Shift-0b3d91?style=for-the-badge&logo=nasa&logoColor=white)](https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026) [![Team EARTH.exe](https://img.shields.io/badge/Team-EARTH.exe-b8ff57?style=for-the-badge&labelColor=06110b)](https://github.com/rzprince) [![Team Leader](https://img.shields.io/badge/Team_Leader-Rezwan_Hossain_Prince-22c55e?style=for-the-badge&labelColor=06110b)](https://github.com/rzprince) [![Bilingual](https://img.shields.io/badge/Language-English_%2B_%E0%A6%AC%E0%A6%BE%E0%A6%82%E0%A6%B2%E0%A6%BE-38bdf8?style=for-the-badge&labelColor=06110b)](https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026) [![License](https://img.shields.io/badge/License-Apache_2.0-f59e0b?style=for-the-badge&labelColor=06110b)](https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026/blob/main/LICENSE)
 
 ## Overview
 
@@ -25,9 +10,7 @@
 
 Shifting monsoon onset dates, erratic dry spells, heat stress, and continuous monoculture cropping threaten farm livelihoods across climate-vulnerable deltas. **BoponX** bridges the gap between orbital Earth observations and field-level action by fusing multi-mission NASA satellite streams with localized agro-ecological context across **all 64 districts and 8 divisions of Bangladesh**, delivering clear, bilingual (**English + বাংলা**) guidance for farmers, extension officers, and decision-makers.
 
-&lt;div align=&quot;center&quot;&gt;
-  &lt;img src=&quot;https://readme-typing-svg.demolab.com?font=DM+Mono&amp;weight=500&amp;size=15&amp;duration=2800&amp;pause=1000&amp;color=38BDF8&amp;background=06110B00&amp;center=true&amp;vCenter=true&amp;width=780&amp;lines=01+Location+%E2%86%92+3D+Earth+Twin+%26+Live+NASA+Telemetry;02+Analysis+%E2%86%92+Planting-Window+Shift+%26+Rotation+Workbench;03+Field+Plan+%E2%86%92+90-Day+Bilingual+Action+Sheet+%26+SMS+Advisory&quot; alt=&quot;Workflow Animation&quot; /&gt;
-&lt;/div&gt;
+![Workflow Animation](https://readme-typing-svg.demolab.com?font=DM+Mono&weight=500&size=16&duration=2800&pause=1000&color=38BDF8&background=06110B00&center=true&vCenter=true&width=1000&lines=01+Location+%E2%86%92+3D+Earth+Twin+%26+Live+NASA+Telemetry;02+Analysis+%E2%86%92+Planting-Window+Shift+%26+Rotation+Workbench;03+Field+Plan+%E2%86%92+90-Day+Bilingual+Action+Sheet+%26+SMS+Advisory)
 
 ## Core Experience
 
@@ -101,10 +84,8 @@ npm run dev
 
 ## Team & Authorship
 
-- **Developed by:** [Rezwan Hossain Prince](https://github.com/rzprince) and **Team EARTH.exe**
+- **Developed by:** [Rezwan Hossain Prince](https://github.com/rzprince) (Team Leader) and **Team EARTH.exe**
 - **Competition:** 2026 NASA International Space Apps Challenge
-- **License:** Released under the [Apache License 2.0](https://www.google.com/search?q=./LICENSE)
+- **License:** Released under the [Apache License 2.0](https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026/blob/main/LICENSE)
 
-&lt;div align=&quot;center&quot;&gt;
-  &lt;img src=&quot;https://capsule-render.vercel.app/api?type=waving&amp;color=0:b8ff57,50:0b2e1c,100:04120b&amp;height=110&amp;section=footer&quot; width=&quot;100%&quot; alt=&quot;BoponX Animated Footer&quot; /&gt;
-&lt;/div&gt;
+![BoponX Animated Footer](https://capsule-render.vercel.app/api?type=waving&color=0:b8ff57,50:0b2e1c,100:04120b&height=110&section=footer)
