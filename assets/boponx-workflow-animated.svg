@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 195" width="100%">
+  <defs>
+    <linearGradient id="wfBg" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#050d09"/>
+      <stop offset="50%" stop-color="#081811"/>
+      <stop offset="100%" stop-color="#050d09"/>
+    </linearGradient>
+    <style>
+      .mono {{ font-family: 'DM Mono', Consolas, monospace; letter-spacing: 1.2px; }}
+      .sans {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }}
+      @keyframes streamLine {{
+        to {{ stroke-dashoffset: -48; }}
+      }}
+      @keyframes pulseCard {{
+        0%, 100% {{ stroke-opacity: 0.35; }}
+        50% {{ stroke-opacity: 0.85; }}
+      }}
+      .flow-pipe {{ stroke-dasharray: 6 6; animation: streamLine 1.6s linear infinite; }}
+      .stage-box {{ animation: pulseCard 4s ease-in-out infinite; }}
+    </style>
+  </defs>
+
+  <rect x="2" y="2" width="1196" height="191" rx="14" fill="url(#wfBg)" stroke="#1b3b2b" stroke-width="1.5"/>
+
+  <!-- Stage 01 -->
+  <g transform="translate(26, 22)">
+    <rect x="0" y="0" width="348" height="150" rx="12" fill="#07140e" stroke="#b8ff57" stroke-width="1.5" class="stage-box"/>
+    <rect x="16" y="16" width="118" height="22" rx="6" fill="#b8ff57" fill-opacity="0.15"/>
+    <text x="26" y="31" fill="#b8ff57" font-size="11" font-weight="700" class="mono">STAGE 01 · LOCATE</text>
+    <text x="16" y="64" fill="#ffffff" font-size="17" font-weight="800" class="sans">3D Earth Twin &amp; Telemetry</text>
+    <text x="16" y="90" fill="#a8c2b7" font-size="12.5" class="sans">Interactive 3D Globe, 6 NASA GIBS layers,</text>
+    <text x="16" y="110" fill="#a8c2b7" font-size="12.5" class="sans">64-district locator &amp; live EONET hazards.</text>
+    <text x="16" y="136" fill="#38bdf8" font-size="10.5" font-weight="700" class="mono">NASA POWER · GIBS · EONET v3</text>
+  </g>
+
+  <!-- Animated Connector 1 -> 2 -->
+  <line x1="374" y1="97" x2="426" y2="97" stroke="#b8ff57" stroke-width="2.5" class="flow-pipe"/>
+  <polygon points="424,91 434,97 424,103" fill="#b8ff57"/>
+
+  <!-- Stage 02 -->
+  <g transform="translate(436, 22)">
+    <rect x="0" y="0" width="348" height="150" rx="12" fill="#07140e" stroke="#38bdf8" stroke-width="1.5" class="stage-box"/>
+    <rect x="16" y="16" width="132" height="22" rx="6" fill="#38bdf8" fill-opacity="0.15"/>
+    <text x="26" y="31" fill="#38bdf8" font-size="11" font-weight="700" class="mono">STAGE 02 · ANALYZE</text>
+    <text x="16" y="64" fill="#ffffff" font-size="17" font-weight="800" class="sans">Onset Shift &amp; Rotation Lab</text>
+    <text x="16" y="90" fill="#a8c2b7" font-size="12.5" class="sans">26-yr rainfall onset shift, What-If stress</text>
+    <text x="16" y="110" fill="#a8c2b7" font-size="12.5" class="sans">sliders, 3 rotations &amp; &lt;160-char SMS.</text>
+    <text x="16" y="136" fill="#b8ff57" font-size="10.5" font-weight="700" class="mono">BAMIS · BARC · SRDI · GSM-7 / বাংলা</text>
+  </g>
+
+  <!-- Animated Connector 2 -> 3 -->
+  <line x1="784" y1="97" x2="836" y2="97" stroke="#38bdf8" stroke-width="2.5" class="flow-pipe"/>
+  <polygon points="834,91 844,97 834,103" fill="#38bdf8"/>
+
+  <!-- Stage 03 -->
+  <g transform="translate(846, 22)">
+    <rect x="0" y="0" width="328" height="150" rx="12" fill="#07140e" stroke="#ff4f72" stroke-width="1.5" class="stage-box"/>
+    <rect x="16" y="16" width="124" height="22" rx="6" fill="#ff4f72" fill-opacity="0.18"/>
+    <text x="26" y="31" fill="#ff6b88" font-size="11" font-weight="700" class="mono">STAGE 03 · ACTION</text>
+    <text x="16" y="64" fill="#ffffff" font-size="17" font-weight="800" class="sans">90-Day Printable Field Plan</text>
+    <text x="16" y="90" fill="#a8c2b7" font-size="12.5" class="sans">Standalone A4 checklist across Days 1–30,</text>
+    <text x="16" y="110" fill="#a8c2b7" font-size="12.5" class="sans">31–60 &amp; 61–90 with DAE 16123 helpline.</text>
+    <text x="16" y="136" fill="#ff6b88" font-size="10.5" font-weight="700" class="mono">OFFLINE-READY A4 PDF · DAE 16123</text>
+  </g>
+</svg>
