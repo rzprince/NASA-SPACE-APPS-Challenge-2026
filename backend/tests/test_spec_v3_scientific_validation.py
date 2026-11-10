@@ -1,4 +1,4 @@
-"""Comprehensive Scientific Validation & NASA Data Reliability Test Suite (Spec V3 & V3.1).
+﻿"""Comprehensive Scientific Validation & NASA Data Reliability Test Suite (Spec V3 & V3.1).
 
 Covers:
 1. Priority 1: Historical NASA POWER acquisition, validation statuses (complete, partial, unavailable, failed_validation),
@@ -19,7 +19,7 @@ Covers:
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from fastapi.testclient import TestClient
 
 from backend.app.compute.agro import build_planting_window_advisory, mann_whitney_u_test
@@ -140,7 +140,7 @@ def test_imerg_numerical_cross_validation_metrics_and_date_matching():
     assert res["mae_mm_per_day"] == 4.0
     assert res["rmse_mm_per_day"] is not None and res["rmse_mm_per_day"] > 0
     assert res["pearson_r"] is not None and res["pearson_r"] > 0.95
-    assert "0.1°" in res["spatial_aggregation_method"]
+    assert "0.1Â°" in res["spatial_aggregation_method"]
 
 
 def test_imerg_half_hourly_48_of_48_complete_coverage():
@@ -401,7 +401,7 @@ def test_e2e_coastal_bangladesh_farmer_scenario_patuakhali():
                 "status": "available",
                 "data_origin": "nasa_power_live",
                 "retrieved_at": "2026-11-06T12:00:00Z",
-                "data_through": "2026-10-30",
+                "data_through": (date.today() - timedelta(days=5)).isoformat(),
                 "summary": {
                     "days_requested": 14,
                     "temperature_valid_days": 14,
@@ -429,7 +429,7 @@ def test_e2e_coastal_bangladesh_farmer_scenario_patuakhali():
     assert soil_ev["overall_classification"] == "REFERENCE_ONLY_PARCEL_UNKNOWN"
 
     assert adv["advisory_kind"] == "context_only"
-    assert plan["window_guidance"]["bamis_baseline_window"]["en"] == "20 Oct – 15 Nov"
+    assert plan["window_guidance"]["bamis_baseline_window"]["en"] == "20 Oct â€“ 15 Nov"
 
     scenarios = plan["rotation_explorer"]["scenarios"]
     assert len(scenarios) == 3
@@ -453,3 +453,4 @@ def test_e2e_coastal_bangladesh_farmer_scenario_patuakhali():
         assert len(m["tasks"]) >= 3
         for t in m["tasks"]:
             assert t["source"] and t["evidence_label"]
+
