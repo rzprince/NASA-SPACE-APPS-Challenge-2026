@@ -14,6 +14,7 @@ import pydantic
 from pydantic import BaseModel, Field
 
 from backend.app.compute.agro import build_planting_window_advisory
+from backend.app.compute.assistant import route as assistant_route
 from backend.app.services.power_history import snapshot_health as onset_history_health
 from backend.app.compute.agronomy import calendar_evidence_for_region, supported_calendar_regions
 from backend.app.compute.bangladesh_districts import (
@@ -167,6 +168,19 @@ def trusted_snapshot() -> dict:
             detail={"code": "DATASET_UNAVAILABLE", "message": "No validated pinned NASA POWER snapshot is available."},
         ) from exc
     return payload
+
+
+class AssistantChatRequest(BaseModel):
+    message: str
+    lang: Literal["en", "bn"] = "en"
+    history: list[dict[str, Any]] | None = None
+    snapshot: dict[str, Any] | None = None
+
+
+@app.post("/api/v1/assistant/chat")
+def assistant_chat(request: AssistantChatRequest) -> dict:
+    response = assistant_route(request.message, request.lang, request.history, request.snapshot)
+    return response
 
 
 @app.get("/api/v1/health")

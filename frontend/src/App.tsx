@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import LocationMap, { type LayerKey } from "./LocationMap";
 import DecisionReport, { BoponXFullLogo, BoponXLogoMark } from "./DecisionReport";
 import FieldIcon, { type IconName } from "./FieldIcon";
+import BoponXAssistant from "./BoponXAssistant";
 import {
   ApiError,
   apiGet,
   apiPost,
+  type ChatAction,
+  type ChatSnapshot,
   type EonetHazardsResponse,
   type FarmerProfile,
   type LocalSourceRegistry,
@@ -21,6 +24,33 @@ import {
 type Point = { latitude: number; longitude: number };
 type View = "earth" | "rotation" | "plan";
 type Lang = "en" | "bn";
+type ChatUndoState = {
+  undoable?: boolean;
+  view: View;
+  point: Point | null;
+  place: PlaceResult | null;
+  activeLayer: LayerKey | null;
+  previousCrops: string[];
+  mapDate: string;
+  mapBaseStyle: "satellite" | "streets";
+  mapIsGlobe: boolean;
+  mapOverlayOpacity: number;
+  plan: PlanBrief | null;
+  intendedCrop: string;
+  waterSource: FarmerProfile["water_source"];
+  drainage: FarmerProfile["water_after_heavy_rain"];
+  soilTest: FarmerProfile["soil_test"];
+  soilPh: string;
+  priority: FarmerProfile["priority"];
+  equipmentAccess: NonNullable<FarmerProfile["equipment_access"]>;
+  marketPreference: NonNullable<FarmerProfile["market_preference"]>;
+  startMonth: number;
+  startYear: number;
+  startDay: number;
+  selectedStrategyId: string;
+  scenarioRainShiftPct: number;
+  scenarioTempShiftC: number;
+};
 
 const cropOptions = [
   ["rice", "Rice", "ধান", "rice"],
@@ -372,7 +402,15 @@ export default function App() {
   const [dataBusy, setDataBusy] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerKey | null>(null);
   const [mapDate, setMapDate] = useState(() => dateMinus(2));
+  const [mapBaseStyle, setMapBaseStyle] = useState<"satellite" | "streets">("satellite");
+  const [mapIsGlobe, setMapIsGlobe] = useState(true);
+  const [mapOverlayOpacity, setMapOverlayOpacity] = useState(0.72);
   const [error, setError] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
+  const [zoomRequest, setZoomRequest] = useState(0);
+  const [cameraPresetRequest, setCameraPresetRequest] = useState<{ mode: "space" | "bangladesh" | "field"; request: number } | null>(null);
+  const dataLoadPromiseRef = useRef<Promise<void>>(Promise.resolve());
+  const chatUndoRef = useRef<ChatUndoState[]>([]);
 
   const [previousCrops, setPreviousCrops] = useState<string[]>(["rice"]);
   const [intendedCrop, setIntendedCrop] = useState("rice");
@@ -424,8 +462,12 @@ export default function App() {
     setPlan(null);
     setManualLat(point.latitude.toFixed(5));
     setManualLon(point.longitude.toFixed(5));
+    setContext(null);
+    setRecent(null);
+    setBaselineWindow(null);
+    setHazards(null);
 
-    Promise.allSettled([
+    const loadPromise = Promise.allSettled([
       apiGet<LocationContext>(
         `/api/v1/context?lat=${point.latitude}&lon=${point.longitude}`,
         controller.signal,
@@ -487,11 +529,13 @@ export default function App() {
         setLocalSources(null);
       }
 
-      setDataBusy(false);
+    }).finally(() => {
+      if (!controller.signal.aborted) setDataBusy(false);
     });
+    dataLoadPromiseRef.current = loadPromise;
 
     return () => controller.abort();
-  }, [point, startMonth]);
+  }, [point, startMonth, reloadToken]);
 
   useEffect(() => {
     if (!point) return;
@@ -690,17 +734,18 @@ export default function App() {
       (waterSource !== "unknown" && drainage !== "unknown" ? 5 : 0),
   );
 
-  function choosePoint(next: Point, selected: PlaceResult | null = null) {
-    if (!Number.isFinite(next.latitude) || !Number.isFinite(next.longitude)) return;
+  function choosePoint(next: Point, selected: PlaceResult | null = null): boolean {
+    if (!Number.isFinite(next.latitude) || !Number.isFinite(next.longitude)) return false;
     if (next.latitude < -90 || next.latitude > 90 || next.longitude < -180 || next.longitude > 180) {
       setError("Coordinates must be between -90..90 latitude and -180..180 longitude.");
-      return;
+      return false;
     }
     setPoint({
       latitude: Number(next.latitude.toFixed(5)),
       longitude: Number(next.longitude.toFixed(5)),
     });
     if (selected) setPlace(selected);
+    return true;
   }
 
   function applyManualCoordinates(event: FormEvent) {
@@ -715,38 +760,41 @@ export default function App() {
     choosePoint({ latitude: lat, longitude: lon });
   }
 
-  function locateMe() {
+  function locateMe(): Promise<boolean> {
     setError("");
     if (!navigator.geolocation) {
       setError("Location access is unavailable in this browser. Use Bangladesh Quick Select, search, or manual coordinates.");
-      return;
+      return Promise.resolve(false);
     }
     setGpsBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setGpsBusy(false);
-        choosePoint({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
-      },
-      (geoError) => {
-        setGpsBusy(false);
-        const insecureOrigin = typeof window !== "undefined" && window.isSecureContext === false;
-        if (insecureOrigin) {
-          setError("Browser GPS requires HTTPS or localhost. On a LAN IP, choose your district in Bangladesh Quick Select or enter coordinates below.");
-        } else if (geoError.code === 1) {
-          setError("Location permission was denied. Choose your district in Bangladesh Quick Select, search, or tap the map.");
-        } else {
-          setError("Could not acquire GPS signal in time. Choose your district in Bangladesh Quick Select, search, or tap the map.");
-        }
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 120000 },
-    );
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setGpsBusy(false);
+          resolve(choosePoint({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          }));
+        },
+        (geoError) => {
+          setGpsBusy(false);
+          const insecureOrigin = typeof window !== "undefined" && window.isSecureContext === false;
+          if (insecureOrigin) {
+            setError("Browser GPS requires HTTPS or localhost. On a LAN IP, choose your district in Bangladesh Quick Select or enter coordinates below.");
+          } else if (geoError.code === 1) {
+            setError("Location permission was denied. Choose your district in Bangladesh Quick Select, search, or tap the map.");
+          } else {
+            setError("Could not acquire GPS signal in time. Choose your district in Bangladesh Quick Select, search, or tap the map.");
+          }
+          resolve(false);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 120000 },
+      );
+    });
   }
 
-  async function chooseBangladeshArea(name: string) {
-    if (!name) return;
+  async function chooseBangladeshArea(name: string): Promise<boolean> {
+    if (!name) return false;
     setAdminBusy(true);
     setError("");
     try {
@@ -761,7 +809,7 @@ export default function App() {
         setSearch("");
         setSearchResults([]);
         setAdminBusy(false);
-        return;
+        return true;
       }
     } catch {
       // Fall back to global search if resolve endpoint is unreachable
@@ -775,16 +823,496 @@ export default function App() {
         payload.results[0];
       if (!match) {
         setError(`Could not resolve ${name}. Use the global search or manual coordinates instead.`);
-        return;
+        return false;
       }
       choosePoint({ latitude: match.latitude, longitude: match.longitude }, match);
       setSearch("");
       setSearchResults([]);
+      return true;
     } catch {
       setError(`Could not resolve ${name}. Use the global search or manual coordinates instead.`);
+      return false;
     } finally {
       setAdminBusy(false);
     }
+  }
+
+  function captureChatUndo(): ChatUndoState {
+    return {
+      view,
+      point,
+      place,
+      activeLayer,
+      previousCrops: [...previousCrops],
+      mapDate,
+      mapBaseStyle,
+      mapIsGlobe,
+      mapOverlayOpacity,
+      plan,
+      intendedCrop,
+      waterSource,
+      drainage,
+      soilTest,
+      soilPh,
+      priority,
+      equipmentAccess,
+      marketPreference,
+      startMonth,
+      startYear,
+      startDay,
+      selectedStrategyId,
+      scenarioRainShiftPct,
+      scenarioTempShiftC,
+    };
+  }
+
+  async function waitForFieldData(): Promise<void> {
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    await dataLoadPromiseRef.current;
+  }
+
+  async function handleChatAction(action: ChatAction): Promise<{ ok: boolean; message?: string }> {
+    const type = action.type;
+    const payload = action.payload ?? {};
+    const no = (message: string) => ({ ok: false, message });
+    const yes = () => ({ ok: true });
+
+    if (type === "undo") {
+      const previous = chatUndoRef.current.pop();
+      if (!previous) return no(lang === "bn" ? "ফিরিয়ে নেওয়ার মতো চ্যাট পরিবর্তন নেই।" : "There is no chat-made change to undo.");
+      if (previous.undoable === false) {
+        return no(lang === "bn"
+          ? "মানচিত্রের ক্যামেরা সরানো হয়েছে, কিন্তু আগের নির্দিষ্ট অবস্থান সংরক্ষিত ছিল না। অন্য দৃশ্য নির্বাচন করুন; তার আগের চ্যাট পরিবর্তনগুলো অক্ষত আছে।"
+          : "The map camera moved, but its exact previous position was not saved. Choose another map view; earlier chat changes are still intact.");
+      }
+      setView(previous.view);
+      setPoint(previous.point);
+      setPlace(previous.place);
+      setActiveLayer(previous.activeLayer);
+      setPreviousCrops(previous.previousCrops);
+      setMapDate(previous.mapDate);
+      setMapBaseStyle(previous.mapBaseStyle);
+      setMapIsGlobe(previous.mapIsGlobe);
+      setMapOverlayOpacity(previous.mapOverlayOpacity);
+      setPlan(previous.plan);
+      setIntendedCrop(previous.intendedCrop);
+      setWaterSource(previous.waterSource);
+      setDrainage(previous.drainage);
+      setSoilTest(previous.soilTest);
+      setSoilPh(previous.soilPh);
+      setPriority(previous.priority);
+      setEquipmentAccess(previous.equipmentAccess);
+      setMarketPreference(previous.marketPreference);
+      setStartMonth(previous.startMonth);
+      setStartYear(previous.startYear);
+      setStartDay(previous.startDay);
+      setSelectedStrategyId(previous.selectedStrategyId);
+      setScenarioRainShiftPct(previous.scenarioRainShiftPct);
+      setScenarioTempShiftC(previous.scenarioTempShiftC);
+      if (previous.point) await waitForFieldData();
+      return yes();
+    }
+
+    const before = captureChatUndo();
+    let changed = false;
+    switch (type) {
+      case "navigate": {
+        const nextView = payload.view;
+        if (nextView !== "earth" && nextView !== "rotation" && nextView !== "plan") return no("Unknown page.");
+        if (nextView !== view) {
+          setView(nextView);
+          changed = true;
+        }
+        break;
+      }
+      case "selectPlace": {
+        if (typeof payload.area !== "string" || !payload.area.trim()) return no("Choose a valid Bangladesh area.");
+        setView("earth");
+        const selected = await chooseBangladeshArea(payload.area);
+        if (!selected) return no(error || (lang === "bn" ? "এলাকাটি নির্বাচন করা যায়নি।" : "The area could not be resolved."));
+        await waitForFieldData();
+        changed = true;
+        break;
+      }
+      case "searchPlace": {
+        const query = payload.query;
+        if (typeof query !== "string" || query.trim().length < 2) return no("Enter a place name.");
+        const result = await apiGet<{ results: PlaceResult[] }>(`/api/v1/places/search?q=${encodeURIComponent(query.trim())}`);
+        const uniqueResults = result.results.filter((item, index, list) =>
+          list.findIndex((candidate) =>
+            candidate.latitude.toFixed(4) === item.latitude.toFixed(4) &&
+            candidate.longitude.toFixed(4) === item.longitude.toFixed(4)
+          ) === index,
+        );
+        if (!uniqueResults.length) return no(lang === "bn" ? "কোনো স্থান পাওয়া যায়নি। দেশসহ নামটি বলুন।" : "No place was found. Try including its country.");
+        const exactMatches = uniqueResults.filter((item) =>
+          item.name?.toLocaleLowerCase() === query.trim().toLocaleLowerCase() ||
+          item.display_name?.toLocaleLowerCase().startsWith(query.trim().toLocaleLowerCase()),
+        );
+        const match = exactMatches.length === 1 ? exactMatches[0] : uniqueResults.length === 1 ? uniqueResults[0] : null;
+        if (!match) return no(lang === "bn" ? "একাধিক স্থান পাওয়া গেছে। দেশ বা জেলা যোগ করে আবার বলুন।" : "Several places matched. Please include the country or district.");
+        setView("earth");
+        if (!choosePoint({ latitude: match.latitude, longitude: match.longitude }, match)) return no("The place coordinates were invalid.");
+        await waitForFieldData();
+        changed = true;
+        break;
+      }
+      case "selectPoint": {
+        const latitude = payload.latitude;
+        const longitude = payload.longitude;
+        if (typeof latitude !== "number" || typeof longitude !== "number" ||
+          !Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+          latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+          return no(lang === "bn" ? "স্থানাঙ্ক সঠিক সীমার মধ্যে দিন।" : "Enter coordinates within the valid latitude and longitude ranges.");
+        }
+        setView("earth");
+        if (!choosePoint({ latitude, longitude })) return no(error);
+        await waitForFieldData();
+        changed = true;
+        break;
+      }
+      case "locateMe": {
+        setView("earth");
+        const located = await locateMe();
+        if (!located) return no(lang === "bn" ? "GPS অবস্থান পাওয়া যায়নি।" : "The device location was not available.");
+        await waitForFieldData();
+        changed = true;
+        break;
+      }
+      case "setActiveLayer": {
+        const layer = payload.layer;
+        const validLayers: Array<LayerKey | null> = ["trueColor", "rain", "soil", "ndvi", "temp", "srtm", null];
+        if (!validLayers.includes(layer as LayerKey | null)) return no("Unknown map layer.");
+        const nextLayer = layer as LayerKey | null;
+        if (activeLayer !== nextLayer) {
+          setView("earth");
+          setActiveLayer(nextLayer);
+          changed = true;
+        }
+        break;
+      }
+      case "setMapDate": {
+        let nextDate: string | null = null;
+        const daysAgo = payload.days_ago;
+        if (typeof daysAgo === "number" && [2, 14, 30, 90, 180].includes(daysAgo)) {
+          nextDate = dateMinus(daysAgo);
+        } else if (typeof payload.date === "string") {
+          const date = payload.date;
+          const parsed = Date.parse(`${date}T00:00:00Z`);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(parsed) &&
+            new Date(parsed).toISOString().slice(0, 10) === date &&
+            date >= "2015-01-01" && date <= dateMinus(1)) {
+            nextDate = date;
+          } else {
+            return no(lang === "bn"
+              ? "মানচিত্রের তারিখ ২০১৫-০১-০১ থেকে গতকাল পর্যন্ত হতে হবে।"
+              : "The map date must be from 2015-01-01 through yesterday.");
+          }
+        }
+        if (!nextDate) return no("Choose a supported map observation date.");
+        if (mapDate !== nextDate) {
+          setMapDate(nextDate);
+          setView("earth");
+          changed = true;
+        }
+        break;
+      }
+      case "setMapStyle": {
+        const style = payload.style;
+        if (style !== "satellite" && style !== "streets") return no("Choose satellite or village/street map.");
+        if (mapBaseStyle !== style) {
+          setMapBaseStyle(style);
+          setView("earth");
+          changed = true;
+        }
+        break;
+      }
+      case "setMapProjection": {
+        if (typeof payload.is_globe !== "boolean") return no("Choose 3D globe or 2D map.");
+        if (mapIsGlobe !== payload.is_globe) {
+          setMapIsGlobe(payload.is_globe);
+          setView("earth");
+          changed = true;
+        }
+        break;
+      }
+      case "setMapOpacity": {
+        const opacity = payload.opacity;
+        if (typeof opacity !== "number" || !Number.isFinite(opacity) || opacity < 0.2 || opacity > 0.95) {
+          return no("Overlay opacity must be from 20% to 95%.");
+        }
+        if (mapOverlayOpacity !== opacity) {
+          setMapOverlayOpacity(opacity);
+          setView("earth");
+          changed = true;
+        }
+        break;
+      }
+      case "setCameraPreset": {
+        const mode = payload.mode;
+        if (mode !== "space" && mode !== "bangladesh" && mode !== "field") return no("Choose Space, Bangladesh, or selected-field map view.");
+        if (mode === "field" && !point) return no(lang === "bn" ? "জুম করার আগে একটি মাঠ নির্বাচন করুন।" : "Select a field before zooming to it.");
+        setView("earth");
+        setCameraPresetRequest((current) => ({ mode, request: (current?.request ?? 0) + 1 }));
+        changed = true;
+        break;
+      }
+      case "setPlanStartDate": {
+        const year = payload.year;
+        const month = payload.month;
+        const day = payload.day;
+        if (typeof year !== "number" || !Number.isInteger(year) || year < 2026 || year > 2035 ||
+          typeof month !== "number" || !Number.isInteger(month) || month < 1 || month > 12 ||
+          typeof day !== "number" || !Number.isInteger(day) ||
+          day < 1 || day > new Date(Date.UTC(year, month, 0)).getUTCDate()) {
+          return no(lang === "bn" ? "পরিকল্পনার সঠিক তারিখ ২০২৬–২০৩৫ সালের মধ্যে দিন।" : "Enter a valid plan date between 2026 and 2035.");
+        }
+        const dateChanged = startYear !== year || startMonth !== month || startDay !== day;
+        if (dateChanged) {
+          if (plan) {
+            const generated = await runDecisionEngine(undefined, { year, month, day });
+            if (!generated) return no(error || (lang === "bn" ? "নতুন তারিখে পরিকল্পনা তৈরি করা যায়নি।" : "The plan could not be regenerated for that date."));
+          }
+          setStartYear(year);
+          setStartMonth(month);
+          setStartDay(day);
+          changed = true;
+        }
+        break;
+      }
+      case "selectStrategy": {
+        const strategyId = payload.strategy_id;
+        if (typeof strategyId !== "string" || !strategies.some((strategy) => strategy.id === strategyId)) {
+          return no("Choose one of the currently available Rotation Lab strategies.");
+        }
+        if (selectedStrategyId !== strategyId || view !== "rotation") {
+          setSelectedStrategyId(strategyId);
+          setView("rotation");
+          changed = true;
+        }
+        break;
+      }
+      case "setClimateScenario": {
+        const rain = payload.rain_shift_pct;
+        const temperature = payload.temperature_shift_c;
+        if (typeof rain !== "number" || !Number.isFinite(rain) || rain < -50 || rain > 50 || rain % 5 !== 0 ||
+          typeof temperature !== "number" || !Number.isFinite(temperature) || temperature < 0 || temperature > 4 || temperature * 2 % 1 !== 0) {
+          return no("Climate scenario must use rainfall steps of 5% from −50% to +50% and temperature steps of 0.5°C from 0 to +4°C.");
+        }
+        if (scenarioRainShiftPct !== rain || scenarioTempShiftC !== temperature) {
+          setScenarioRainShiftPct(rain);
+          setScenarioTempShiftC(temperature);
+          setView("rotation");
+          changed = true;
+        }
+        break;
+      }
+      case "setStartMonth": {
+        const month = payload.month;
+        if (typeof month !== "number" || !Number.isInteger(month) || month < 1 || month > 12) return no("Month must be from 1 to 12.");
+        if (startMonth !== month) {
+          setStartMonth(month);
+          changed = true;
+          await waitForFieldData();
+        }
+        break;
+      }
+      case "setStartYear": {
+        const year = payload.year;
+        if (typeof year !== "number" || !Number.isInteger(year) || year < 2026 || year > 2035) return no("Planning year must be from 2026 to 2035.");
+        if (startYear !== year) {
+          setStartYear(year);
+          changed = true;
+        }
+        break;
+      }
+      case "setIntendedCrop": {
+        const crop = payload.crop;
+        if (typeof crop !== "string" || !cropOptions.some(([id]) => id === crop)) return no("Choose one of the available crops.");
+        if (intendedCrop !== crop) {
+          setIntendedCrop(crop);
+          changed = true;
+        }
+        break;
+      }
+      case "clearIntendedCrop":
+        if (payload.confirmed !== true) return no(lang === "bn" ? "পরিকল্পিত ফসল মুছতে নিশ্চিতকরণ প্রয়োজন।" : "Confirmation is required before clearing the intended crop.");
+        if (intendedCrop) {
+          setIntendedCrop("");
+          changed = true;
+        }
+        break;
+      case "addPreviousCrop": {
+        const crop = payload.crop;
+        if (typeof crop !== "string" || !cropOptions.some(([id]) => id === crop)) return no("Choose one of the available crops.");
+        if (previousCrops.includes(crop)) return no(lang === "bn" ? "এই ফসলটি আগের ফসলের তালিকায় আছে।" : "That crop is already in the previous-crop list.");
+        if (previousCrops.length >= 4) return no(lang === "bn" ? "সর্বোচ্চ চারটি আগের ফসল রাখা যায়।" : "At most four previous crops can be recorded.");
+        setPreviousCrops([...previousCrops, crop]);
+        changed = true;
+        break;
+      }
+      case "removePreviousCrop": {
+        const crop = payload.crop;
+        if (typeof crop !== "string" || !previousCrops.includes(crop)) return no(lang === "bn" ? "ফসলটি আগের ফসলের তালিকায় নেই।" : "That crop is not in the previous-crop list.");
+        setPreviousCrops(previousCrops.filter((item) => item !== crop));
+        changed = true;
+        break;
+      }
+      case "clearPreviousCrops":
+        if (payload.confirmed !== true) return no(lang === "bn" ? "আগের ফসল মুছতে নিশ্চিতকরণ প্রয়োজন।" : "Confirmation is required before clearing previous crops.");
+        if (previousCrops.length) {
+          setPreviousCrops([]);
+          changed = true;
+        }
+        break;
+      case "setSoilTest": {
+        const soilStatus = payload.soil_test;
+        if (soilStatus !== "yes" && soilStatus !== "no" && soilStatus !== "unknown") return no("Soil-test status must be yes, no, or unknown.");
+        if (soilTest !== soilStatus) {
+          setSoilTest(soilStatus);
+          if (soilStatus !== "yes") setSoilPh("");
+          changed = true;
+        }
+        break;
+      }
+      case "setSoilPh": {
+        const soilPhValue = payload.soil_ph;
+        if (soilTest !== "yes") return no(lang === "bn" ? "pH দিতে বাস্তব মাটি পরীক্ষার রিপোর্ট আছে নিশ্চিত করুন।" : "Confirm that you have a real soil-test report before setting pH.");
+        if (typeof soilPhValue !== "number" || !Number.isFinite(soilPhValue) || soilPhValue < 0 || soilPhValue > 14) return no("Soil pH must be a number from 0 to 14.");
+        setSoilPh(String(soilPhValue));
+        changed = true;
+        break;
+      }
+      case "setPriority": {
+        const value = payload.priority;
+        if (value !== "water" && value !== "soil" && value !== "production_stability") return no("Unknown farmer priority.");
+        if (priority !== value) {
+          setPriority(value);
+          changed = true;
+        }
+        break;
+      }
+      case "setWaterSource": {
+        const value = payload.water_source;
+        if (value !== "rainfed" && value !== "irrigated" && value !== "both" && value !== "unknown") return no("Unknown water source.");
+        if (waterSource !== value) {
+          setWaterSource(value);
+          changed = true;
+        }
+        break;
+      }
+      case "setDrainage": {
+        const value = payload.drainage;
+        if (value !== "drains" && value !== "stays" && value !== "sometimes" && value !== "unknown") return no("Unknown drainage answer.");
+        if (drainage !== value) {
+          setDrainage(value);
+          changed = true;
+        }
+        break;
+      }
+      case "setEquipmentAccess": {
+        const value = payload.equipment_access;
+        if (value !== "manual_traditional" && value !== "power_tiller_machinery" && value !== "conservation_zero_till" && value !== "unknown") return no("Unknown equipment answer.");
+        if (equipmentAccess !== value) {
+          setEquipmentAccess(value);
+          changed = true;
+        }
+        break;
+      }
+      case "setMarketPreference": {
+        const value = payload.market_preference;
+        if (value !== "household_subsistence" && value !== "local_cash_market" && value !== "high_value_commercial" && value !== "forage_livestock" && value !== "unknown") return no("Unknown market preference.");
+        if (marketPreference !== value) {
+          setMarketPreference(value);
+          changed = true;
+        }
+        break;
+      }
+      case "setNotSure":
+        setWaterSource("unknown");
+        setDrainage("unknown");
+        setSoilTest("unknown");
+        setSoilPh("");
+        setEquipmentAccess("unknown");
+        setMarketPreference("unknown");
+        changed = true;
+        break;
+      case "resetFarmForm":
+        if (payload.confirmed !== true) return no(lang === "bn" ? "ফর্ম রিসেটের জন্য নিশ্চিতকরণ প্রয়োজন।" : "Confirmation is required before resetting the farm form.");
+        setPreviousCrops(["rice"]);
+        setIntendedCrop("rice");
+        setWaterSource("both");
+        setDrainage("drains");
+        setSoilTest("unknown");
+        setSoilPh("");
+        setPriority("water");
+        setEquipmentAccess("power_tiller_machinery");
+        setMarketPreference("local_cash_market");
+        setStartMonth(new Date().getMonth() + 1);
+        setStartYear(Math.max(2026, new Date().getFullYear()));
+        setActiveLayer(null);
+        setPlan(null);
+        changed = true;
+        break;
+      case "setLanguage":
+        if (payload.lang !== "bn" && payload.lang !== "en") return no("Choose English or Bangla.");
+        if (lang !== payload.lang) {
+          setLang(payload.lang);
+          changed = true;
+        }
+        break;
+      case "openSourceLink": {
+        const rawUrl = payload.url;
+        if (typeof rawUrl !== "string") return no("No official source link is available.");
+        let url: URL;
+        try {
+          url = new URL(rawUrl);
+        } catch {
+          return no("The source link is invalid.");
+        }
+        if (url.protocol !== "https:") return no("Only secure official links can be opened.");
+        const anchor = document.createElement("a");
+        anchor.href = url.toString();
+        anchor.target = "_blank";
+        anchor.rel = "noreferrer";
+        anchor.click();
+        break;
+      }
+      case "callHelpline": {
+        if (payload.phone !== "16123" || localSources?.country_code !== "bd") {
+          return no(lang === "bn" ? "এই এলাকার জন্য যাচাইকৃত হেল্পলাইন পাওয়া যায়নি।" : "No verified helpline is available for this area.");
+        }
+        const anchor = document.createElement("a");
+        anchor.href = "tel:16123";
+        anchor.rel = "noreferrer";
+        anchor.click();
+        break;
+      }
+      case "retryLoad":
+        setReloadToken((current) => current + 1);
+        await waitForFieldData();
+        break;
+      case "zoomField":
+        setView("earth");
+        setZoomRequest((current) => current + 1);
+        changed = true;
+        break;
+      case "print":
+        window.print();
+        break;
+      case "runPlan": {
+        const generated = await runDecisionEngine();
+        if (!generated) return no(error || (lang === "bn" ? "পরিকল্পনা তৈরি করা যায়নি।" : "The plan could not be generated."));
+        changed = true;
+        break;
+      }
+      default:
+        return no(lang === "bn" ? "এই কাজটি এখন সমর্থিত নয়।" : "That action is not supported.");
+    }
+    if (changed) {
+      chatUndoRef.current.push(type === "setCameraPreset" ? { ...before, undoable: false } : before);
+    }
+    return yes();
   }
 
   function toggleHistory(crop: string) {
@@ -798,12 +1326,12 @@ export default function App() {
   async function runDecisionEngine(
     event?: FormEvent,
     overrideDate?: { year: number; month: number; day: number },
-  ) {
+  ): Promise<boolean> {
     event?.preventDefault();
     if (!point) {
       setError("Select a field on Earth before running the decision engine.");
       setView("earth");
-      return;
+      return false;
     }
 
     const useYear = overrideDate?.year ?? startYear;
@@ -860,8 +1388,10 @@ export default function App() {
       }
       setPlan(payload);
       setView("plan");
+      return true;
     } catch (runError) {
       setError(runError instanceof ApiError ? runError.message : "Decision engine failed.");
+      return false;
     } finally {
       setPlanBusy(false);
     }
@@ -929,7 +1459,7 @@ export default function App() {
               <strong>{lang === "bn" ? "আপনার খামার বা জেলা নির্বাচন করুন" : "Select your farm or district"}</strong>
             </div>
 
-            <button type="button" className="locate-command" onClick={locateMe} disabled={gpsBusy}>
+            <button type="button" className="locate-command" onClick={() => void locateMe()} disabled={gpsBusy}>
               <FieldIcon name="stability" />
               <span>
                 <strong>
@@ -1167,11 +1697,19 @@ export default function App() {
           <section className="globe-center">
             <LocationMap
               point={point}
+              zoomRequest={zoomRequest}
               onPick={(next) => choosePoint(next)}
               mapDate={mapDate}
               onMapDateChange={setMapDate}
               activeLayer={activeLayer}
               onLayerChange={setActiveLayer}
+              isGlobe={mapIsGlobe}
+              onGlobeChange={setMapIsGlobe}
+              baseStyle={mapBaseStyle}
+              onBaseStyleChange={setMapBaseStyle}
+              overlayOpacity={mapOverlayOpacity}
+              onOverlayOpacityChange={setMapOverlayOpacity}
+              cameraPresetRequest={cameraPresetRequest}
             />
 
             <div className="fusion-strip">
@@ -2220,6 +2758,104 @@ export default function App() {
           )}
         </main>
       )}
+      <BoponXAssistant
+        lang={lang}
+        location={placeLabel(place, point, context)}
+        availableAreas={[...bangladeshDivisions, ...bangladeshDistricts]}
+        snapshot={{
+          view,
+          lang,
+          activeLayer,
+          mapDate,
+          mapBaseStyle,
+          mapIsGlobe,
+          mapOverlayOpacity,
+          selectedArea: place?.address?.district ?? context?.district_profile?.name_en ?? null,
+          startMonth,
+          startYear,
+          startDay,
+          selectedStrategyId,
+          scenarioRainShiftPct,
+          scenarioTempShiftC,
+          soilTest,
+          soilPh: soilPh ? Number(soilPh) : null,
+          previousCrops,
+          intendedCrop: intendedCrop || null,
+          priority,
+          waterSource,
+          drainage,
+          countryCode: localSources?.country_code ?? null,
+          fieldData: {
+            rainfall: recentSummary?.precipitation_total_mm != null
+              ? `${recentSummary.precipitation_total_mm.toFixed(1)} mm / 14 days`
+              : "unavailable",
+            rainfallDaily: recentDailyRain != null ? `${recentDailyRain.toFixed(2)} mm/day` : "unavailable",
+            baselineRainfall: firstBaseline?.precipitation_mean_daily_mm != null
+              ? `${firstBaseline.precipitation_mean_daily_mm.toFixed(2)} mm/day`
+              : "unavailable",
+            rainAnomaly: rainAnomaly != null ? `${rainAnomaly > 0 ? "+" : ""}${rainAnomaly.toFixed(1)}%` : "unavailable",
+            temperature: recentSummary?.temperature_mean_c != null
+              ? `${recentSummary.temperature_mean_c.toFixed(1)} °C`
+              : "unavailable",
+            baselineTemperature: firstBaseline?.temperature_mean_c != null
+              ? `${firstBaseline.temperature_mean_c.toFixed(1)} °C`
+              : "unavailable",
+            temperatureDelta: tempDelta != null ? `${tempDelta > 0 ? "+" : ""}${tempDelta.toFixed(1)} °C` : "unavailable",
+            soilMoisture: surfaceWetnessPct != null || rootWetnessPct != null
+              ? `${surfaceWetnessPct != null ? `${surfaceWetnessPct.toFixed(0)}%` : "unavailable"} surface / ${rootWetnessPct != null ? `${rootWetnessPct.toFixed(0)}%` : "unavailable"} root zone`
+              : "unavailable",
+            hazards: hazards?.status === "available"
+              ? `${hazards.agricultural_alert_count ?? hazards.active_count ?? 0} agricultural alerts within ${hazards.radius_km ?? 1200} km`
+              : "unavailable",
+            hazardEvents: hazards?.status === "available"
+              ? (hazards.events ?? hazards.regional_events ?? hazards.nearest_global_events ?? [])
+                  .slice(0, 3)
+                  .map((event) => `${event.title}${event.date ? ` (${event.date.slice(0, 10)})` : ""}, ${event.distance_km} km`)
+              : [],
+            readiness: `${readiness}%`,
+            dataFreshness: recent?.status === "available"
+              ? `${recent.data_origin ?? "NASA POWER"} through ${recent.data_through ?? "unknown date"}; about ${recentLagDays} days lag`
+              : "unavailable",
+            evidenceOrigin: recentOrigin,
+            fieldCoordinates: point ? `${point.latitude.toFixed(4)}, ${point.longitude.toFixed(4)}` : "unavailable",
+            wind: recentSummary?.wind_speed_mean_m_s != null ? `${recentSummary.wind_speed_mean_m_s.toFixed(1)} m/s` : "unavailable",
+            evapotranspiration: et0Daily != null ? `${et0Daily.toFixed(2)} mm/day` : "unavailable",
+            waterBalance: waterBalanceDaily != null ? `${waterBalanceDaily >= 0 ? "+" : ""}${waterBalanceDaily.toFixed(2)} mm/day` : "unavailable",
+            frostRisk: recentSummary?.frost_risk_days != null ? `${recentSummary.frost_risk_days} days` : "unavailable",
+            fogBlightRisk: recentSummary?.fog_blight_risk_days != null ? `${recentSummary.fog_blight_risk_days} days` : "unavailable",
+            humidity: recentSummary?.relative_humidity_mean_pct != null ? `${recentSummary.relative_humidity_mean_pct.toFixed(1)}%` : "unavailable",
+            dewPoint: recentSummary?.dew_point_mean_c != null ? `${recentSummary.dew_point_mean_c.toFixed(1)} °C` : "unavailable",
+            vaporPressureDeficit: recentSummary?.vpd_mean_kpa != null ? `${recentSummary.vpd_mean_kpa.toFixed(2)} kPa` : "unavailable",
+            heatStress: recentSummary?.heat_stress_days != null ? `${recentSummary.heat_stress_days} days` : "unavailable",
+            coldStress: recentSummary?.cold_stress_days != null ? `${recentSummary.cold_stress_days} days` : "unavailable",
+            heavyRain: recentSummary?.heavy_rain_days != null ? `${recentSummary.heavy_rain_days} days` : "unavailable",
+            dryDays: recentSummary?.dry_days != null ? `${recentSummary.dry_days} days` : "unavailable",
+            climatology: baselineWindow?.status === "available"
+              ? (baselineWindow.summaries ?? []).slice(0, 3).map((summary) =>
+                  `${monthShort[summary.calendar_month - 1]}: ${summary.temperature_mean_c ?? "unavailable"} °C, ${summary.precipitation_mean_daily_mm ?? "unavailable"} mm/day rain, ${summary.et0_mean_daily_mm ?? "unavailable"} mm/day ET₀`,
+                ).join("; ")
+              : "unavailable",
+            dataStatus: dataBusy ? "loading" : (recent?.status === "available" ? "available" : "unavailable"),
+          },
+          planContext: plan?.decision_advice
+            ? {
+                reasons: plan.decision_advice.reasons,
+                reasonsBn: plan.decision_advice.reasons_bn ?? [],
+                boundary: plan.decision_advice.boundary,
+                boundaryBn: plan.decision_advice.boundary_bn ?? "",
+                verdict: plan.decision_advice.verdict,
+                verdictBn: plan.decision_advice.verdict_bn ?? "",
+              }
+            : null,
+          officialSourceUrls: [
+            ...(localSources?.official_sources ?? []).map((source) => source.source_url),
+            ...(localSources?.government_discovery?.source_url ? [localSources.government_discovery.source_url] : []),
+            ...(localSources?.country_code === "bd" ? ["https://dae.gov.bd/"] : []),
+          ],
+        } satisfies ChatSnapshot}
+        onLanguageChange={setLang}
+        onAction={handleChatAction}
+      />
     </div>
   );
 }

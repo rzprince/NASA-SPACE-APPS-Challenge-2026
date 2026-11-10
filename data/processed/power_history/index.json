@@ -1,0 +1,37 @@
+{
+ "cells": {
+  "22.25_88.4375": {
+   "end": "2026-10-31",
+   "min_coverage_fraction": 1.0,
+   "retrieved_at": "2026-11-07T13:10:47Z",
+   "sha256": "7ae4926604ea061d99d9342df18c0fca68fce9c183debf4fd84a161dd301e37b",
+   "start": "2001-01-01",
+   "validation_status": "complete"
+  },
+  "23.75_90.3125": {
+   "end": "2026-10-31",
+   "min_coverage_fraction": 1.0,
+   "retrieved_at": "2026-11-07T13:10:56Z",
+   "sha256": "38b90cba36f83f858d08e36ff2bb9a3e9bafe3c7db116287870ca3cf3b46b438",
+   "start": "2001-01-01",
+   "validation_status": "complete"
+  },
+  "24.25_88.4375": {
+   "end": "2026-10-31",
+   "min_coverage_fraction": 1.0,
+   "retrieved_at": "2026-11-07T13:09:17Z",
+   "sha256": "a9ae1ae74f6e9d1480dfbdbc0ebb50b9edba2f163de95dfc4643c6de01d5b141",
+   "start": "2001-01-01",
+   "validation_status": "complete"
+  },
+  "40.25_-99.6875": {
+   "end": "2026-10-31",
+   "min_coverage_fraction": 1.0,
+   "retrieved_at": "2026-11-07T13:33:34Z",
+   "sha256": "d948dff3183499124a74ab17888f407b3993cf3466c513cfff299d48389fd2c3",
+   "start": "2001-01-01",
+   "validation_status": "complete"
+  }
+ },
+ "schema": "boponx.power_history.v1"
+}

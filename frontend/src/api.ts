@@ -636,6 +636,89 @@ export type FarmerProfile = {
   market_preference?: "household_subsistence" | "local_cash_market" | "high_value_commercial" | "forage_livestock" | "unknown";
 };
 
+export type ChatAction = {
+  type: string;
+  payload?: Record<string, unknown>;
+  label?: string;
+};
+
+export type ChatSnapshot = {
+  view?: "earth" | "rotation" | "plan";
+  lang?: "en" | "bn";
+  activeLayer?: string | null;
+  mapDate?: string;
+  mapBaseStyle?: "satellite" | "streets";
+  mapIsGlobe?: boolean;
+  mapOverlayOpacity?: number;
+  startDay?: number;
+  selectedStrategyId?: string;
+  scenarioRainShiftPct?: number;
+  scenarioTempShiftC?: number;
+  selectedArea?: string | null;
+  selectedPoint?: { latitude: number; longitude: number } | null;
+  startMonth?: number;
+  startYear?: number;
+  soilTest?: "yes" | "no" | "unknown";
+  soilPh?: number | null;
+  previousCrops?: string[];
+  intendedCrop?: string | null;
+  priority?: string;
+  waterSource?: string;
+  drainage?: string;
+  countryCode?: string | null;
+  officialSourceUrls?: string[];
+  fieldData?: {
+    rainfall?: string;
+    rainfallDaily?: string;
+    baselineRainfall?: string;
+    rainAnomaly?: string;
+    temperature?: string;
+    baselineTemperature?: string;
+    temperatureDelta?: string;
+    soilMoisture?: string;
+    hazards?: string;
+    readiness?: string;
+    dataFreshness?: string;
+    wind?: string;
+    evapotranspiration?: string;
+    waterBalance?: string;
+    frostRisk?: string;
+    fogBlightRisk?: string;
+    humidity?: string;
+    dewPoint?: string;
+    vaporPressureDeficit?: string;
+    heatStress?: string;
+    coldStress?: string;
+    heavyRain?: string;
+    dryDays?: string;
+    climatology?: string;
+    hazardEvents?: string[];
+    evidenceOrigin?: string;
+    fieldCoordinates?: string;
+    dataStatus?: "loading" | "available" | "unavailable";
+  };
+  planContext?: {
+    reasons?: string[];
+    reasonsBn?: string[];
+    boundary?: string;
+    boundaryBn?: string;
+    verdict?: string;
+    verdictBn?: string;
+  } | null;
+  [key: string]: unknown;
+};
+
+export type ChatResponse = {
+  reply: string;
+  intent: string;
+  mode: "deterministic" | "fallback";
+  lang: "en" | "bn";
+  actions: ChatAction[];
+  suggestions: string[];
+  pending?: string | null;
+  choices?: string[];
+};
+
 export type EvidenceLabel =
   | "observed_nasa"
   | "derived_from_nasa"

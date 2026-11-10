@@ -11,6 +11,14 @@ type Props = {
   onMapDateChange?: (date: string) => void;
   activeLayer: LayerKey | null;
   onLayerChange: (layer: LayerKey | null) => void;
+  isGlobe: boolean;
+  onGlobeChange: (isGlobe: boolean) => void;
+  baseStyle: "satellite" | "streets";
+  onBaseStyleChange: (baseStyle: "satellite" | "streets") => void;
+  overlayOpacity: number;
+  onOverlayOpacityChange: (opacity: number) => void;
+  cameraPresetRequest?: { mode: "space" | "bangladesh" | "field"; request: number } | null;
+  zoomRequest?: number;
 };
 
 const NASA_BLUE_MARBLE =
@@ -126,6 +134,14 @@ function LocationMapInner({
   onMapDateChange,
   activeLayer,
   onLayerChange,
+  isGlobe,
+  onGlobeChange,
+  baseStyle,
+  onBaseStyleChange,
+  overlayOpacity,
+  onOverlayOpacityChange,
+  cameraPresetRequest,
+  zoomRequest = 0,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -134,10 +150,7 @@ function LocationMapInner({
 
   const [ready, setReady] = useState(false);
   const [webglFailed, setWebglFailed] = useState(false);
-  const [isGlobe, setIsGlobe] = useState(true);
-  const [baseStyle, setBaseStyle] = useState<"satellite" | "streets">("satellite");
-  const [overlayOpacity, setOverlayOpacity] = useState(0.72);
-  const [zoomLevel, setZoomLevel] = useState<number>(6.8);
+  const [, setZoomLevel] = useState<number>(6.8);
   const [statusNote, setStatusNote] = useState("3D Globe + High-Resolution Satellite & Village Map Ready");
 
   const layerConfig = useMemo(
@@ -463,7 +476,7 @@ function LocationMapInner({
     } catch {
       // Ignore camera/marker errors if WebGL context is transitioning
     }
-  }, [point, ready]);
+  }, [point, ready, zoomRequest]);
 
   function flyToPreset(mode: "space" | "bangladesh" | "field") {
     const map = mapRef.current;
@@ -496,6 +509,11 @@ function LocationMapInner({
     }
   }
 
+  useEffect(() => {
+    if (!cameraPresetRequest || !ready) return;
+    flyToPreset(cameraPresetRequest.mode);
+  }, [cameraPresetRequest, ready]);
+
   const currentMeta = activeLayer ? layerConfig[activeLayer] : null;
   const maxSelectableDate = dateMinusDays(1);
 
@@ -508,153 +526,144 @@ function LocationMapInner({
       />
       {webglFailed && <EarthCanvasFallback point={point} onPick={onPick} />}
 
-      {/* Top-Left HUD: Field Coordinates & Scale */}
-      <div className="globe-hud">
-        <span className="hud-label">SPACE-TO-SOIL TWIN</span>
-        <span>
-          {point
-            ? `${point.latitude.toFixed(4)}° N, ${point.longitude.toFixed(4)}° E`
-            : "Tap anywhere on Earth or zoom to your village"}
-        </span>
-        <b className="hud-zoom-badge">ZOOM {zoomLevel}x</b>
-      </div>
-
-      {/* Top-Right HUD: Projection, Base Map & Zoom Presets */}
-      <div className="map-view-toolbar" role="toolbar" aria-label="Map view and zoom controls">
-        <div className="toolbar-group">
-          <button
-            type="button"
-            className={isGlobe ? "active" : ""}
-            onClick={() => setIsGlobe(true)}
-            title="3D Spherical Earth Globe"
-          >
-            3D Globe
-          </button>
-          <button
-            type="button"
-            className={!isGlobe ? "active" : ""}
-            onClick={() => setIsGlobe(false)}
-            title="2D Flat Agronomic Map"
-          >
-            2D Map
-          </button>
-        </div>
-
-        <div className="toolbar-group">
-          <button
-            type="button"
-            className={baseStyle === "satellite" ? "active" : ""}
-            onClick={() => setBaseStyle("satellite")}
-          >
-            Satellite
-          </button>
-          <button
-            type="button"
-            className={baseStyle === "streets" ? "active" : ""}
-            onClick={() => setBaseStyle("streets")}
-          >
-            Villages / OSM
-          </button>
-        </div>
-
-        <div className="toolbar-group">
-          <button type="button" onClick={() => flyToPreset("space")} title="Zoom out to Space">
-            Space
-          </button>
-          <button type="button" onClick={() => flyToPreset("bangladesh")} title="Zoom to Bangladesh">
-            BD
-          </button>
-          {point && (
+      {/* Top Overlay Stack: Projection, Base Map, Zoom Presets & NASA GIBS Layer Switcher */}
+      <div className="map-top-overlay">
+        <div className="map-view-toolbar" role="toolbar" aria-label="Map view and zoom controls">
+          <div className="toolbar-group">
             <button
               type="button"
-              className="accent-zoom"
-              onClick={() => flyToPreset("field")}
-              title="Zoom right down to the selected farm plot"
+              className={isGlobe ? "active" : ""}
+              onClick={() => onGlobeChange(true)}
+              title="3D Spherical Earth Globe"
             >
-              Plot 14x
+              3D Globe
             </button>
-          )}
-        </div>
-      </div>
+            <button
+              type="button"
+              className={!isGlobe ? "active" : ""}
+              onClick={() => onGlobeChange(false)}
+              title="2D Flat Agronomic Map"
+            >
+              2D Map
+            </button>
+          </div>
 
-      {/* NASA GIBS Layer Switcher (6 layers including SRTM Digital Elevation) */}
-      <div className="layer-switcher" aria-label="NASA GIBS Earth observation layers">
-        {(Object.keys(layerConfig) as LayerKey[]).map((key) => (
-          <button
-            type="button"
-            key={key}
-            className={activeLayer === key ? "active" : ""}
-            onClick={() => onLayerChange(activeLayer === key ? null : key)}
-            disabled={!ready && !webglFailed}
-          >
-            <i />
-            {layerConfig[key].shortLabel}
-          </button>
-        ))}
-      </div>
+          <div className="toolbar-group">
+            <button
+              type="button"
+              className={baseStyle === "satellite" ? "active" : ""}
+              onClick={() => onBaseStyleChange("satellite")}
+            >
+              Satellite
+            </button>
+            <button
+              type="button"
+              className={baseStyle === "streets" ? "active" : ""}
+              onClick={() => onBaseStyleChange("streets")}
+            >
+              Villages / OSM
+            </button>
+          </div>
 
-      {/* NASA Multi-Date Time Scrubber for Seasonal & Bare-Field Inspection */}
-      {onMapDateChange && (
-        <div className="gibs-time-scrubber" aria-label="NASA GIBS Satellite Date Scrubber">
-          <span className="scrubber-label">GIBS DATE:</span>
-          {TIME_PRESETS.map((preset) => {
-            const target = dateMinusDays(preset.days);
-            return (
+          <div className="toolbar-group">
+            <button type="button" onClick={() => flyToPreset("space")} title="Zoom out to Space">
+              Space
+            </button>
+            <button type="button" onClick={() => flyToPreset("bangladesh")} title="Zoom to Bangladesh">
+              BD
+            </button>
+            {point && (
               <button
                 type="button"
-                key={preset.label}
-                className={mapDate === target ? "active" : ""}
-                onClick={() => onMapDateChange(target)}
-                title={`View NASA satellite layer on ${target}`}
+                className="accent-zoom"
+                onClick={() => flyToPreset("field")}
+                title="Zoom right down to the selected farm plot"
               >
-                {preset.label}
+                Plot 14x
               </button>
-            );
-          })}
-          <input
-            type="date"
-            value={mapDate}
-            max={maxSelectableDate}
-            min="2015-01-01"
-            onChange={(e) => {
-              if (e.target.value) onMapDateChange(e.target.value);
-            }}
-            aria-label="Custom NASA GIBS observation date"
-          />
+            )}
+          </div>
         </div>
-      )}
 
-      {/* Active Layer Legend & Opacity Slider */}
-      {currentMeta ? (
-        <div className="gibs-legend-card">
-          <div className="gibs-legend-head">
-            <span>{currentMeta.label}</span>
-            <b>{mapDate} · {currentMeta.resolution}</b>
-          </div>
-          <small>{currentMeta.detail}</small>
-          <div className="gibs-gradient-bar" style={{ background: currentMeta.gradient }} />
-          <div className="gibs-legend-scale">
-            <span>{currentMeta.legendMin}</span>
-            <label className="opacity-slider">
-              Opacity {Math.round(overlayOpacity * 100)}%
-              <input
-                type="range"
-                min="0.2"
-                max="0.95"
-                step="0.05"
-                value={overlayOpacity}
-                onChange={(e) => setOverlayOpacity(Number(e.target.value))}
-              />
-            </label>
-            <span>{currentMeta.legendMax}</span>
-          </div>
+        <div className="layer-switcher" aria-label="NASA GIBS Earth observation layers">
+          {(Object.keys(layerConfig) as LayerKey[]).map((key) => (
+            <button
+              type="button"
+              key={key}
+              className={activeLayer === key ? "active" : ""}
+              onClick={() => onLayerChange(activeLayer === key ? null : key)}
+              disabled={!ready && !webglFailed}
+            >
+              <i />
+              {layerConfig[key].shortLabel}
+            </button>
+          ))}
         </div>
-      ) : (
-        <div className="globe-date">
-          <span>Active Base Layer</span>
-          <strong>{statusNote}</strong>
-        </div>
-      )}
+      </div>
+
+      {/* Bottom Overlay Stack: NASA Multi-Date Time Scrubber + Active Layer Legend / Base Status */}
+      <div className="map-bottom-overlay">
+        {onMapDateChange && (
+          <div className="gibs-time-scrubber" aria-label="NASA GIBS Satellite Date Scrubber">
+            <span className="scrubber-label">GIBS DATE:</span>
+            {TIME_PRESETS.map((preset) => {
+              const target = dateMinusDays(preset.days);
+              return (
+                <button
+                  type="button"
+                  key={preset.label}
+                  className={mapDate === target ? "active" : ""}
+                  onClick={() => onMapDateChange(target)}
+                  title={`View NASA satellite layer on ${target}`}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+            <input
+              type="date"
+              value={mapDate}
+              max={maxSelectableDate}
+              min="2015-01-01"
+              onChange={(e) => {
+                if (e.target.value) onMapDateChange(e.target.value);
+              }}
+              aria-label="Custom NASA GIBS observation date"
+            />
+          </div>
+        )}
+
+        {currentMeta ? (
+          <div className="gibs-legend-card">
+            <div className="gibs-legend-head">
+              <span>{currentMeta.label}</span>
+              <b>{mapDate} · {currentMeta.resolution}</b>
+            </div>
+            <small>{currentMeta.detail}</small>
+            <div className="gibs-gradient-bar" style={{ background: currentMeta.gradient }} />
+            <div className="gibs-legend-scale">
+              <span>{currentMeta.legendMin}</span>
+              <label className="opacity-slider">
+                Opacity {Math.round(overlayOpacity * 100)}%
+                <input
+                  type="range"
+                  min="0.2"
+                  max="0.95"
+                  step="0.05"
+                  value={overlayOpacity}
+                  onChange={(e) => onOverlayOpacityChange(Number(e.target.value))}
+                />
+              </label>
+              <span>{currentMeta.legendMax}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="globe-date">
+            <span>Active Base Layer</span>
+            <strong>{statusNote}</strong>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
