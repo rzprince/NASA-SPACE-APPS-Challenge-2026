@@ -131,11 +131,12 @@ pytest -q backend/tests
 ## Team & Authorship
 
 - **Developed by:** [Rezwan Hossain Prince](https://github.com/rzprince) (Team Leader, Lead Developer, System Architect, Video Editor) and
-- **Team EARTH.exe:** Shafayet Hossain (AI/ML Developer)
-Md. Khairul Islam Joy (Project Manager)
-Tulip Mondal Gourab (Information Researcher)
-Alana Mondal Roshni (Creative Designer)
-Iftekar Azad Ether (Data Researcher)
+- **Team EARTH.exe:**<br>
+Shafayet Hossain (AI/ML Developer)<br>
+Md. Khairul Islam Joy (Project Manager)<br>
+Tulip Mondal Gourab (Information Researcher)<br>
+Alana Mondal Roshni (Creative Designer)<br>
+Iftekar Azad Ether (Data Researcher)<br>
 - **Competition:** 2026 NASA International Space Apps Challenge
 - **License:** Released under the [Apache License 2.0](https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026/blob/main/LICENSE)
 
