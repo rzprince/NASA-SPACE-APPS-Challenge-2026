@@ -140,6 +140,8 @@ pytest -q backend/tests
     <li>Iftekar Azad Ether (Data Researcher)</li>
   </ul>
 </li>
+
+
 - **Competition:** 2026 NASA International Space Apps Challenge
 - **License:** Released under the [Apache License 2.0](https://github.com/rzprince/NASA-SPACE-APPS-Challenge-2026/blob/main/LICENSE)
 
