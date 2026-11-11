@@ -123,7 +123,9 @@ pytest -q backend/tests
 
 ## 240s and 30s Video YouTube Links
 
-- **1 · Prescreening 240 sec:** https://www.youtube.com/watch?v=RCZ4_AXb-3k
+- **1 · Prescreening 240 seconds:** https://www.youtube.com/watch?v=RCZ4_AXb-3k
+- **2 · Local Judging 240 seconds:**
+- **3 · Global Judging 30 seconds:**
 
 
 ## Team & Authorship
